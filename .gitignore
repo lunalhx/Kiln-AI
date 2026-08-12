@@ -1,0 +1,25 @@
+# Local environment and generated files
+.env
+deploy/local/.env
+*.log
+.DS_Store
+target/
+build/
+.mvn/wrapper/maven-wrapper.jar
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Other IDEs
+.classpath
+.project
+.settings/
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+.vscode/
