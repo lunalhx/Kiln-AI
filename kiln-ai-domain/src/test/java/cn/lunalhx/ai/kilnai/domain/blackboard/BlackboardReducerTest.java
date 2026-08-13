@@ -32,7 +32,7 @@ class BlackboardReducerTest {
     @Test
     void unauthorizedFieldIsRejected() {
         TeachingResultReducer reducer = new TeachingResultReducer();
-        BlackboardDelta illegal = new BlackboardDelta("teaching", Map.of("modelCallCount", 99));
+        BlackboardDelta illegal = new BlackboardDelta("teaching", Map.of("openAttemptId", UUID.randomUUID()));
 
         assertThrows(IllegalStateException.class, () -> reducer.authorized(illegal));
     }

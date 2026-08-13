@@ -35,8 +35,6 @@ public final class BlackboardApplier {
                 stringValue(fields, "visibleContent", current.visibleContent()),
                 boolValue(fields, "explanationDelivered", current.explanationDelivered()),
                 value(fields, "pendingInput", current.pendingInput()),
-                intValue(fields, "modelCallCount", current.modelCallCount()),
-                intValue(fields, "repairCount", current.repairCount()),
                 list(fields, "compactFeedbackFacts", current.compactFeedbackFacts()),
                 stringValue(fields, "lastRoute", current.lastRoute())
         );

@@ -1,4 +1,4 @@
-package cn.lunalhx.ai.kilnai.domain.learning.fake;
+package cn.lunalhx.ai.kilnai.domain.tool;
 
 import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.ToolSession;
 import cn.lunalhx.ai.kilnai.domain.skill.CapabilityGap;
@@ -19,7 +19,7 @@ public final class CalculatorToolSession implements ToolSession {
         this.available = calculatorAvailable ? Set.of("calculator@1") : Set.of();
     }
 
-    public java.util.List<String> calls() {
+    public List<String> calls() {
         return List.copyOf(calls);
     }
 

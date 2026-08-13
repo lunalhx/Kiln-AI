@@ -17,10 +17,10 @@ public interface SpikeStoreMapper {
     @Insert("""
             INSERT INTO learning_flows (
                 id, learner_id, concept_id, contract_id, rubric_id, source_pack_id,
-                status, stage, created_at, updated_at
+                status, stage, created_at, updated_at, frozen_profile
             ) VALUES (
                 #{id}, #{learnerId}, #{conceptId}, #{contractId}, #{rubricId}, #{sourcePackId},
-                #{status}, #{stage}, #{createdAt}, #{createdAt}
+                #{status}, #{stage}, #{createdAt}, #{createdAt}, CAST(#{frozenProfileJson} AS JSONB)
             )
             """)
     void insertFlow(
@@ -32,12 +32,13 @@ public interface SpikeStoreMapper {
             @Param("sourcePackId") UUID sourcePackId,
             @Param("status") String status,
             @Param("stage") String stage,
-            @Param("createdAt") Instant createdAt
+            @Param("createdAt") Instant createdAt,
+            @Param("frozenProfileJson") String frozenProfileJson
     );
 
     @Select("""
             SELECT id, learner_id, concept_id, contract_id, rubric_id, source_pack_id,
-                   status, stage, created_at
+                   status, stage, created_at, frozen_profile::text AS frozen_profile_json
             FROM learning_flows
             WHERE id = #{flowId}
             """)
@@ -223,7 +224,8 @@ public interface SpikeStoreMapper {
             UUID sourcePackId,
             String status,
             String stage,
-            Instant createdAt
+            Instant createdAt,
+            String frozenProfileJson
     ) {
     }
 

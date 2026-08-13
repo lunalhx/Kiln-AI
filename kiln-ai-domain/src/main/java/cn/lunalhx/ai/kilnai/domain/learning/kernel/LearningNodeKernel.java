@@ -1,13 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.learning.kernel;
 
-import cn.lunalhx.ai.kilnai.domain.learning.fake.CalculatorToolSession;
-import cn.lunalhx.ai.kilnai.domain.learning.fake.ScriptedScenario;
-import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
-import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.AssessmentModelPort;
-import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.PedagogyModelPort;
-import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort;
-import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.TeachingModelPort;
-import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.ToolSession;
 import cn.lunalhx.ai.kilnai.domain.artifact.EvidenceCandidate;
 import cn.lunalhx.ai.kilnai.domain.artifact.PedagogyPlan;
 import cn.lunalhx.ai.kilnai.domain.artifact.TeachingResultEnvelope;
@@ -17,9 +9,20 @@ import cn.lunalhx.ai.kilnai.domain.gate.EvidenceCandidateGatePolicy;
 import cn.lunalhx.ai.kilnai.domain.gate.GateContext;
 import cn.lunalhx.ai.kilnai.domain.gate.GateOutcome;
 import cn.lunalhx.ai.kilnai.domain.gate.GateResult;
+import cn.lunalhx.ai.kilnai.domain.gate.GateViolation;
 import cn.lunalhx.ai.kilnai.domain.gate.PedagogyPlanGatePolicy;
 import cn.lunalhx.ai.kilnai.domain.gate.TeachingResultGatePolicy;
 import cn.lunalhx.ai.kilnai.domain.gate.TypedArtifactGatePipeline;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.AssessmentModelPort;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.PedagogyModelPort;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.TeachingModelPort;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.ToolSession;
+import cn.lunalhx.ai.kilnai.domain.learning.model.AssessmentContextView;
+import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
+import cn.lunalhx.ai.kilnai.domain.learning.model.ModelCallObservation;
+import cn.lunalhx.ai.kilnai.domain.learning.model.PedagogyContextView;
+import cn.lunalhx.ai.kilnai.domain.learning.model.TeachingContextView;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ConceptProgress;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
@@ -32,12 +35,12 @@ import cn.lunalhx.ai.kilnai.domain.learning.service.EvidenceEligibility;
 import cn.lunalhx.ai.kilnai.domain.learning.service.GuardSnapshot;
 import cn.lunalhx.ai.kilnai.domain.learning.service.WorkflowGuard;
 import cn.lunalhx.ai.kilnai.domain.pedagogy.model.valobj.TeachingAction;
-import cn.lunalhx.ai.kilnai.domain.skill.CapabilityGap;
 import cn.lunalhx.ai.kilnai.domain.skill.PromptCompiler;
 import cn.lunalhx.ai.kilnai.domain.skill.SkillManifest;
 import cn.lunalhx.ai.kilnai.domain.skill.SkillResolver;
 import cn.lunalhx.ai.kilnai.domain.skill.SkillSlot;
 import cn.lunalhx.ai.kilnai.domain.skill.SkillStack;
+import cn.lunalhx.ai.kilnai.domain.tool.CalculatorToolSession;
 import cn.lunalhx.ai.kilnai.domain.tool.ToolHandle;
 import cn.lunalhx.ai.kilnai.domain.tool.ToolPermissionSet;
 import cn.lunalhx.ai.kilnai.domain.tool.ToolResolver;
@@ -56,8 +59,6 @@ import java.util.stream.Stream;
 
 public final class LearningNodeKernel {
 
-    public static final int ORDINARY_CALL_LIMIT = 4;
-
     private final WorkflowGuard guard = new WorkflowGuard();
     private final BlackboardApplier applier = new BlackboardApplier();
     private final SkillResolver skillResolver = new SkillResolver();
@@ -70,33 +71,49 @@ public final class LearningNodeKernel {
     private final EvidenceEligibility eligibility = new EvidenceEligibility();
     private final ConceptProgressProjector projector = new ConceptProgressProjector();
     private final PendingCommitBuffer buffer;
+    private final GraphRunBudgetHolder budgets;
     private final PedagogyModelPort pedagogyModel;
     private final TeachingModelPort teachingModel;
     private final AssessmentModelPort assessmentModel;
     private final SpikeStorePort store;
-    private final ScriptedScenario scenario;
     private final boolean calculatorAvailable;
     private final Clock clock;
+    private final ModelCallObservationHolder observations;
     private final List<SkillManifest> registry;
 
     public LearningNodeKernel(
             PendingCommitBuffer buffer,
+            GraphRunBudgetHolder budgets,
             PedagogyModelPort pedagogyModel,
             TeachingModelPort teachingModel,
             AssessmentModelPort assessmentModel,
             SpikeStorePort store,
-            ScriptedScenario scenario,
             boolean calculatorAvailable,
             Clock clock
     ) {
+        this(buffer, budgets, pedagogyModel, teachingModel, assessmentModel, store, calculatorAvailable, clock, new ModelCallObservationHolder());
+    }
+
+    public LearningNodeKernel(
+            PendingCommitBuffer buffer,
+            GraphRunBudgetHolder budgets,
+            PedagogyModelPort pedagogyModel,
+            TeachingModelPort teachingModel,
+            AssessmentModelPort assessmentModel,
+            SpikeStorePort store,
+            boolean calculatorAvailable,
+            Clock clock,
+            ModelCallObservationHolder observations
+    ) {
         this.buffer = buffer;
+        this.budgets = budgets;
         this.pedagogyModel = pedagogyModel;
         this.teachingModel = teachingModel;
         this.assessmentModel = assessmentModel;
         this.store = store;
-        this.scenario = scenario;
         this.calculatorAvailable = calculatorAvailable;
         this.clock = clock;
+        this.observations = observations;
         this.registry = defaultRegistry();
     }
 
@@ -138,14 +155,22 @@ public final class LearningNodeKernel {
     }
 
     public AuthorizedNodeResult pedagogy(LearningBlackboard blackboard) {
-        chargeModel(blackboard);
-        PedagogyPlan candidate = pedagogyModel.propose(blackboard);
+        chargeNode(blackboard);
+        PedagogyContextView view = new PedagogyContextView(
+                blackboard.flowId(), blackboard.stage(), blackboard.legalCandidates(), blackboard.compactFeedbackFacts()
+        );
+        String prompt = "Legal actions: " + view.legalCandidates() + ". Feedback: " + view.compactFeedbackFacts();
+        PedagogyPlan candidate = pedagogyModel.propose(view, prompt);
         GateContext context = new GateContext(Set.copyOf(blackboard.legalCandidates().stream().map(Enum::name).toList()));
-        GateResult<PedagogyPlan> result = executor.execute(candidate, pedagogyPolicy, context, ignored -> candidate);
+        GateResult<PedagogyPlan> result = executor.execute(
+                candidate,
+                pedagogyPolicy,
+                context,
+                (ignored, violations) -> pedagogyModel.propose(view, withViolations(prompt, violations))
+        );
         TeachingAction action = result.outcome() == GateOutcome.PASSED ? result.artifact().nextAction() : guard.fallbackAction();
         BlackboardDelta delta = new BlackboardDelta("pedagogy", Map.of(
                 "acceptedAction", action,
-                "modelCallCount", blackboard.modelCallCount() + 1,
                 "lastRoute", "pedagogy",
                 "compactFeedbackFacts", List.of(candidate.feedbackSummary())
         ));
@@ -162,14 +187,21 @@ public final class LearningNodeKernel {
     }
 
     public AuthorizedNodeResult assess(LearningBlackboard blackboard, String answer) {
-        chargeModel(blackboard);
+        chargeNode(blackboard);
         Map<String, Object> taskPackage = blackboard.taskPackageArtifactId() == null
                 ? Map.of()
                 : store.artifact(blackboard.taskPackageArtifactId()).orElse(Map.of());
         Map<String, Object> isolatedPackage = new LinkedHashMap<>(taskPackage);
         isolatedPackage.remove("hiddenReasoning");
-        EvidenceCandidate candidate = assessmentModel.assess(blackboard, isolatedPackage, answer, List.of());
-        GateResult<EvidenceCandidate> gated = executor.execute(candidate, evidencePolicy, GateContext.empty(), ignored -> candidate);
+        AssessmentContextView view = new AssessmentContextView(blackboard.flowId(), isolatedPackage, answer, List.of());
+        String prompt = "Assess the learner answer against the isolated task package.";
+        EvidenceCandidate candidate = assessmentModel.assess(view, prompt);
+        GateResult<EvidenceCandidate> gated = executor.execute(
+                candidate,
+                evidencePolicy,
+                GateContext.empty(),
+                (ignored, violations) -> assessmentModel.assess(view, withViolations(prompt, violations))
+        );
         boolean already = blackboard.openAttemptId() != null && store.evidenceExists(blackboard.openAttemptId());
         AcceptedLearningEvidence evidence = null;
         ConceptProgress progress = projector.project(blackboard.learnerId(), blackboard.conceptId(), List.of());
@@ -186,7 +218,6 @@ public final class LearningNodeKernel {
         fields.put("stage", LearningStage.LEARNING_AND_PRACTICE);
         fields.put("interactionVersion", blackboard.interactionVersion() + 1);
         fields.put("pendingInput", null);
-        fields.put("modelCallCount", blackboard.modelCallCount() + 1);
         fields.put("visibleContent", evidence == null
                 ? "Assessment was inconclusive. No evidence was accepted."
                 : "Practice complete. Current milestone: " + progress.currentMilestone() + ".");
@@ -199,7 +230,11 @@ public final class LearningNodeKernel {
                 updated.stage(), updated.interactionVersion(), null, updated.taskPackageArtifactId(),
                 updated.openAttemptId(), evidence, progress,
                 Map.of("node", "assess", "candidatePresentInState", false),
-                Map.of("route", "assess", "skills", List.of(), "budget", updated.modelCallCount() + " calls"),
+                publicTracePayload(updated.flowId(), Map.of(
+                        "route", "assess",
+                        "skills", List.of(),
+                        "budget", budgetTrace(updated.flowId())
+                )),
                 delta
         );
         buffer.put(updated.flowId(), effects);
@@ -207,12 +242,7 @@ public final class LearningNodeKernel {
     }
 
     private AuthorizedNodeResult teach(LearningBlackboard blackboard, TeachingAction action) {
-        if (budgetExhausted(blackboard)) {
-            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "graph run budget exhausted");
-        }
-        if (scenario == ScriptedScenario.CAPABILITY_GAP && action == TeachingAction.APPLY) {
-            throw new CapabilityGap("required tool unavailable: calculator@1");
-        }
+        chargeNode(blackboard);
         SkillStack stack = skillResolver.resolve(
                 action,
                 action == TeachingAction.APPLY ? Set.of("quantitative") : Set.of(),
@@ -222,25 +252,32 @@ public final class LearningNodeKernel {
         Set<String> toolsNeeded = new java.util.HashSet<>(stack.actionSkill().requiredTools());
         stack.capabilitySkills().forEach(skill -> toolsNeeded.addAll(skill.requiredTools()));
         Set<ToolHandle> runtime = calculatorAvailable
-                ? Set.of(new ToolHandle("calculator", 1, "{\"type\":\"object\"}"))
+                ? Set.of(new ToolHandle(
+                        "calculator",
+                        1,
+                        "{\"type\":\"object\",\"properties\":{\"old\":{\"type\":\"number\"},\"new\":{\"type\":\"number\"}},\"required\":[\"old\",\"new\"]}"
+                ))
                 : Set.of();
         List<ToolHandle> tools = toolResolver.resolve(
                 new ToolPermissionSet(action == TeachingAction.APPLY ? Set.of("calculator@1") : Set.of()),
                 toolsNeeded,
-                runtime,
-                true
+                runtime
         );
         String prompt = promptCompiler.compile(
                 stack,
                 promptCompiler.isolate(stack, action.name() + " instructions", "quantitative arithmetic")
         );
-        ToolSession session = new CalculatorToolSession(calculatorAvailable);
-        TeachingResultEnvelope candidate = teachingModel.teach(action, blackboard, stack, prompt, tools, session);
+        ToolSession session = new BudgetedToolSession(
+                new CalculatorToolSession(calculatorAvailable),
+                budgets.required(blackboard.flowId())
+        );
+        TeachingContextView view = new TeachingContextView(blackboard.flowId(), action, blackboard.stage());
+        TeachingResultEnvelope candidate = teachingModel.teach(action, view, stack, prompt, tools, session);
         GateResult<TeachingResultEnvelope> gated = executor.execute(
                 candidate,
                 teachingPolicy,
                 GateContext.empty(),
-                ignored -> teachingModel.teach(action, blackboard, stack, prompt, tools, session)
+                (ignored, violations) -> teachingModel.teach(action, view, stack, withViolations(prompt, violations), tools, session)
         );
         if (gated.outcome() != GateOutcome.PASSED) {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "NodeExecutionFailed");
@@ -256,7 +293,6 @@ public final class LearningNodeKernel {
         fields.put("acceptedAction", action);
         fields.put("interactionVersion", blackboard.interactionVersion() + 1);
         fields.put("pendingInput", null);
-        fields.put("modelCallCount", blackboard.modelCallCount() + 1);
         fields.put("lastRoute", action.name().toLowerCase());
         if (action == TeachingAction.APPLY) {
             fields.put("openAttemptId", attemptId);
@@ -280,30 +316,52 @@ public final class LearningNodeKernel {
                         "hiddenReasoning", accepted.hiddenReasoning(),
                         "rawCandidate", "never-persisted"
                 ),
-                Map.of(
+                publicTracePayload(updated.flowId(), Map.of(
                         "route", action.name(),
                         "skills", Stream.concat(
                                 Stream.of(stack.actionSkill().id()),
                                 stack.capabilitySkills().stream().map(SkillManifest::id)
                         ).toList(),
-                        "budget", updated.modelCallCount() + " calls",
+                        "budget", budgetTrace(updated.flowId()),
                         "validation", "PASSED"
-                ),
+                )),
                 delta
         );
         buffer.put(updated.flowId(), effects);
         return new AuthorizedNodeResult(updated, delta, effects, "ingest");
     }
 
-    private void chargeModel(LearningBlackboard blackboard) {
-        if (budgetExhausted(blackboard)) {
+    private void chargeNode(LearningBlackboard blackboard) {
+        try {
+            budgets.required(blackboard.flowId()).enterNode();
+        } catch (GraphRunBudgetExhausted exhausted) {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "graph run budget exhausted");
         }
     }
 
-    private boolean budgetExhausted(LearningBlackboard blackboard) {
-        return blackboard.modelCallCount() >= ORDINARY_CALL_LIMIT
-                || (scenario == ScriptedScenario.BUDGET_EXHAUSTION && blackboard.explanationDelivered());
+    private String budgetTrace(UUID flowId) {
+        return budgets.required(flowId).trace();
+    }
+
+    private Map<String, Object> publicTracePayload(UUID flowId, Map<String, Object> base) {
+        Map<String, Object> payload = new LinkedHashMap<>(base);
+        List<ModelCallObservation> calls = observations.drain(flowId);
+        if (!calls.isEmpty()) {
+            payload.put("models", calls.stream().map(ModelCallObservation::identity).toList());
+            payload.put("usage", calls.stream().map(ModelCallObservation::usage).toList());
+        }
+        return Map.copyOf(payload);
+    }
+
+    private String withViolations(String prompt, List<GateViolation> violations) {
+        if (violations == null || violations.isEmpty()) {
+            return prompt;
+        }
+        String details = violations.stream()
+                .map(violation -> violation.code() + ": " + violation.message())
+                .reduce((left, right) -> left + "; " + right)
+                .orElse("");
+        return prompt + "\nRepair the previous artifact. Violations: " + details;
     }
 
     private GuardSnapshot snapshot(LearningBlackboard blackboard) {

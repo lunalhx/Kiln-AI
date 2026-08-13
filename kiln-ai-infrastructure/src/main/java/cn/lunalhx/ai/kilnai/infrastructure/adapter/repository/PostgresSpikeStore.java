@@ -1,5 +1,6 @@
 package cn.lunalhx.ai.kilnai.infrastructure.adapter.repository;
 
+import cn.lunalhx.ai.kilnai.domain.learning.model.FrozenModelProfile;
 import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
 import cn.lunalhx.ai.kilnai.domain.learning.model.PublicTraceView;
 import cn.lunalhx.ai.kilnai.domain.learning.kernel.CommitEffects;
@@ -58,7 +59,8 @@ public class PostgresSpikeStore implements SpikeStorePort {
     public void insertFlow(FlowRecord flow) {
         mapper.insertFlow(
                 flow.id(), flow.learnerId(), flow.conceptId(), flow.contractId(), flow.rubricId(),
-                flow.sourcePackId(), flow.status().name(), flow.stage().name(), flow.createdAt()
+                flow.sourcePackId(), flow.status().name(), flow.stage().name(), flow.createdAt(),
+                writeJson(flow.frozenProfile())
         );
     }
 
@@ -67,7 +69,7 @@ public class PostgresSpikeStore implements SpikeStorePort {
         return mapper.findFlow(flowId).map(row -> new FlowRecord(
                 row.id(), row.learnerId(), row.conceptId(), row.contractId(), row.rubricId(),
                 row.sourcePackId(), FlowStatus.valueOf(row.status()), LearningStage.valueOf(row.stage()),
-                row.createdAt()
+                row.createdAt(), readJson(row.frozenProfileJson(), FrozenModelProfile.class)
         ));
     }
 
@@ -191,17 +193,21 @@ public class PostgresSpikeStore implements SpikeStorePort {
         List<String> routes = new java.util.ArrayList<>();
         List<String> skills = new java.util.ArrayList<>();
         List<String> validations = new java.util.ArrayList<>();
+        List<String> models = new java.util.ArrayList<>();
+        List<String> usage = new java.util.ArrayList<>();
         String budget = "";
         for (Map<String, Object> publicPayload : payloads) {
             routes.add(String.valueOf(publicPayload.getOrDefault("route", "")));
             skills.addAll(castList(publicPayload.get("skills")));
             validations.add(String.valueOf(publicPayload.getOrDefault("validation", "")));
+            models.addAll(castList(publicPayload.get("models")));
+            usage.addAll(castList(publicPayload.get("usage")));
             budget = String.valueOf(publicPayload.getOrDefault("budget", budget));
         }
         List<String> checkpointIds = list(flowId).stream()
                 .map(checkpoint -> checkpoint.id().toString())
                 .toList();
-        return Optional.of(new PublicTraceView(flowId, routes, skills, checkpointIds, budget, validations, List.of()));
+        return Optional.of(new PublicTraceView(flowId, routes, skills, checkpointIds, budget, validations, List.of(), models, usage));
     }
 
     @Override

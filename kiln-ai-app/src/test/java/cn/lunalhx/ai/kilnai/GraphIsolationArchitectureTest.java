@@ -28,4 +28,18 @@ class GraphIsolationArchitectureTest {
     static final ArchRule persistenceDoesNotImportGraph = noClasses()
             .that().resideInAnyPackage("cn.lunalhx.ai.kilnai.infrastructure.adapter.repository..")
             .should().dependOnClassesThat().resideInAnyPackage("com.alibaba.cloud.ai.graph..");
+
+    @ArchTest
+    static final ArchRule springAiTypesStayInModelAdapter = noClasses()
+            .that().resideOutsideOfPackage("cn.lunalhx.ai.kilnai.infrastructure.adapter.model..")
+            .should().dependOnClassesThat().resideInAnyPackage("org.springframework.ai..");
+
+    @ArchTest
+    static final ArchRule domainApiAndTriggerStayClearOfSpringAi = noClasses()
+            .that().resideInAnyPackage(
+                    "cn.lunalhx.ai.kilnai.domain..",
+                    "cn.lunalhx.ai.kilnai.api..",
+                    "cn.lunalhx.ai.kilnai.trigger.."
+            )
+            .should().dependOnClassesThat().resideInAnyPackage("org.springframework.ai..");
 }

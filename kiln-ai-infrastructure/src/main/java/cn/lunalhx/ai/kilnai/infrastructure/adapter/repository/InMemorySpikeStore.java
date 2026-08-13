@@ -71,6 +71,10 @@ public final class InMemorySpikeStore implements SpikeStorePort {
             checkpointIds.add(checkpoint.id().toString());
             List<String> validations = new ArrayList<>(previous == null ? List.of() : previous.validations());
             validations.add(String.valueOf(effects.publicTrace().getOrDefault("validation", "")));
+            List<String> models = new ArrayList<>(previous == null ? List.of() : previous.models());
+            models.addAll(castList(effects.publicTrace().get("models")));
+            List<String> usage = new ArrayList<>(previous == null ? List.of() : previous.usage());
+            usage.addAll(castList(effects.publicTrace().get("usage")));
             publicTraces.put(checkpoint.flowId(), new PublicTraceView(
                     checkpoint.flowId(),
                     List.copyOf(routes),
@@ -78,7 +82,9 @@ public final class InMemorySpikeStore implements SpikeStorePort {
                     List.copyOf(checkpointIds),
                     String.valueOf(effects.publicTrace().getOrDefault("budget", "")),
                     List.copyOf(validations),
-                    previous == null ? List.of() : previous.retries()
+                    previous == null ? List.of() : previous.retries(),
+                    List.copyOf(models),
+                    List.copyOf(usage)
             ));
         }
         if (effects.privateTrace() != null) {

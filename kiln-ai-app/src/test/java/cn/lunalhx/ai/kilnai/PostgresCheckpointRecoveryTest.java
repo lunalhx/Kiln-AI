@@ -8,6 +8,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.fixture.SpikeFixture;
 import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ResumeGraphRun;
 import cn.lunalhx.ai.kilnai.domain.learning.service.StartGraphRun;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.GraphRunBudgetHolder;
 import cn.lunalhx.ai.kilnai.domain.learning.kernel.LearningNodeKernel;
 import cn.lunalhx.ai.kilnai.domain.learning.kernel.PendingCommitBuffer;
 import cn.lunalhx.ai.kilnai.domain.learning.kernel.PendingLearnerEventHolder;
@@ -21,6 +22,7 @@ import cn.lunalhx.ai.kilnai.infrastructure.adapter.graph.SpringAiAlibabaGraphRun
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -34,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
+@Import(ScriptedSpikePortsConfiguration.class)
 @Testcontainers(disabledWithoutDocker = true)
 class PostgresCheckpointRecoveryTest {
 
@@ -78,21 +81,22 @@ class PostgresCheckpointRecoveryTest {
 
     private SpringAiAlibabaGraphRuntime newRuntime() {
         PendingCommitBuffer buffer = new PendingCommitBuffer();
+        GraphRunBudgetHolder budgets = new GraphRunBudgetHolder();
         PendingLearnerEventHolder events = new PendingLearnerEventHolder();
         LearningBlackboardMapper mapper = new LearningBlackboardMapper();
         LearningNodeKernel kernel = new LearningNodeKernel(
                 buffer,
+                budgets,
                 new ScriptedPedagogyModel(ScriptedScenario.HAPPY),
                 new ScriptedTeachingModel(ScriptedScenario.HAPPY),
                 new ScriptedAssessmentModel(),
                 store,
-                ScriptedScenario.HAPPY,
                 true,
                 Clock.systemUTC()
         );
         ApplicationCheckpointSaver saver = new ApplicationCheckpointSaver(store, buffer, mapper, Clock.systemUTC());
         return new SpringAiAlibabaGraphRuntime(
-                store, events, mapper, new LearningStateGraphFactory(kernel, events, mapper, saver)
+                store, events, mapper, new LearningStateGraphFactory(kernel, events, mapper, saver), budgets, 8
         );
     }
 }

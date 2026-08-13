@@ -4,10 +4,12 @@ import cn.lunalhx.ai.kilnai.domain.learning.fake.ScriptedAssessmentModel;
 import cn.lunalhx.ai.kilnai.domain.learning.fake.ScriptedPedagogyModel;
 import cn.lunalhx.ai.kilnai.domain.learning.fake.ScriptedScenario;
 import cn.lunalhx.ai.kilnai.domain.learning.fake.ScriptedTeachingModel;
+import cn.lunalhx.ai.kilnai.domain.learning.fake.SkippingModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.learning.fixture.SpikeFixture;
 import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ResumeGraphRun;
 import cn.lunalhx.ai.kilnai.domain.learning.service.StartGraphRun;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.GraphRunBudgetHolder;
 import cn.lunalhx.ai.kilnai.domain.learning.kernel.LearningNodeKernel;
 import cn.lunalhx.ai.kilnai.domain.learning.kernel.PendingCommandHolder;
 import cn.lunalhx.ai.kilnai.domain.learning.kernel.PendingCommitBuffer;
@@ -42,6 +44,10 @@ class LearningFlowUseCaseTest {
         ));
         assertEquals(started.flowId(), replay.flowId());
         assertEquals(started.interactionVersion(), replay.interactionVersion());
+        assertEquals(
+                SkippingModelProfilePort.SNAPSHOT,
+                store.findFlow(started.flowId()).orElseThrow().frozenProfile()
+        );
 
         UUID continueKey = UUID.randomUUID();
         ResumeGraphRun continueCommand = new ResumeGraphRun(
@@ -101,14 +107,15 @@ class LearningFlowUseCaseTest {
         PendingCommitBuffer buffer = new PendingCommitBuffer();
         PendingLearnerEventHolder events = new PendingLearnerEventHolder();
         LearningBlackboardMapper mapper = new LearningBlackboardMapper();
+        GraphRunBudgetHolder budgets = new GraphRunBudgetHolder();
         LearningNodeKernel kernel = new LearningNodeKernel(
-                buffer, pedagogy, new ScriptedTeachingModel(ScriptedScenario.HAPPY),
-                new ScriptedAssessmentModel(), store, ScriptedScenario.HAPPY, true, Clock.systemUTC()
+                buffer, budgets, pedagogy, new ScriptedTeachingModel(ScriptedScenario.HAPPY),
+                new ScriptedAssessmentModel(), store, true, Clock.systemUTC()
         );
         ApplicationCheckpointSaver saver = new ApplicationCheckpointSaver(store, buffer, mapper, Clock.systemUTC());
         SpringAiAlibabaGraphRuntime runtime = new SpringAiAlibabaGraphRuntime(
-                store, events, mapper, new LearningStateGraphFactory(kernel, events, mapper, saver)
+                store, events, mapper, new LearningStateGraphFactory(kernel, events, mapper, saver), budgets, 8
         );
-        return new LearningFlowUseCase(runtime, store, commands, Clock.systemUTC());
+        return new LearningFlowUseCase(runtime, store, new SkippingModelProfilePort(), commands, Clock.systemUTC());
     }
 }

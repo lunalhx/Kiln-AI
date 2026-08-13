@@ -91,7 +91,7 @@ public final class LearningStateGraphFactory {
     }
 
     private Map<String, Object> pedagogy(OverAllState state) {
-        return finish(kernel.pedagogy(mapper.fromState(state)));
+        return guarded(mapper.fromState(state), kernel::pedagogy);
     }
 
     private Map<String, Object> explain(OverAllState state) {
@@ -105,7 +105,7 @@ public final class LearningStateGraphFactory {
     private Map<String, Object> assess(OverAllState state) {
         LearningBlackboard board = mapper.fromState(state);
         ResumeGraphRun event = pendingEvents.poll(board.flowId());
-        return finish(kernel.assess(board, event == null ? "" : event.text()));
+        return guarded(board, current -> kernel.assess(current, event == null ? "" : event.text()));
     }
 
     private String route(OverAllState state) {

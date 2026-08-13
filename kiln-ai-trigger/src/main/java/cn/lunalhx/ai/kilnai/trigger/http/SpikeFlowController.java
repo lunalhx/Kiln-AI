@@ -66,7 +66,7 @@ public class SpikeFlowController {
         PublicTraceView view = useCase.trace(flowId);
         return new SpikeTraceResponse(
                 view.flowId(), view.routes(), view.selectedSkills(), view.checkpoints(),
-                view.budget(), view.validations(), view.retries()
+                view.budget(), view.validations(), view.retries(), view.models(), view.usage()
         );
     }
 

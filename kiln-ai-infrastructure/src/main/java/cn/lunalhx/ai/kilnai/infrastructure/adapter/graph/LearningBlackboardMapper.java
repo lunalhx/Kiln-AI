@@ -54,8 +54,6 @@ public final class LearningBlackboardMapper {
         map.put("visibleContent", board.visibleContent());
         map.put("explanationDelivered", board.explanationDelivered());
         map.put("pendingInput", board.pendingInput() == null ? null : board.pendingInput().name());
-        map.put("modelCallCount", board.modelCallCount());
-        map.put("repairCount", board.repairCount());
         map.put("compactFeedbackFacts", board.compactFeedbackFacts());
         map.put("lastRoute", board.lastRoute());
         return map;
@@ -85,8 +83,6 @@ public final class LearningBlackboardMapper {
                 String.valueOf(map.getOrDefault("visibleContent", "")),
                 Boolean.TRUE.equals(map.get("explanationDelivered")),
                 enumValue(map.get("pendingInput"), LearnerInputKind.class, null),
-                ((Number) map.getOrDefault("modelCallCount", 0)).intValue(),
-                ((Number) map.getOrDefault("repairCount", 0)).intValue(),
                 strings(map.get("compactFeedbackFacts")),
                 String.valueOf(map.getOrDefault("lastRoute", "start"))
         );

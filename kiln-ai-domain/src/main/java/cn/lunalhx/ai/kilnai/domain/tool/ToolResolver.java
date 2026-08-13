@@ -13,15 +13,11 @@ public final class ToolResolver {
     public List<ToolHandle> resolve(
             ToolPermissionSet profileAllowlist,
             Set<String> skillRequirements,
-            Set<ToolHandle> runtimeAvailability,
-            boolean withinBudget
+            Set<ToolHandle> runtimeAvailability
     ) {
         Objects.requireNonNull(profileAllowlist, "profileAllowlist must not be null");
         Objects.requireNonNull(skillRequirements, "skillRequirements must not be null");
         Objects.requireNonNull(runtimeAvailability, "runtimeAvailability must not be null");
-        if (!withinBudget) {
-            throw new CapabilityGap("tool budget exhausted");
-        }
         Set<String> availableIds = runtimeAvailability.stream()
                 .map(ToolHandle::qualifiedId)
                 .collect(Collectors.toSet());

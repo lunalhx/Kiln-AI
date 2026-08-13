@@ -19,8 +19,7 @@ class ToolResolverTest {
         List<ToolHandle> tools = resolver.resolve(
                 new ToolPermissionSet(Set.of("calculator@1")),
                 Set.of("calculator@1"),
-                Set.of(new ToolHandle("calculator", 1, "{\"type\":\"object\"}")),
-                true
+                Set.of(new ToolHandle("calculator", 1, "{\"type\":\"object\"}"))
         );
 
         assertEquals(List.of(new ToolHandle("calculator", 1, "{\"type\":\"object\"}")), tools);
@@ -31,8 +30,7 @@ class ToolResolverTest {
         CapabilityGap gap = assertThrows(CapabilityGap.class, () -> resolver.resolve(
                 new ToolPermissionSet(Set.of("calculator@1")),
                 Set.of("calculator@1"),
-                Set.of(),
-                true
+                Set.of()
         ));
 
         assertTrue(gap.getMessage().contains("calculator@1"));

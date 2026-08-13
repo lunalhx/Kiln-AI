@@ -27,12 +27,10 @@ public record LearningBlackboard(
         String visibleContent,
         boolean explanationDelivered,
         LearnerInputKind pendingInput,
-        int modelCallCount,
-        int repairCount,
         List<String> compactFeedbackFacts,
         String lastRoute
 ) {
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
 
     public LearningBlackboard {
         legalCandidates = legalCandidates == null ? List.of() : List.copyOf(legalCandidates);
@@ -47,7 +45,7 @@ public record LearningBlackboard(
                 SCHEMA_VERSION, flowId, learnerId, conceptId, contractId, rubricId, sourcePackId,
                 FlowStatus.READY, LearningStage.LEARNING_AND_PRACTICE, 0,
                 List.of(TeachingAction.EXPLAIN), null, null, null,
-                List.of(), "", false, null, 0, 0, List.of(), "start"
+                List.of(), "", false, null, List.of(), "start"
         );
     }
 }

@@ -19,7 +19,7 @@ class ValidatedNodeExecutorTest {
         CountingPolicy policy = new CountingPolicy();
         ValidatedNodeExecutor executor = new ValidatedNodeExecutor(new TypedArtifactGatePipeline());
 
-        GateResult<String> result = executor.execute("draft", policy, GateContext.empty(), candidate -> "repaired");
+        GateResult<String> result = executor.execute("draft", policy, GateContext.empty(), (candidate, violations) -> "repaired");
 
         assertEquals(GateOutcome.PASSED, result.outcome());
         assertEquals("repaired", result.artifact());

@@ -1,13 +1,15 @@
 package cn.lunalhx.ai.kilnai.domain.learning.service;
 
-import cn.lunalhx.ai.kilnai.domain.learning.fixture.SpikeFixture;
-import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
 import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.LearningGraphRuntimePort;
-import cn.lunalhx.ai.kilnai.domain.learning.model.PublicTraceView;
-import cn.lunalhx.ai.kilnai.domain.learning.kernel.PendingCommandHolder;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.ModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort;
 import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort.FlowRecord;
 import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort.ProcessedCommand;
+import cn.lunalhx.ai.kilnai.domain.learning.fixture.SpikeFixture;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.PendingCommandHolder;
+import cn.lunalhx.ai.kilnai.domain.learning.model.FrozenModelProfile;
+import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
+import cn.lunalhx.ai.kilnai.domain.learning.model.PublicTraceView;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
@@ -23,17 +25,20 @@ public final class LearningFlowUseCase {
 
     private final LearningGraphRuntimePort runtime;
     private final SpikeStorePort store;
+    private final ModelProfilePort modelProfiles;
     private final PendingCommandHolder pendingCommands;
     private final Clock clock;
 
     public LearningFlowUseCase(
             LearningGraphRuntimePort runtime,
             SpikeStorePort store,
+            ModelProfilePort modelProfiles,
             PendingCommandHolder pendingCommands,
             Clock clock
     ) {
         this.runtime = runtime;
         this.store = store;
+        this.modelProfiles = modelProfiles;
         this.pendingCommands = pendingCommands;
         this.clock = clock;
     }
@@ -46,10 +51,11 @@ public final class LearningFlowUseCase {
                 throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "unknown fixture: " + command.fixtureId());
             }
             UUID flowId = UUID.randomUUID();
+            FrozenModelProfile frozen = modelProfiles.resolveCurrentDefaults();
             store.insertFlow(new FlowRecord(
                     flowId, command.learnerId(), SpikeFixture.CONCEPT_ID, SpikeFixture.CONTRACT_ID,
                     SpikeFixture.RUBRIC_ID, SpikeFixture.SOURCE_PACK_ID, FlowStatus.READY,
-                    LearningStage.LEARNING_AND_PRACTICE, clock.instant()
+                    LearningStage.LEARNING_AND_PRACTICE, clock.instant(), frozen
             ));
             pendingCommands.hold(flowId, command.idempotencyKey(), hash);
             try {

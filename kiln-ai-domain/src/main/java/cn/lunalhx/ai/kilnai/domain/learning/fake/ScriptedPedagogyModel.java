@@ -1,8 +1,8 @@
 package cn.lunalhx.ai.kilnai.domain.learning.fake;
 
-import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.PedagogyModelPort;
 import cn.lunalhx.ai.kilnai.domain.artifact.PedagogyPlan;
-import cn.lunalhx.ai.kilnai.domain.blackboard.LearningBlackboard;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.PedagogyModelPort;
+import cn.lunalhx.ai.kilnai.domain.learning.model.PedagogyContextView;
 import cn.lunalhx.ai.kilnai.domain.pedagogy.model.valobj.TeachingAction;
 
 import java.util.Set;
@@ -22,7 +22,7 @@ public final class ScriptedPedagogyModel implements PedagogyModelPort {
     }
 
     @Override
-    public PedagogyPlan propose(LearningBlackboard blackboard) {
+    public PedagogyPlan propose(PedagogyContextView context, String compiledPrompt) {
         calls.incrementAndGet();
         TeachingAction action = scenario == ScriptedScenario.ILLEGAL_PEDAGOGY
                 ? TeachingAction.RETRIEVE

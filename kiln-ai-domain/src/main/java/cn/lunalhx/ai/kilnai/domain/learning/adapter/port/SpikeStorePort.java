@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.learning.adapter.port;
 
 import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
 import cn.lunalhx.ai.kilnai.domain.learning.model.PublicTraceView;
+import cn.lunalhx.ai.kilnai.domain.learning.model.FrozenModelProfile;
 import cn.lunalhx.ai.kilnai.domain.learning.kernel.CommitEffects;
 import cn.lunalhx.ai.kilnai.domain.blackboard.LearningBlackboard;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
@@ -42,7 +43,8 @@ public interface SpikeStorePort extends CheckpointCommitPort {
             UUID sourcePackId,
             FlowStatus status,
             LearningStage stage,
-            Instant createdAt
+            Instant createdAt,
+            FrozenModelProfile frozenProfile
     ) {
     }
 

@@ -10,6 +10,12 @@ public record PublicTraceView(
         List<String> checkpoints,
         String budget,
         List<String> validations,
-        List<String> retries
+        List<String> retries,
+        List<String> models,
+        List<String> usage
 ) {
+    public PublicTraceView {
+        models = models == null ? List.of() : List.copyOf(models);
+        usage = usage == null ? List.of() : List.copyOf(usage);
+    }
 }

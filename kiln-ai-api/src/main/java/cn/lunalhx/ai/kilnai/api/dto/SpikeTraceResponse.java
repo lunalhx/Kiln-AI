@@ -10,6 +10,8 @@ public record SpikeTraceResponse(
         List<String> checkpoints,
         String budget,
         List<String> validations,
-        List<String> retries
+        List<String> retries,
+        List<String> models,
+        List<String> usage
 ) {
 }

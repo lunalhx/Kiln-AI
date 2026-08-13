@@ -34,6 +34,7 @@
         <mybatis-spring-boot.version>3.0.5</mybatis-spring-boot.version>
         <archunit.version>1.4.1</archunit.version>
         <spring-ai-alibaba-graph.version>1.1.2.2</spring-ai-alibaba-graph.version>
+        <spring-ai.version>1.1.2</spring-ai.version>
         <playwright.version>1.49.0</playwright.version>
         <enforcer.skipBanGraph>false</enforcer.skipBanGraph>
         <surefire.failIfNoSpecifiedTests>false</surefire.failIfNoSpecifiedTests>
@@ -70,6 +71,11 @@
                 <groupId>com.alibaba.cloud.ai</groupId>
                 <artifactId>spring-ai-alibaba-graph-core</artifactId>
                 <version>${spring-ai-alibaba-graph.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-openai</artifactId>
+                <version>${spring-ai.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.tngtech.archunit</groupId>
