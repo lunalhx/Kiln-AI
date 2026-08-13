@@ -1,0 +1,7 @@
+---
+status: accepted
+---
+
+# Coordinate through a typed Blackboard and node-specific Context Views
+
+Each Learning Flow will use a compact, checkpointed Learning Blackboard as its graph coordination State, while canonical domain records and large or private artifacts remain in domain persistence and an Artifact Store. Nodes collaborate by writing validated typed artifacts—such as Feedback Facts, Pedagogy Plan, Execution Plan, and Teaching Result Envelope—to authorized Blackboard channels through deterministic State Reducers, not by messaging each other or sharing hidden reasoning. Before each invocation, a deterministic Context Builder constructs an immutable Node Context View from only the Blackboard fields, domain projections, artifact references, sources, Skills, and tools declared by that node's read contract and context budget. Therefore shared State does not mean shared Prompt: Assessment may access the private Task Package and Assistance Trace; the Pedagogy Agent sees sanitized Feedback Facts, legal actions, and recent teaching trace; a Teaching Node sees the validated plan, relevant learning summary, bounded source passages, and frozen Skill Stack. The Blackboard stores references and compact collaboration state rather than full chat history, Source Packs, Task Packages, Skill files, or model traces. This architecture follows State/Reducer and checkpoint concepts demonstrated by LangGraph but remains framework-independent.
