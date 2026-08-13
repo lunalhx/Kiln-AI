@@ -1,5 +1,6 @@
-# Local environment and generated files
+# Local secrets. Commit env.example, never .env.
 .env
+.env.*
 deploy/local/.env
 *.log
 .DS_Store
