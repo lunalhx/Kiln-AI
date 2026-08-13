@@ -5,7 +5,5 @@ public enum TeachingAction {
     RETRIEVE,
     APPLY,
     TEACH_BACK,
-    HINT,
-    INDEPENDENT_TEST,
-    SCHEDULE_REVIEW
+    HINT
 }

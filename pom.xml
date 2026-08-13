@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.0.7</version>
+        <version>3.5.8</version>
         <relativePath/>
     </parent>
 
@@ -22,7 +22,9 @@
     <modules>
         <module>kiln-ai-types</module>
         <module>kiln-ai-domain</module>
+        <module>kiln-ai-application</module>
         <module>kiln-ai-infrastructure</module>
+        <module>kiln-ai-graph-saa</module>
         <module>kiln-ai-api</module>
         <module>kiln-ai-trigger</module>
         <module>kiln-ai-app</module>
@@ -31,8 +33,12 @@
     <properties>
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <mybatis-spring-boot.version>4.0.1</mybatis-spring-boot.version>
+        <mybatis-spring-boot.version>3.0.5</mybatis-spring-boot.version>
         <archunit.version>1.4.1</archunit.version>
+        <spring-ai-alibaba-graph.version>1.1.2.2</spring-ai-alibaba-graph.version>
+        <playwright.version>1.49.0</playwright.version>
+        <enforcer.skipBanGraph>false</enforcer.skipBanGraph>
+        <surefire.failIfNoSpecifiedTests>false</surefire.failIfNoSpecifiedTests>
     </properties>
 
     <dependencyManagement>
@@ -49,7 +55,17 @@
             </dependency>
             <dependency>
                 <groupId>cn.lunalhx.ai</groupId>
+                <artifactId>kiln-ai-application</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.lunalhx.ai</groupId>
                 <artifactId>kiln-ai-infrastructure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.lunalhx.ai</groupId>
+                <artifactId>kiln-ai-graph-saa</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -62,6 +78,91 @@
                 <artifactId>kiln-ai-trigger</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.alibaba.cloud.ai</groupId>
+                <artifactId>spring-ai-alibaba-graph-core</artifactId>
+                <version>${spring-ai-alibaba-graph.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.microsoft.playwright</groupId>
+                <artifactId>playwright</artifactId>
+                <version>${playwright.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp</artifactId>
+                <version>0.17.0</version>
+            </dependency>
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp-core</artifactId>
+                <version>0.17.0</version>
+            </dependency>
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp-json</artifactId>
+                <version>0.17.0</version>
+            </dependency>
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp-json-jackson2</artifactId>
+                <version>0.17.0</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <executions>
+                        <execution>
+                            <id>enforce-convergence</id>
+                            <goals>
+                                <goal>enforce</goal>
+                            </goals>
+                            <configuration>
+                                <rules>
+                                    <dependencyConvergence>
+                                        <uniqueVersions>false</uniqueVersions>
+                                    </dependencyConvergence>
+                                </rules>
+                            </configuration>
+                        </execution>
+                        <execution>
+                            <id>ban-graph-core-leak</id>
+                            <goals>
+                                <goal>enforce</goal>
+                            </goals>
+                            <configuration>
+                                <skip>${enforcer.skipBanGraph}</skip>
+                                <rules>
+                                    <bannedDependencies>
+                                        <searchTransitive>true</searchTransitive>
+                                        <excludes>
+                                            <exclude>com.alibaba.cloud.ai:spring-ai-alibaba-graph-core</exclude>
+                                        </excludes>
+                                        <message>Spring AI Alibaba Graph must stay inside kiln-ai-graph-saa.</message>
+                                    </bannedDependencies>
+                                </rules>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 </project>

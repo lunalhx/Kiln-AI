@@ -14,6 +14,11 @@ class DomainArchitectureTest {
     static final ArchRule domainMustNotDependOnFrameworks = noClasses()
             .that().resideInAnyPackage("..domain..")
             .should().dependOnClassesThat().resideInAnyPackage(
-                    "org.springframework..", "org.apache.ibatis..", "jakarta.persistence.."
+                    "org.springframework..",
+                    "org.apache.ibatis..",
+                    "jakarta.persistence..",
+                    "jakarta.servlet..",
+                    "com.alibaba.cloud.ai.graph..",
+                    "org.springframework.ai.."
             );
 }

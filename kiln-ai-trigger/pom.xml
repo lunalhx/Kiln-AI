@@ -19,7 +19,7 @@
         </dependency>
         <dependency>
             <groupId>cn.lunalhx.ai</groupId>
-            <artifactId>kiln-ai-domain</artifactId>
+            <artifactId>kiln-ai-application</artifactId>
         </dependency>
         <dependency>
             <groupId>cn.lunalhx.ai</groupId>
@@ -27,15 +27,11 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webmvc</artifactId>
+            <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-tx</artifactId>
         </dependency>
     </dependencies>
 </project>
