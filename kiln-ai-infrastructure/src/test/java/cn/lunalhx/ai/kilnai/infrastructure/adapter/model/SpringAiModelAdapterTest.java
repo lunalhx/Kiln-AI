@@ -186,7 +186,7 @@ class SpringAiModelAdapterTest {
         assertTrue(pedagogyTools.stream().allMatch(List::isEmpty));
         assertTrue(explainTools.stream().allMatch(List::isEmpty));
         assertTrue(assessTools.stream().allMatch(List::isEmpty));
-        assertTrue(applyTools.stream().allMatch(tools -> tools.equals(List.of("calculator@1"))));
+        assertTrue(applyTools.stream().allMatch(tools -> tools.equals(List.of("calculator_1"))));
     }
 
     @Test
@@ -374,7 +374,7 @@ class SpringAiModelAdapterTest {
                     .toolCalls(List.of(new AssistantMessage.ToolCall(
                             "call-" + prompts.size(),
                             "function",
-                            "calculator@1",
+                            "calculator_1",
                             "{\"old\":80,\"new\":100}"
                     )))
                     .build();

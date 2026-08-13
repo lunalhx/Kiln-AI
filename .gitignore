@@ -1,6 +1,5 @@
-# Local secrets. Commit env.example, never .env.
+# Local secrets. Commit deploy/local/.env.example, never .env.
 .env
-.env.*
 deploy/local/.env
 *.log
 .DS_Store

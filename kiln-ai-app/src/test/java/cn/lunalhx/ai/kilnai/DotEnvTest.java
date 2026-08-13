@@ -61,28 +61,22 @@ class DotEnvTest {
     }
 
     @Test
-    void readFromLoadsExampleThenOverlaysEnv(@TempDir Path root) throws Exception {
-        Files.writeString(root.resolve("env.example"), """
-                OPENAI_API_KEY=
+    void readFromFindsDeployLocalEnv(@TempDir Path root) throws Exception {
+        Path file = Files.createDirectories(root.resolve("deploy/local")).resolve(".env");
+        Files.writeString(file, """
+                OPENAI_API_KEY=sk-local
                 kiln.catalog.strong=openai/gpt-4.1
                 """);
-        Files.writeString(root.resolve(".env"), "OPENAI_API_KEY=sk-local\n");
         Path nested = Files.createDirectories(root.resolve("kiln-ai-app"));
         Map<String, Object> values = DotEnv.readFrom(nested);
         assertEquals("sk-local", values.get("OPENAI_API_KEY"));
         assertEquals("openai/gpt-4.1", values.get("kiln.catalog.strong"));
-    }
-
-    @Test
-    void locateWalksParentsToFindExample(@TempDir Path root) throws Exception {
-        Files.writeString(root.resolve("env.example"), "OPENAI_API_KEY=\n");
-        Path nested = Files.createDirectories(root.resolve("kiln-ai-app"));
-        assertEquals(root.resolve("env.example"), DotEnv.locate(nested, "env.example"));
+        assertEquals(root.resolve(DotEnv.LOCAL_ENV), DotEnv.locate(nested, DotEnv.LOCAL_ENV));
     }
 
     @Test
     void locateReturnsNullWhenMissing(@TempDir Path dir) {
-        assertNull(DotEnv.locate(dir, "env.example"));
-        assertTrue(DotEnv.read(dir.resolve("env.example")).isEmpty());
+        assertNull(DotEnv.locate(dir, DotEnv.LOCAL_ENV));
+        assertTrue(DotEnv.readFrom(dir).isEmpty());
     }
 }

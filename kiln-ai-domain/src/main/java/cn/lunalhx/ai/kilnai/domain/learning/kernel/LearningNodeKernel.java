@@ -159,7 +159,11 @@ public final class LearningNodeKernel {
         PedagogyContextView view = new PedagogyContextView(
                 blackboard.flowId(), blackboard.stage(), blackboard.legalCandidates(), blackboard.compactFeedbackFacts()
         );
-        String prompt = "Legal actions: " + view.legalCandidates() + ". Feedback: " + view.compactFeedbackFacts();
+        String prompt = "Legal actions: " + view.legalCandidates()
+                + ". Feedback: " + view.compactFeedbackFacts()
+                + (blackboard.explanationDelivered()
+                ? " Explanation already delivered; choose APPLY."
+                : " Choose EXPLAIN.");
         PedagogyPlan candidate = pedagogyModel.propose(view, prompt);
         GateContext context = new GateContext(Set.copyOf(blackboard.legalCandidates().stream().map(Enum::name).toList()));
         GateResult<PedagogyPlan> result = executor.execute(
@@ -265,7 +269,7 @@ public final class LearningNodeKernel {
         );
         String prompt = promptCompiler.compile(
                 stack,
-                promptCompiler.isolate(stack, action.name() + " instructions", "quantitative arithmetic")
+                promptCompiler.isolate(stack, teachingInstructions(action), "quantitative arithmetic")
         );
         ToolSession session = new BudgetedToolSession(
                 new CalculatorToolSession(calculatorAvailable),
@@ -280,7 +284,11 @@ public final class LearningNodeKernel {
                 (ignored, violations) -> teachingModel.teach(action, view, stack, withViolations(prompt, violations), tools, session)
         );
         if (gated.outcome() != GateOutcome.PASSED) {
-            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "NodeExecutionFailed");
+            String details = gated.violations().stream()
+                    .map(violation -> violation.code() + ": " + violation.message())
+                    .reduce((left, right) -> left + "; " + right)
+                    .orElse(gated.outcome().name());
+            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "NodeExecutionFailed: " + details);
         }
         TeachingResultEnvelope accepted = gated.artifact();
         UUID taskPackageId = action == TeachingAction.APPLY ? UUID.randomUUID() : blackboard.taskPackageArtifactId();
@@ -329,6 +337,13 @@ public final class LearningNodeKernel {
         );
         buffer.put(updated.flowId(), effects);
         return new AuthorizedNodeResult(updated, delta, effects, "ingest");
+    }
+
+    private static String teachingInstructions(TeachingAction action) {
+        if (action == TeachingAction.APPLY) {
+            return "Give one practice question: a quantity grows from 80 to 100. Call the calculator tool with old=80 and new=100. Put the tool result in privateArtifacts.answerKey as a string, and put a short taskRubric for percent change from 80 to 100. Do not include the numeric answer in learnerVisibleContent. allowedEventKinds must be ANSWER_SUBMITTED and HINT_REQUESTED.";
+        }
+        return "Teach the percent-change formula (new - old) / old × 100 with a short worked example. Do not ask the learner to submit a scored answer yet. allowedEventKinds must be CONTINUE_REQUESTED and CLARIFICATION_ASKED.";
     }
 
     private void chargeNode(LearningBlackboard blackboard) {

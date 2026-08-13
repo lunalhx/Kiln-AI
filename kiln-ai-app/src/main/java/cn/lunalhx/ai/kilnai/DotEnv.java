@@ -9,21 +9,18 @@ import java.util.Map;
 
 final class DotEnv {
 
+    static final String LOCAL_ENV = "deploy/local/.env";
+
     static Map<String, Object> read() {
         return readFrom(Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize());
     }
 
     static Map<String, Object> readFrom(Path start) {
-        Map<String, Object> values = new LinkedHashMap<>();
-        Path example = locate(start, "env.example");
-        if (example != null) {
-            values.putAll(read(example));
+        Path file = locate(start, LOCAL_ENV);
+        if (file == null) {
+            return Map.of();
         }
-        Path local = locate(start, ".env");
-        if (local != null) {
-            values.putAll(read(local));
-        }
-        return values;
+        return read(file);
     }
 
     static Map<String, Object> read(Path file) {
@@ -36,10 +33,10 @@ final class DotEnv {
         }
     }
 
-    static Path locate(Path start, String name) {
+    static Path locate(Path start, String relative) {
         Path dir = start;
         for (int depth = 0; depth < 6 && dir != null; depth++) {
-            Path candidate = dir.resolve(name);
+            Path candidate = dir.resolve(relative);
             if (Files.isRegularFile(candidate)) {
                 return candidate;
             }

@@ -56,10 +56,9 @@ An ArchUnit test in `kiln-ai-domain` prevents the domain from depending on Sprin
 
    ```bash
    cp deploy/local/.env.example deploy/local/.env
-   cp env.example .env
    ```
 
-   Fill `OPENAI_API_KEY` in `.env`. Startup loads `env.example`, then overlays `.env`. Tests do not.
+   Fill `OPENAI_API_KEY` in `deploy/local/.env` with the OpenCode Go key. Startup and Docker Compose both read that file. Tests do not.
 
 2. Start PostgreSQL:
 
