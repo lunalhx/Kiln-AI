@@ -19,7 +19,7 @@
         </dependency>
         <dependency>
             <groupId>cn.lunalhx.ai</groupId>
-            <artifactId>kiln-ai-application</artifactId>
+            <artifactId>kiln-ai-domain</artifactId>
         </dependency>
         <dependency>
             <groupId>cn.lunalhx.ai</groupId>

@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Do not adopt the framework or implement the spike until implementation is explicitly requested.
+Completed. All five hard gates passed. Phase 0 adopts Graph Core `1.1.2.2` as the runtime adapter under [ADR-0034](../adr/0034-use-spring-ai-alibaba-graph-as-the-phase-0-runtime.md). Evidence: `docs/spikes/spring-ai-alibaba-graph-evaluation-report.md`.
 
 ## Goal
 

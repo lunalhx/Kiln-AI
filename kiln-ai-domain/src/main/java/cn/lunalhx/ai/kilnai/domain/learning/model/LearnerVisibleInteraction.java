@@ -1,4 +1,4 @@
-package cn.lunalhx.ai.kilnai.application.graph;
+package cn.lunalhx.ai.kilnai.domain.learning.model;
 
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearnerInputKind;

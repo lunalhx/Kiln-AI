@@ -18,7 +18,7 @@ Demonstrate that one Concept grounded in the selected university calculus source
 
 ## Included
 
-- Learning StateGraph, one-Flow Learning Blackboard, checkpoints, interrupts, and resume
+- Learning StateGraph executed by Spring AI Alibaba Graph Core `1.1.2.2` (ADR-0034), one-Flow Learning Blackboard, checkpoints, interrupts, and resume
 - Workflow Guard and bounded Pedagogy Agent
 - Explain, Apply, and Hint Teaching Node Profiles
 - Manifest registry, Strategy and Capability Tags, deterministic Skill Resolver, frozen Skill Stack, Skill Loader, bounded Slots, and Prompt Compiler

@@ -22,9 +22,7 @@
     <modules>
         <module>kiln-ai-types</module>
         <module>kiln-ai-domain</module>
-        <module>kiln-ai-application</module>
         <module>kiln-ai-infrastructure</module>
-        <module>kiln-ai-graph-saa</module>
         <module>kiln-ai-api</module>
         <module>kiln-ai-trigger</module>
         <module>kiln-ai-app</module>
@@ -55,17 +53,7 @@
             </dependency>
             <dependency>
                 <groupId>cn.lunalhx.ai</groupId>
-                <artifactId>kiln-ai-application</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>cn.lunalhx.ai</groupId>
                 <artifactId>kiln-ai-infrastructure</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>cn.lunalhx.ai</groupId>
-                <artifactId>kiln-ai-graph-saa</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -149,7 +137,7 @@
                                         <excludes>
                                             <exclude>com.alibaba.cloud.ai:spring-ai-alibaba-graph-core</exclude>
                                         </excludes>
-                                        <message>Spring AI Alibaba Graph must stay inside kiln-ai-graph-saa.</message>
+                                        <message>Spring AI Alibaba Graph must stay inside kiln-ai-infrastructure adapter.graph.</message>
                                     </bannedDependencies>
                                 </rules>
                             </configuration>

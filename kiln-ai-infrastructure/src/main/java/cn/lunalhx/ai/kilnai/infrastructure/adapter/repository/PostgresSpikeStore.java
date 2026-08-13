@@ -1,11 +1,11 @@
 package cn.lunalhx.ai.kilnai.infrastructure.adapter.repository;
 
-import cn.lunalhx.ai.kilnai.application.graph.LearnerVisibleInteraction;
-import cn.lunalhx.ai.kilnai.application.graph.PublicTraceView;
-import cn.lunalhx.ai.kilnai.application.kernel.CommitEffects;
-import cn.lunalhx.ai.kilnai.application.kernel.PendingCommandHolder;
-import cn.lunalhx.ai.kilnai.application.port.LearningCheckpointRecord;
-import cn.lunalhx.ai.kilnai.application.port.SpikeStorePort;
+import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
+import cn.lunalhx.ai.kilnai.domain.learning.model.PublicTraceView;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.CommitEffects;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.PendingCommandHolder;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.LearningCheckpointRecord;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort;
 import cn.lunalhx.ai.kilnai.domain.blackboard.LearningBlackboard;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearnerInputKind;

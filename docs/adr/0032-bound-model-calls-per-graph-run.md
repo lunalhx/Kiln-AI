@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0036
 ---
 
 # Bound model calls per Graph Run

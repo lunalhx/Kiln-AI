@@ -1,13 +1,13 @@
-package cn.lunalhx.ai.kilnai.application.kernel;
+package cn.lunalhx.ai.kilnai.domain.learning.kernel;
 
-import cn.lunalhx.ai.kilnai.application.fake.CalculatorToolSession;
-import cn.lunalhx.ai.kilnai.application.fake.ScriptedScenario;
-import cn.lunalhx.ai.kilnai.application.graph.LearnerVisibleInteraction;
-import cn.lunalhx.ai.kilnai.application.port.AssessmentModelPort;
-import cn.lunalhx.ai.kilnai.application.port.PedagogyModelPort;
-import cn.lunalhx.ai.kilnai.application.port.SpikeStorePort;
-import cn.lunalhx.ai.kilnai.application.port.TeachingModelPort;
-import cn.lunalhx.ai.kilnai.application.port.ToolSession;
+import cn.lunalhx.ai.kilnai.domain.learning.fake.CalculatorToolSession;
+import cn.lunalhx.ai.kilnai.domain.learning.fake.ScriptedScenario;
+import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.AssessmentModelPort;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.PedagogyModelPort;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.TeachingModelPort;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.ToolSession;
 import cn.lunalhx.ai.kilnai.domain.artifact.EvidenceCandidate;
 import cn.lunalhx.ai.kilnai.domain.artifact.PedagogyPlan;
 import cn.lunalhx.ai.kilnai.domain.artifact.TeachingResultEnvelope;

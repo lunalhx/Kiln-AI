@@ -5,7 +5,7 @@ Runtime: Java 21, Spring Boot 3.5.8, MyBatis 3.0.5, PostgreSQL schema V2
 Date: 2026-08-13  
 Spike spec: `docs/specs/spring-ai-alibaba-graph-validation-spike.md`
 
-This report records a binary result for the five hard gates. Gates are not averaged. Passing all five makes the framework eligible for a later tracer runtime decision; this spike does not write an adoption ADR and does not implement the first product tracer.
+This report records a binary result for the five hard gates. Gates are not averaged. Passing all five made the framework eligible for the tracer runtime decision. Adoption is recorded in ADR-0034. The first product tracer remains a separate implementation.
 
 ## Workarounds captured during evaluation
 
@@ -67,6 +67,6 @@ Evidence:
 
 ## Binary conclusion
 
-**Spring AI Alibaba Graph 1.1.2.2 is eligible for the subsequent tracer runtime decision.**
+**Spring AI Alibaba Graph 1.1.2.2 is eligible for the Phase 0 runtime, and ADR-0034 adopts it as the Graph Adapter.**
 
-All five hard gates passed. This is not an adoption ADR. The first product tracer is out of scope for this spike. Re-run checkpoint round-trip, restart, and this matrix on any Graph version change.
+All five hard gates passed. The first product tracer remains out of scope for this spike. Re-run checkpoint round-trip, restart, and this matrix on any Graph version change.

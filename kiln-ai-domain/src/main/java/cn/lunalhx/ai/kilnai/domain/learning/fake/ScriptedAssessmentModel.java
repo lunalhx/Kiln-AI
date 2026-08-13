@@ -1,6 +1,6 @@
-package cn.lunalhx.ai.kilnai.application.fake;
+package cn.lunalhx.ai.kilnai.domain.learning.fake;
 
-import cn.lunalhx.ai.kilnai.application.port.AssessmentModelPort;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.AssessmentModelPort;
 import cn.lunalhx.ai.kilnai.domain.artifact.EvidenceCandidate;
 import cn.lunalhx.ai.kilnai.domain.blackboard.LearningBlackboard;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;

@@ -12,14 +12,32 @@
 
     <artifactId>kiln-ai-infrastructure</artifactId>
 
+    <properties>
+        <enforcer.skipBanGraph>true</enforcer.skipBanGraph>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>cn.lunalhx.ai</groupId>
             <artifactId>kiln-ai-domain</artifactId>
         </dependency>
         <dependency>
-            <groupId>cn.lunalhx.ai</groupId>
-            <artifactId>kiln-ai-application</artifactId>
+            <groupId>com.alibaba.cloud.ai</groupId>
+            <artifactId>spring-ai-alibaba-graph-core</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.ai</groupId>
+                    <artifactId>spring-ai-rag</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework.ai</groupId>
+                    <artifactId>spring-ai-retry</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework.ai</groupId>
+                    <artifactId>spring-ai-autoconfigure-retry</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.mybatis.spring.boot</groupId>
@@ -46,6 +64,11 @@
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-tx</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>

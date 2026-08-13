@@ -1,8 +1,8 @@
-package cn.lunalhx.ai.kilnai.graph.saa;
+package cn.lunalhx.ai.kilnai.infrastructure.adapter.graph;
 
-import cn.lunalhx.ai.kilnai.application.kernel.PendingCommitBuffer;
-import cn.lunalhx.ai.kilnai.application.port.LearningCheckpointRecord;
-import cn.lunalhx.ai.kilnai.application.port.SpikeStorePort;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.PendingCommitBuffer;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.LearningCheckpointRecord;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort;
 import cn.lunalhx.ai.kilnai.domain.blackboard.LearningBlackboard;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.checkpoint.BaseCheckpointSaver;

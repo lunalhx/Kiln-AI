@@ -1,6 +1,6 @@
-package cn.lunalhx.ai.kilnai.application.fake;
+package cn.lunalhx.ai.kilnai.domain.learning.fake;
 
-import cn.lunalhx.ai.kilnai.application.port.ToolSession;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.ToolSession;
 import cn.lunalhx.ai.kilnai.domain.skill.CapabilityGap;
 
 import java.math.BigDecimal;

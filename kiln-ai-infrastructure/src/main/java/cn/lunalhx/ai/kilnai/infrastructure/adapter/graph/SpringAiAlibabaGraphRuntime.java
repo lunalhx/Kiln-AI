@@ -1,13 +1,13 @@
-package cn.lunalhx.ai.kilnai.graph.saa;
+package cn.lunalhx.ai.kilnai.infrastructure.adapter.graph;
 
-import cn.lunalhx.ai.kilnai.application.fixture.SpikeFixture;
-import cn.lunalhx.ai.kilnai.application.graph.LearnerVisibleInteraction;
-import cn.lunalhx.ai.kilnai.application.graph.LearningGraphRuntimePort;
-import cn.lunalhx.ai.kilnai.application.graph.PublicTraceView;
-import cn.lunalhx.ai.kilnai.application.graph.ResumeGraphRun;
-import cn.lunalhx.ai.kilnai.application.graph.StartGraphRun;
-import cn.lunalhx.ai.kilnai.application.kernel.PendingLearnerEventHolder;
-import cn.lunalhx.ai.kilnai.application.port.SpikeStorePort;
+import cn.lunalhx.ai.kilnai.domain.learning.fixture.SpikeFixture;
+import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.LearningGraphRuntimePort;
+import cn.lunalhx.ai.kilnai.domain.learning.model.PublicTraceView;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ResumeGraphRun;
+import cn.lunalhx.ai.kilnai.domain.learning.service.StartGraphRun;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.PendingLearnerEventHolder;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort;
 import cn.lunalhx.ai.kilnai.domain.blackboard.LearningBlackboard;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;

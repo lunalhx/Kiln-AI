@@ -1,4 +1,4 @@
-package cn.lunalhx.ai.kilnai.application.graph;
+package cn.lunalhx.ai.kilnai.domain.learning.model;
 
 import java.util.List;
 import java.util.UUID;

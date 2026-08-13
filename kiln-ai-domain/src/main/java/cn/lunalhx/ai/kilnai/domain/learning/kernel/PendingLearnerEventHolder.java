@@ -1,6 +1,6 @@
-package cn.lunalhx.ai.kilnai.application.kernel;
+package cn.lunalhx.ai.kilnai.domain.learning.kernel;
 
-import cn.lunalhx.ai.kilnai.application.graph.ResumeGraphRun;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ResumeGraphRun;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;

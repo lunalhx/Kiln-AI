@@ -1,15 +1,13 @@
-package cn.lunalhx.ai.kilnai.application.usecase;
+package cn.lunalhx.ai.kilnai.domain.learning.service;
 
-import cn.lunalhx.ai.kilnai.application.fixture.SpikeFixture;
-import cn.lunalhx.ai.kilnai.application.graph.LearnerVisibleInteraction;
-import cn.lunalhx.ai.kilnai.application.graph.LearningGraphRuntimePort;
-import cn.lunalhx.ai.kilnai.application.graph.PublicTraceView;
-import cn.lunalhx.ai.kilnai.application.graph.ResumeGraphRun;
-import cn.lunalhx.ai.kilnai.application.graph.StartGraphRun;
-import cn.lunalhx.ai.kilnai.application.kernel.PendingCommandHolder;
-import cn.lunalhx.ai.kilnai.application.port.SpikeStorePort;
-import cn.lunalhx.ai.kilnai.application.port.SpikeStorePort.FlowRecord;
-import cn.lunalhx.ai.kilnai.application.port.SpikeStorePort.ProcessedCommand;
+import cn.lunalhx.ai.kilnai.domain.learning.fixture.SpikeFixture;
+import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.LearningGraphRuntimePort;
+import cn.lunalhx.ai.kilnai.domain.learning.model.PublicTraceView;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.PendingCommandHolder;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort.FlowRecord;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.SpikeStorePort.ProcessedCommand;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;

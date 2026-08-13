@@ -1,4 +1,4 @@
-package cn.lunalhx.ai.kilnai.application.graph;
+package cn.lunalhx.ai.kilnai.domain.learning.service;
 
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearnerInputKind;
 

@@ -1,8 +1,8 @@
-package cn.lunalhx.ai.kilnai.application.port;
+package cn.lunalhx.ai.kilnai.domain.learning.adapter.port;
 
-import cn.lunalhx.ai.kilnai.application.graph.LearnerVisibleInteraction;
-import cn.lunalhx.ai.kilnai.application.graph.PublicTraceView;
-import cn.lunalhx.ai.kilnai.application.kernel.CommitEffects;
+import cn.lunalhx.ai.kilnai.domain.learning.model.LearnerVisibleInteraction;
+import cn.lunalhx.ai.kilnai.domain.learning.model.PublicTraceView;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.CommitEffects;
 import cn.lunalhx.ai.kilnai.domain.blackboard.LearningBlackboard;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;

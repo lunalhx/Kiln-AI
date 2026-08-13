@@ -1,4 +1,4 @@
-package cn.lunalhx.ai.kilnai.application.fake;
+package cn.lunalhx.ai.kilnai.domain.learning.fake;
 
 public enum ScriptedScenario {
     HAPPY,

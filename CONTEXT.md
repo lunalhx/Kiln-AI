@@ -185,12 +185,36 @@ The primary Phase 0 coordination runtime. It advances one Learning Flow through 
 _Avoid_: Group chat, persistent Supervisor, autonomous Agent network
 
 **Graph Run**:
-One resumed execution of a Learning StateGraph. A Graph Run may traverse several internal deterministic or model-backed nodes, but it must checkpoint and stop when it reaches a Learner Interaction Boundary, a terminal state, or an explicit asynchronous wait.
-_Avoid_: One graph node, full Learning Flow, persistent Agent process
+One wake-up of the Learning StateGraph after a learner action. It runs internal steps, then checkpoints and stops when it must show the learner something and wait, reach a terminal state, or hit an explicit asynchronous wait. The next learner action starts a new Graph Run. A Graph Run is not a lesson, a Concept, or a Learning Flow.
+_Avoid_: One graph node, full Learning Flow, persistent Agent process, one study session
 
 **Graph Run Budget**:
-The hard ceiling on planned and repair model calls plus input/output Tokens, estimated cost, and elapsed time for one Graph Run. Phase 0 permits at most four total model calls for an Ordinary Run and six for a High-Consequence Run; exhaustion checkpoints and uses a declared safe outcome rather than allowing Agent loops.
-_Avoid_: Per-Agent wish, unlimited context window, quality score
+The hard ceiling on how many model-producing nodes one Graph Run may enter, plus traced Tokens, estimated cost, and elapsed time. An Ordinary Run may enter at most three such nodes; a High-Consequence Run may enter at most four. Guard, input, and other deterministic steps do not consume this ceiling. Exhaustion stops that wake-up with a declared safe outcome; it does not end the Learning Flow. The next learner action receives a fresh budget.
+_Avoid_: Per-Concept lesson quota, tool-call count, mixed LLM-and-tool counter
+
+**Tool Budget**:
+The separate hard ceiling on authorized tool executions during one Graph Run. A tool execution is not a model-producing node entry and does not consume Graph Run Budget. The numeric ceiling is operator configuration. Exhaustion stops that wake-up with a declared safe outcome.
+_Avoid_: Model call, node transition, Graph Run Budget, gate repair
+
+**Provider Catalog**:
+The operator-owned registry of model providers. Each entry has a protocol, endpoint, and listed models. An OpenAI-compatible vendor is a catalog entry, not new application code. Phase 0 does not use a live public model directory. Scripted test doubles are not catalog providers.
+_Avoid_: Models.dev, per-vendor SDK, learner provider list, scripted fake as a provider
+
+**Strong Model**:
+The operator-facing Model Binding used by Teaching, Assessment, and Task Verification. It is a `providerId/modelId` from the Provider Catalog.
+_Avoid_: ChatClient, learner-selected model, one model for every role
+
+**Small Model**:
+The operator-facing Model Binding used by Pedagogy, Input Interpreter, and format repair. It is a `providerId/modelId` from the Provider Catalog and may use a cheaper model than the Strong Model.
+_Avoid_: ChatClient, learner-selected model
+
+**Model Binding**:
+The assignment of one model-producing responsibility to one `providerId/modelId` from the Provider Catalog. Operators set only the Strong Model and Small Model; each responsibility inherits the matching slot.
+_Avoid_: ChatClient, ChatModel, learner-selected model
+
+**Model Profile**:
+The operator-owned Strong Model and Small Model copied onto a Learning Flow at start as a resolved snapshot of protocol, endpoint, and model identity, then frozen for that flow's lifetime. Secrets stay in the environment and are not copied. Learners never select or change it. Editing the catalog or defaults affects only new flows.
+_Avoid_: User preference, Learner Memory, live catalog lookup after start
 
 **Learner Interaction Boundary**:
 The unified pause state reached after Kiln-AI presents learner-visible content that requires a response. The graph persists Learning State and its checkpoint as `Awaiting Learner Input`, releases execution resources, and resumes in a new Graph Run when real learner input arrives.

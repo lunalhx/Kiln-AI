@@ -1,7 +1,7 @@
-package cn.lunalhx.ai.kilnai.application.fake;
+package cn.lunalhx.ai.kilnai.domain.learning.fake;
 
-import cn.lunalhx.ai.kilnai.application.port.TeachingModelPort;
-import cn.lunalhx.ai.kilnai.application.port.ToolSession;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.TeachingModelPort;
+import cn.lunalhx.ai.kilnai.domain.learning.adapter.port.ToolSession;
 import cn.lunalhx.ai.kilnai.domain.artifact.TeachingResultEnvelope;
 import cn.lunalhx.ai.kilnai.domain.blackboard.LearningBlackboard;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearnerInputKind;

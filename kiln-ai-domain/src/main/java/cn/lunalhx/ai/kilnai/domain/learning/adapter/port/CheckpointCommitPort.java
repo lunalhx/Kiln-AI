@@ -1,6 +1,6 @@
-package cn.lunalhx.ai.kilnai.application.port;
+package cn.lunalhx.ai.kilnai.domain.learning.adapter.port;
 
-import cn.lunalhx.ai.kilnai.application.kernel.CommitEffects;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.CommitEffects;
 import cn.lunalhx.ai.kilnai.domain.blackboard.LearningBlackboard;
 
 import java.util.List;

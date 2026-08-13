@@ -1,4 +1,4 @@
-package cn.lunalhx.ai.kilnai.application.fixture;
+package cn.lunalhx.ai.kilnai.domain.learning.fixture;
 
 import java.util.UUID;
 

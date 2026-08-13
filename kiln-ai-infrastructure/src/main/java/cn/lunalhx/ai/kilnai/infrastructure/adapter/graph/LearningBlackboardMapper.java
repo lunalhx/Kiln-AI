@@ -1,4 +1,4 @@
-package cn.lunalhx.ai.kilnai.graph.saa;
+package cn.lunalhx.ai.kilnai.infrastructure.adapter.graph;
 
 import cn.lunalhx.ai.kilnai.domain.blackboard.LearningBlackboard;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;

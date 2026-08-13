@@ -1,9 +1,9 @@
-package cn.lunalhx.ai.kilnai.graph.saa;
+package cn.lunalhx.ai.kilnai.infrastructure.adapter.graph;
 
-import cn.lunalhx.ai.kilnai.application.graph.ResumeGraphRun;
-import cn.lunalhx.ai.kilnai.application.kernel.AuthorizedNodeResult;
-import cn.lunalhx.ai.kilnai.application.kernel.LearningNodeKernel;
-import cn.lunalhx.ai.kilnai.application.kernel.PendingLearnerEventHolder;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ResumeGraphRun;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.AuthorizedNodeResult;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.LearningNodeKernel;
+import cn.lunalhx.ai.kilnai.domain.learning.kernel.PendingLearnerEventHolder;
 import cn.lunalhx.ai.kilnai.domain.blackboard.LearningBlackboard;
 import com.alibaba.cloud.ai.graph.CompileConfig;
 import com.alibaba.cloud.ai.graph.CompiledGraph;

@@ -1,4 +1,4 @@
-package cn.lunalhx.ai.kilnai.application.kernel;
+package cn.lunalhx.ai.kilnai.domain.learning.kernel;
 
 import cn.lunalhx.ai.kilnai.domain.blackboard.BlackboardDelta;
 
