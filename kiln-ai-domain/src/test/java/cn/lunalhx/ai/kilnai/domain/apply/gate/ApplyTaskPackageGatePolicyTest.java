@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleLoader;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleRegistry;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ApplyScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyGenerationDraft;
@@ -91,6 +92,19 @@ class ApplyTaskPackageGatePolicyTest {
         assertRejected(copy(validPackage,
                 withFingerprint(validPackage.privateAssessorProjection(),
                         new PrivateAssessorProjection.TaskFingerprint("model", "model-claimed-fp"))));
+    }
+
+    @Test
+    void aPackageWhoseTaskFingerprintWasAlreadyExposedIsRejected() {
+        String fingerprint = validPackage.privateAssessorProjection().taskFingerprint().value();
+        ApplyExecutionContext withExclusions = IndependentApplyFixture.independentContext().withNoveltyExclusions(
+                List.of(fingerprint), List.of());
+
+        GateResult<TaskPackage> result = pipeline.validate(
+                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
+
+        assertEquals(GateOutcome.REJECTED, result.outcome());
+        assertTrue(result.violations().stream().anyMatch(v -> "novelty.task-fingerprint".equals(v.code())));
     }
 
     @Test

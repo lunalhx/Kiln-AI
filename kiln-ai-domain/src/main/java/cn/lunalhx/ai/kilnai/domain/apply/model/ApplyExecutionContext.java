@@ -28,6 +28,13 @@ public record ApplyExecutionContext(
         Objects.requireNonNull(learnerLocale, "learnerLocale must not be null");
     }
 
+    public ApplyExecutionContext withNoveltyExclusions(List<String> taskFingerprints, List<String> solutionFingerprints) {
+        return new ApplyExecutionContext(
+                schema, conceptContract, masteryRubric, taskBlueprint, conceptSourcePack,
+                new NoveltyExclusions(taskFingerprints, solutionFingerprints),
+                answerRepresentationContract, learnerLocale);
+    }
+
     public record ConceptContract(
             @JsonProperty("id") String id,
             @JsonProperty("version") String version,

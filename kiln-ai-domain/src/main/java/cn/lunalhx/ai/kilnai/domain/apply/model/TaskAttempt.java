@@ -12,7 +12,9 @@ public record TaskAttempt(
         UUID taskPackageId,
         AttemptPurpose purpose,
         AttemptStatus status,
-        Instant openedAt
+        Instant openedAt,
+        Instant closedAt,
+        TaskSubmission submission
 ) {
 
     public TaskAttempt {
@@ -21,5 +23,13 @@ public record TaskAttempt(
         Objects.requireNonNull(purpose, "purpose must not be null");
         Objects.requireNonNull(status, "status must not be null");
         Objects.requireNonNull(openedAt, "openedAt must not be null");
+    }
+
+    public boolean isOpen() {
+        return status == AttemptStatus.OPEN;
+    }
+
+    public boolean isClosed() {
+        return status != AttemptStatus.OPEN;
     }
 }

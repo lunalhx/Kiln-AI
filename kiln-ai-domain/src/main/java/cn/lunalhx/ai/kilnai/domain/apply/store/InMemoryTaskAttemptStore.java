@@ -1,7 +1,9 @@
 package cn.lunalhx.ai.kilnai.domain.apply.store;
 
+import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskAttemptStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 
@@ -36,7 +38,9 @@ public final class InMemoryTaskAttemptStore implements TaskAttemptStore {
                 taskPackage.taskPackageId(),
                 taskPackage.attemptPurpose(),
                 AttemptStatus.OPEN,
-                clock.instant()
+                clock.instant(),
+                null,
+                null
         );
         packages.put(taskPackage.taskPackageId(), taskPackage);
         attempts.put(attempt.attemptId(), attempt);
@@ -56,5 +60,29 @@ public final class InMemoryTaskAttemptStore implements TaskAttemptStore {
     @Override
     public synchronized List<TaskPackage> allPackages() {
         return List.copyOf(new ArrayList<>(packages.values()));
+    }
+
+    @Override
+    public synchronized AttemptCloseOutcome closeAttempt(UUID attemptId, TaskSubmission submission) {
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        Objects.requireNonNull(submission, "submission must not be null");
+        TaskAttempt current = attempts.get(attemptId);
+        if (current == null) {
+            return new AttemptCloseOutcome(AttemptCloseOutcome.Result.NOT_FOUND, null);
+        }
+        if (!current.isOpen()) {
+            return new AttemptCloseOutcome(AttemptCloseOutcome.Result.ALREADY_CLOSED, current);
+        }
+        TaskAttempt closed = new TaskAttempt(
+                current.attemptId(),
+                current.taskPackageId(),
+                current.purpose(),
+                AttemptStatus.SUBMITTED,
+                current.openedAt(),
+                clock.instant(),
+                submission
+        );
+        attempts.put(attemptId, closed);
+        return new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, closed);
     }
 }

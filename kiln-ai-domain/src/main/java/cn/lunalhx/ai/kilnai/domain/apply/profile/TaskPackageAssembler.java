@@ -110,8 +110,6 @@ public final class TaskPackageAssembler {
             List<PrivateAssessorProjection.SourceTraceEntry> sourceTrace
     ) {
         String raw = String.join("|",
-                context.taskBlueprint().attemptPurpose().wireValue(),
-                context.taskBlueprint().pinnedId(),
                 draft.learnerTaskText(),
                 canonicalExpression,
                 ApplyJson.write(draft.privateAssessorFacts().rubricMapping()),

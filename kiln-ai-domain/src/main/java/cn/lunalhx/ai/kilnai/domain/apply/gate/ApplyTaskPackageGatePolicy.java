@@ -63,6 +63,12 @@ public final class ApplyTaskPackageGatePolicy implements GatePolicy<TaskPackage>
 
         validatePrivateProjection(candidate.privateAssessorProjection(), violations);
 
+        String fingerprint = candidate.privateAssessorProjection().taskFingerprint().value();
+        if (context.noveltyExclusions().exposedTaskFingerprints().contains(fingerprint)) {
+            violations.add(new GateViolation("novelty.task-fingerprint",
+                    "candidate re-exposes a previously exposed task fingerprint"));
+        }
+
         List<String> privateSecrets = privateSecrets(candidate.privateAssessorProjection());
         if (privateSecrets.stream().anyMatch(learner.taskText()::contains)) {
             violations.add(new GateViolation("visibility.leak", "private assessor facts leaked into learner text"));

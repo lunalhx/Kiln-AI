@@ -11,6 +11,16 @@ public final class ApplyScriptData {
     public static final String TASK_TEXT = "设 f(x) = 4x³ − 3x² + 7x − 5，求 f'(x)。";
     public static final String EXPECTED_EXPRESSION = "12*x^2 - 6*x + 7";
 
+    public static final String INDEPENDENT_TASK_TEXT = "设 g(x) = 5x³ − 2x + 1，求 g'(x)。";
+    public static final String INDEPENDENT_EXPECTED_EXPRESSION = "15*x^2 - 2";
+
+    public static final String WRONG_DERIVATIVE = "6*x^2 - 3*x + 7";
+
+    public static final String UNICODE_CORRECT_DERIVATIVE = "12x²−6x+7";
+    public static final String UNICODE_CORRECT_CANONICAL = "12*x^2-6*x+7";
+
+    public static final String APPLICABLE_RATIONALE = "利用幂法则和和差法则逐项求导";
+
     private ApplyScriptData() {
     }
 

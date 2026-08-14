@@ -1,0 +1,82 @@
+package cn.lunalhx.ai.kilnai.domain.apply.fixture;
+
+import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
+
+import java.util.List;
+
+public final class IndependentApplyFixture {
+
+    private IndependentApplyFixture() {
+    }
+
+    public static ApplyExecutionContext independentContext() {
+        return new ApplyExecutionContext(
+                "apply_execution_context/v1",
+                new ApplyExecutionContext.ConceptContract(
+                        "calculus.polynomial-differentiation",
+                        "1.0.0",
+                        List.of(
+                                "constant rule",
+                                "constant-multiple rule",
+                                "sum and difference rules",
+                                "power rule for polynomial terms"),
+                        List.of(
+                                "product rule",
+                                "quotient rule",
+                                "chain rule",
+                                "trigonometric functions",
+                                "exponential functions",
+                                "logarithmic functions")),
+                new ApplyExecutionContext.MasteryRubric(
+                        "differentiate-polynomial",
+                        "1.0.0",
+                        List.of(new ApplyExecutionContext.RubricCriterion(
+                                "differentiate-polynomial",
+                                "Differentiate an in-scope polynomial function correctly."))),
+                new ApplyExecutionContext.TaskBlueprint(
+                        "apply.polynomial-differentiation.independent",
+                        "1.0.0",
+                        AttemptPurpose.INDEPENDENT_TEST,
+                        new ApplyExecutionContext.TaskShape(
+                                1,
+                                "direct_symbolic_expression",
+                                "forbidden",
+                                "forbidden",
+                                "forbidden",
+                                "forbidden",
+                                "forbidden"),
+                        new ApplyExecutionContext.MathematicalScope(
+                                "x",
+                                "polynomial",
+                                new ApplyExecutionContext.Range(3, 4),
+                                new ApplyExecutionContext.Range(2, 4),
+                                new ApplyExecutionContext.CoefficientConstraints("nonzero_integer", -9, 9),
+                                true),
+                        new ApplyExecutionContext.ResponseFields("required", "optional"),
+                        "independent.final-derivative@1"),
+                new ApplyExecutionContext.ConceptSourcePack(
+                        "openstax-calculus-v1-3.3",
+                        "1.0.0",
+                        List.of(new ApplyExecutionContext.SourcePassage(
+                                "openstax-calculus-v1",
+                                "1.0.0",
+                                "sec-3.3-differentiation-rules",
+                                "en",
+                                "Differentiation rules. The derivative of a constant function is zero. "
+                                        + "For a constant c and a differentiable function f, "
+                                        + "the derivative of c times f(x) equals c times f'(x). "
+                                        + "The derivative of a sum or difference f(x) plus or minus g(x) "
+                                        + "is f'(x) plus or minus g'(x). "
+                                        + "The power rule states that the derivative of x raised to a "
+                                        + "constant real power n is n times x raised to n minus one."))),
+                new ApplyExecutionContext.NoveltyExclusions(List.of(), List.of()),
+                new ApplyExecutionContext.AnswerRepresentationContract(
+                        "mathematical-expression.x",
+                        "1.0.0",
+                        "mathematical_expression",
+                        List.of("x"),
+                        List.of("plain_text", "unicode_math", "latex_like")),
+                "zh-CN");
+    }
+}
