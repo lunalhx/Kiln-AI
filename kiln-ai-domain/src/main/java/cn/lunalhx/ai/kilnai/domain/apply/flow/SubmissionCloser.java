@@ -8,7 +8,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionRejectionReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
-import cn.lunalhx.ai.kilnai.domain.apply.port.TaskAttemptStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 
 import java.time.Clock;
@@ -24,11 +24,11 @@ import java.util.UUID;
  */
 final class SubmissionCloser {
 
-    private final TaskAttemptStore attemptStore;
+    private final ArtifactStore artifactStore;
     private final Clock clock;
 
-    SubmissionCloser(TaskAttemptStore attemptStore, Clock clock) {
-        this.attemptStore = Objects.requireNonNull(attemptStore, "attemptStore must not be null");
+    SubmissionCloser(ArtifactStore artifactStore, Clock clock) {
+        this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -40,7 +40,7 @@ final class SubmissionCloser {
             String rationale
     ) {
         Objects.requireNonNull(attemptId, "attemptId must not be null");
-        Optional<TaskAttempt> maybeAttempt = attemptStore.findAttempt(attemptId);
+        Optional<TaskAttempt> maybeAttempt = artifactStore.findAttempt(attemptId);
         if (maybeAttempt.isEmpty()) {
             return new CloseResult.Ignored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
         }
@@ -61,7 +61,7 @@ final class SubmissionCloser {
                 new MathematicalAnswer(rawDerivative, confirmedCanonical, resolution.get().family()),
                 rationale,
                 clock.instant());
-        AttemptCloseOutcome closeOutcome = attemptStore.closeAttempt(attemptId, submission);
+        AttemptCloseOutcome closeOutcome = artifactStore.closeAttempt(attemptId, submission);
         if (closeOutcome.result() != AttemptCloseOutcome.Result.CLOSED) {
             return new CloseResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
@@ -69,7 +69,7 @@ final class SubmissionCloser {
     }
 
     private List<String> packageVariables(TaskAttempt attempt) {
-        TaskPackage taskPackage = attemptStore.findPackage(attempt.taskPackageId()).orElseThrow();
+        TaskPackage taskPackage = artifactStore.findPackage(attempt.taskPackageId()).orElseThrow();
         return taskPackage.privateAssessorProjection().canonicalExpectedAnswer().variables();
     }
 

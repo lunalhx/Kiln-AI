@@ -1,14 +1,16 @@
 package cn.lunalhx.ai.kilnai.domain.apply.store;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
-import cn.lunalhx.ai.kilnai.domain.apply.port.TaskAttemptStore;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 
 import java.time.Clock;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -17,13 +19,16 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-public final class InMemoryTaskAttemptStore implements TaskAttemptStore {
+public final class InMemoryArtifactStore implements ArtifactStore {
 
     private final Map<UUID, TaskPackage> packages = new HashMap<>();
     private final Map<UUID, TaskAttempt> attempts = new HashMap<>();
+    private final Map<UUID, List<TaskVerificationVerdict>> verifications = new HashMap<>();
+    private final Map<UUID, List<ResponseAssessment>> assessments = new HashMap<>();
+    private final Map<String, SourceArtifact> sources = new HashMap<>();
     private final Clock clock;
 
-    public InMemoryTaskAttemptStore(Clock clock) {
+    public InMemoryArtifactStore(Clock clock) {
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -53,13 +58,13 @@ public final class InMemoryTaskAttemptStore implements TaskAttemptStore {
     }
 
     @Override
-    public synchronized Optional<TaskAttempt> findAttempt(UUID attemptId) {
-        return Optional.ofNullable(attempts.get(attemptId));
+    public synchronized List<TaskPackage> allPackages() {
+        return List.copyOf(new ArrayList<>(packages.values()));
     }
 
     @Override
-    public synchronized List<TaskPackage> allPackages() {
-        return List.copyOf(new ArrayList<>(packages.values()));
+    public synchronized Optional<TaskAttempt> findAttempt(UUID attemptId) {
+        return Optional.ofNullable(attempts.get(attemptId));
     }
 
     @Override
@@ -84,5 +89,35 @@ public final class InMemoryTaskAttemptStore implements TaskAttemptStore {
         );
         attempts.put(attemptId, closed);
         return new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, closed);
+    }
+
+    @Override
+    public synchronized void recordTaskVerification(UUID taskPackageId, TaskVerificationVerdict verdict) {
+        verifications.computeIfAbsent(taskPackageId, key -> new ArrayList<>()).add(verdict);
+    }
+
+    @Override
+    public synchronized List<TaskVerificationVerdict> verificationsFor(UUID taskPackageId) {
+        return List.copyOf(verifications.getOrDefault(taskPackageId, List.of()));
+    }
+
+    @Override
+    public synchronized void recordResponseAssessment(UUID attemptId, ResponseAssessment assessment) {
+        assessments.computeIfAbsent(attemptId, key -> new ArrayList<>()).add(assessment);
+    }
+
+    @Override
+    public synchronized List<ResponseAssessment> assessmentsFor(UUID attemptId) {
+        return List.copyOf(assessments.getOrDefault(attemptId, List.of()));
+    }
+
+    @Override
+    public synchronized void saveSource(SourceArtifact source) {
+        sources.put(source.sourcePackId(), source);
+    }
+
+    @Override
+    public synchronized Optional<SourceArtifact> findSource(String sourcePackId) {
+        return Optional.ofNullable(sources.get(sourcePackId));
     }
 }

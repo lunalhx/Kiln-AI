@@ -4,10 +4,10 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.IndependentSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
-import cn.lunalhx.ai.kilnai.domain.apply.port.EvidenceStorePort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
-import cn.lunalhx.ai.kilnai.domain.apply.port.TaskAttemptStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ConceptProgress;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
@@ -27,50 +27,44 @@ import java.util.UUID;
  * Progress. Every other outcome—failed, Inconclusive, blocked by a clearly
  * contradictory rationale, duplicate submission, or unclosed attempt—never
  * creates Evidence. The learner sees only a safe continue-or-end message.
+ * All state is persisted durably; the flow carries no in-memory state.
  */
 public final class IndependentSubmissionFlow {
 
     public static final String INDEPENDENT_COMPLETE_MESSAGE = "本次独立练习已完成，请继续下一步学习。";
     public static final String SAFE_END_MESSAGE = "本次独立练习已结束，请继续下一步学习。";
 
-    private final TaskAttemptStore attemptStore;
-    private final EvidenceStorePort evidenceStore;
+    private final ArtifactStore artifactStore;
+    private final LearningFlowStore flowStore;
     private final AssessmentRunner assessmentRunner;
     private final SubmissionCloser submissionCloser;
     private final Clock clock;
-    private final UUID learnerId;
-    private final UUID flowId;
-    private final UUID conceptId;
     private final ConceptProgressProjector progressProjector = new ConceptProgressProjector();
 
     public IndependentSubmissionFlow(
-            TaskAttemptStore attemptStore,
-            EvidenceStorePort evidenceStore,
+            ArtifactStore artifactStore,
+            LearningFlowStore flowStore,
             AssessmentPort assessmentPort,
             ResponseVerificationPort verificationPort,
-            Clock clock,
-            UUID learnerId,
-            UUID flowId,
-            UUID conceptId
+            Clock clock
     ) {
-        this.attemptStore = Objects.requireNonNull(attemptStore, "attemptStore must not be null");
-        this.evidenceStore = Objects.requireNonNull(evidenceStore, "evidenceStore must not be null");
+        this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
+        this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
         this.assessmentRunner = new AssessmentRunner(
                 Objects.requireNonNull(assessmentPort, "assessmentPort must not be null"),
                 Objects.requireNonNull(verificationPort, "verificationPort must not be null"));
-        this.submissionCloser = new SubmissionCloser(attemptStore, clock);
+        this.submissionCloser = new SubmissionCloser(artifactStore, clock);
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
-        this.learnerId = Objects.requireNonNull(learnerId, "learnerId must not be null");
-        this.flowId = Objects.requireNonNull(flowId, "flowId must not be null");
-        this.conceptId = Objects.requireNonNull(conceptId, "conceptId must not be null");
     }
 
     public IndependentSubmissionResult submitIndependent(
+            LearningFlowStore.FlowRecord flow,
             UUID attemptId,
             String rawDerivative,
             String confirmedCanonical,
             String rationale
     ) {
+        Objects.requireNonNull(flow, "flow must not be null");
         Objects.requireNonNull(attemptId, "attemptId must not be null");
         SubmissionCloser.CloseResult closed = submissionCloser.close(
                 attemptId, AttemptPurpose.INDEPENDENT_TEST, rawDerivative, confirmedCanonical, rationale);
@@ -79,36 +73,41 @@ public final class IndependentSubmissionFlow {
                     new IndependentSubmissionResult.Ignored(ignored.reason());
             case SubmissionCloser.CloseResult.NotSubmittable notSubmittable ->
                     new IndependentSubmissionResult.NotSubmittable(notSubmittable.reason());
-            case SubmissionCloser.CloseResult.Closed closedAttempt -> assessAndAcceptEvidence(closedAttempt.attempt());
+            case SubmissionCloser.CloseResult.Closed closedAttempt ->
+                    assessAndAcceptEvidence(flow, closedAttempt.attempt());
         };
     }
 
-    private IndependentSubmissionResult assessAndAcceptEvidence(TaskAttempt closedAttempt) {
+    private IndependentSubmissionResult assessAndAcceptEvidence(
+            LearningFlowStore.FlowRecord flow,
+            TaskAttempt closedAttempt
+    ) {
         AssessmentOutcome outcome = assessmentRunner.run(closedAttempt, packageOf(closedAttempt));
+        AssessmentRunner.recordAssessments(artifactStore, closedAttempt.attemptId(), outcome);
         if (outcome instanceof AssessmentOutcome.Passed) {
             AcceptedLearningEvidence evidence = new AcceptedLearningEvidence(
                     UUID.randomUUID(),
                     closedAttempt.attemptId(),
-                    flowId,
-                    conceptId,
-                    learnerId,
+                    flow.flowId(),
+                    flow.conceptId(),
+                    flow.learnerId(),
                     LearningResult.PASS,
                     AttemptPurpose.INDEPENDENT_TEST,
                     0,
                     List.of(),
                     clock.instant());
-            evidenceStore.accept(evidence);
+            flowStore.acceptEvidence(evidence);
             return new IndependentSubmissionResult.EvidenceAccepted(
                     closedAttempt,
                     evidence,
-                    projectProgress(),
+                    projectProgress(flow.learnerId(), flow.conceptId()),
                     INDEPENDENT_COMPLETE_MESSAGE);
         }
         return new IndependentSubmissionResult.NoEvidence(closedAttempt, SAFE_END_MESSAGE);
     }
 
-    private ConceptProgress projectProgress() {
-        List<AcceptedLearningEvidence> conceptEvidence = evidenceStore.allEvidence().stream()
+    private ConceptProgress projectProgress(UUID learnerId, UUID conceptId) {
+        List<AcceptedLearningEvidence> conceptEvidence = flowStore.allEvidence().stream()
                 .filter(item -> item.learnerId().equals(learnerId) && item.conceptId().equals(conceptId))
                 .sorted(java.util.Comparator.comparing(AcceptedLearningEvidence::acceptedAt))
                 .toList();
@@ -116,6 +115,6 @@ public final class IndependentSubmissionFlow {
     }
 
     private TaskPackage packageOf(TaskAttempt attempt) {
-        return attemptStore.findPackage(attempt.taskPackageId()).orElseThrow();
+        return artifactStore.findPackage(attempt.taskPackageId()).orElseThrow();
     }
 }

@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.learning.model.entity;
 
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.time.Instant;
 import java.util.List;
@@ -36,12 +37,14 @@ public record AcceptedLearningEvidence(
         assistanceTrace = List.copyOf(assistanceTrace);
     }
 
+    @JsonIgnore
     public boolean isIndependentSuccess() {
         return result == LearningResult.PASS
                 && highestHintLevel == 0
                 && attemptPurpose == AttemptPurpose.INDEPENDENT_TEST;
     }
 
+    @JsonIgnore
     public boolean isPracticeSuccess() {
         return result == LearningResult.PASS && attemptPurpose == AttemptPurpose.PRACTICE;
     }

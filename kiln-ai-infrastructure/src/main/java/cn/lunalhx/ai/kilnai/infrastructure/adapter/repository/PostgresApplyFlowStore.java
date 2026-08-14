@@ -1,0 +1,302 @@
+package cn.lunalhx.ai.kilnai.infrastructure.adapter.repository;
+
+import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+
+import javax.sql.DataSource;
+import java.time.Clock;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * Postgres-backed typed LearningFlowStore and ArtifactStore for the Apply
+ * reference. Every boundary commit (package plus open Attempt, closed Attempt
+ * plus submission, learner interaction plus checkpoint plus processed command)
+ * is one database transaction.
+ */
+@Repository
+@ConditionalOnBean(DataSource.class)
+public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore {
+
+    private final ApplyFlowMapper mapper;
+    private final ObjectMapper json;
+    private final Clock clock;
+
+    public PostgresApplyFlowStore(ApplyFlowMapper mapper, ObjectMapper json, Clock clock) {
+        this.mapper = Objects.requireNonNull(mapper, "mapper must not be null");
+        this.json = Objects.requireNonNull(json, "json must not be null");
+        this.clock = Objects.requireNonNull(clock, "clock must not be null");
+    }
+
+    @Override
+    public void insertFlow(FlowRecord flow) {
+        mapper.insertFlow(flow.flowId(), flow.learnerId(), flow.conceptId(),
+                flow.status().name(), flow.stage().name(), flow.createdAt());
+    }
+
+    @Override
+    public Optional<FlowRecord> findFlow(UUID flowId) {
+        return mapper.findFlow(flowId).map(row -> new FlowRecord(
+                row.id(), row.learnerId(), row.conceptId(),
+                FlowStatus.valueOf(row.status()), LearningStage.valueOf(row.stage()), row.createdAt()));
+    }
+
+    @Override
+    @Transactional
+    public void commitBoundary(ApplyFlowInteraction interaction, ApplyCheckpoint checkpoint, ProcessedCommand command) {
+        mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
+                UUID.randomUUID(),
+                interaction.flowId(),
+                interaction.interactionVersion(),
+                interaction.status().name(),
+                interaction.stage().name(),
+                interaction.attemptId(),
+                interaction.attemptPurpose() == null ? null : interaction.attemptPurpose().name(),
+                interaction.learnerProjection() == null ? null : writeJson(interaction.learnerProjection()),
+                interaction.learnerMessage(),
+                checkpoint.createdAt()));
+        mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
+                checkpoint.checkpointId(), checkpoint.flowId(), checkpoint.interactionVersion(),
+                checkpoint.createdAt()));
+        mapper.insertCommand(new ApplyFlowMapper.CommandRow(
+                command.idempotencyKey(), command.requestHash(), command.flowId(),
+                writeJson(command.response()), command.createdAt()));
+    }
+
+    @Override
+    public Optional<ApplyFlowInteraction> latestInteraction(UUID flowId) {
+        return mapper.latestInteraction(flowId).map(row -> new ApplyFlowInteraction(
+                row.flowId(),
+                row.interactionVersion(),
+                FlowStatus.valueOf(row.status()),
+                LearningStage.valueOf(row.stage()),
+                row.attemptId(),
+                row.attemptPurpose() == null ? null : AttemptPurpose.valueOf(row.attemptPurpose()),
+                row.learnerProjectionJson() == null ? null : readJson(row.learnerProjectionJson(),
+                        cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection.class),
+                row.learnerMessage()));
+    }
+
+    @Override
+    public Optional<ApplyCheckpoint> latestCheckpoint(UUID flowId) {
+        return mapper.latestCheckpoint(flowId).map(row -> new ApplyCheckpoint(
+                row.id(), row.flowId(), row.interactionVersion(), row.createdAt()));
+    }
+
+    @Override
+    public void recordTaskExposure(UUID flowId, TaskPackage taskPackage) {
+        mapper.recordExposure(
+                flowId,
+                taskPackage.taskPackageId(),
+                taskPackage.privateAssessorProjection().taskFingerprint().value(),
+                taskPackage.privateAssessorProjection().solutionFingerprint().value(),
+                clock.instant());
+    }
+
+    @Override
+    public List<String> exposedTaskFingerprints(UUID flowId) {
+        return mapper.exposedTaskFingerprints(flowId);
+    }
+
+    @Override
+    public List<String> exposedSolutionFingerprints(UUID flowId) {
+        return mapper.exposedSolutionFingerprints(flowId);
+    }
+
+    @Override
+    public void acceptEvidence(AcceptedLearningEvidence evidence) {
+        mapper.insertEvidence(new ApplyFlowMapper.EvidenceRow(
+                evidence.id(),
+                evidence.taskAttemptId(),
+                evidence.flowId(),
+                evidence.conceptId(),
+                evidence.learnerId(),
+                evidence.result().name(),
+                evidence.attemptPurpose().name(),
+                evidence.highestHintLevel(),
+                writeJson(evidence.assistanceTrace()),
+                evidence.acceptedAt()));
+    }
+
+    @Override
+    public boolean evidenceExists(UUID attemptId) {
+        return mapper.evidenceExists(attemptId).isPresent();
+    }
+
+    @Override
+    public List<AcceptedLearningEvidence> allEvidence() {
+        return mapper.listEvidence().stream().map(row -> new AcceptedLearningEvidence(
+                row.id(),
+                row.taskAttemptId(),
+                row.flowId(),
+                row.conceptId(),
+                row.learnerId(),
+                LearningResult.valueOf(row.result()),
+                AttemptPurpose.valueOf(row.attemptPurpose()),
+                row.highestHintLevel(),
+                readJson(row.assistanceTraceJson(), new TypeReference<List<String>>() {
+                }),
+                row.acceptedAt())).toList();
+    }
+
+    @Override
+    public Optional<ProcessedCommand> findCommand(UUID idempotencyKey) {
+        return mapper.findCommand(idempotencyKey).map(row -> new ProcessedCommand(
+                row.idempotencyKey(), row.requestHash(), row.flowId(),
+                readJson(row.responseJson(), ApplyFlowInteraction.class), row.createdAt()));
+    }
+
+    @Override
+    @Transactional
+    public TaskAttempt openAttempt(TaskPackage taskPackage) {
+        mapper.insertPackage(new ApplyFlowMapper.PackageRow(
+                taskPackage.taskPackageId(),
+                taskPackage.attemptPurpose().name(),
+                writeJson(taskPackage.learnerProjection()),
+                writeJson(taskPackage.privateAssessorProjection())));
+        TaskAttempt attempt = new TaskAttempt(
+                UUID.randomUUID(),
+                taskPackage.taskPackageId(),
+                taskPackage.attemptPurpose(),
+                AttemptStatus.OPEN,
+                clock.instant(),
+                null,
+                null);
+        mapper.insertAttempt(new ApplyFlowMapper.AttemptRow(
+                attempt.attemptId(),
+                attempt.taskPackageId(),
+                attempt.purpose().name(),
+                attempt.status().name(),
+                attempt.openedAt(),
+                null,
+                null));
+        return attempt;
+    }
+
+    @Override
+    public Optional<TaskPackage> findPackage(UUID taskPackageId) {
+        return mapper.findPackage(taskPackageId).map(row -> new TaskPackage(
+                TaskPackage.SCHEMA,
+                row.id(),
+                AttemptPurpose.valueOf(row.attemptPurpose()),
+                readJson(row.learnerProjectionJson(), cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection.class),
+                readJson(row.privateAssessorProjectionJson(),
+                        cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorProjection.class)));
+    }
+
+    @Override
+    public List<TaskPackage> allPackages() {
+        return mapper.listPackages().stream().map(row -> new TaskPackage(
+                TaskPackage.SCHEMA,
+                row.id(),
+                AttemptPurpose.valueOf(row.attemptPurpose()),
+                readJson(row.learnerProjectionJson(), cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection.class),
+                readJson(row.privateAssessorProjectionJson(),
+                        cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorProjection.class))).toList();
+    }
+
+    @Override
+    public Optional<TaskAttempt> findAttempt(UUID attemptId) {
+        return mapper.findAttempt(attemptId).map(row -> new TaskAttempt(
+                row.id(),
+                row.taskPackageId(),
+                AttemptPurpose.valueOf(row.purpose()),
+                AttemptStatus.valueOf(row.status()),
+                row.openedAt(),
+                row.closedAt(),
+                row.submissionJson() == null ? null : readJson(row.submissionJson(), TaskSubmission.class)));
+    }
+
+    @Override
+    @Transactional
+    public AttemptCloseOutcome closeAttempt(UUID attemptId, TaskSubmission submission) {
+        int updated = mapper.closeOpenAttempt(attemptId, clock.instant(), writeJson(submission));
+        if (updated == 0) {
+            return findAttempt(attemptId)
+                    .map(current -> new AttemptCloseOutcome(AttemptCloseOutcome.Result.ALREADY_CLOSED, current))
+                    .orElseGet(() -> new AttemptCloseOutcome(AttemptCloseOutcome.Result.NOT_FOUND, null));
+        }
+        return new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, findAttempt(attemptId).orElseThrow());
+    }
+
+    @Override
+    public void recordTaskVerification(UUID taskPackageId, TaskVerificationVerdict verdict) {
+        mapper.insertVerification(UUID.randomUUID(), taskPackageId, writeJson(verdict), clock.instant());
+    }
+
+    @Override
+    public List<TaskVerificationVerdict> verificationsFor(UUID taskPackageId) {
+        return mapper.listVerificationJson(taskPackageId).stream()
+                .map(payload -> readJson(payload, TaskVerificationVerdict.class)).toList();
+    }
+
+    @Override
+    public void recordResponseAssessment(UUID attemptId, ResponseAssessment assessment) {
+        mapper.insertAssessment(UUID.randomUUID(), attemptId, writeJson(assessment), clock.instant());
+    }
+
+    @Override
+    public List<ResponseAssessment> assessmentsFor(UUID attemptId) {
+        return mapper.listAssessmentJson(attemptId).stream()
+                .map(payload -> readJson(payload, ResponseAssessment.class)).toList();
+    }
+
+    @Override
+    public void saveSource(SourceArtifact source) {
+        mapper.insertSource(source.sourcePackId(), source.version(), writeJson(source.passages()), clock.instant());
+    }
+
+    @Override
+    public Optional<SourceArtifact> findSource(String sourcePackId) {
+        return mapper.findSource(sourcePackId).map(row -> new SourceArtifact(
+                row.sourcePackId(), row.version(), readJson(row.passagesJson(),
+                        new TypeReference<List<cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext.SourcePassage>>() {
+                        })));
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return json.writeValueAsString(value);
+        } catch (Exception exception) {
+            throw new IllegalStateException("failed to serialize apply flow payload", exception);
+        }
+    }
+
+    private <T> T readJson(String value, Class<T> type) {
+        try {
+            return json.readValue(value, type);
+        } catch (Exception exception) {
+            throw new IllegalStateException("failed to deserialize apply flow payload", exception);
+        }
+    }
+
+    private <T> T readJson(String value, TypeReference<T> type) {
+        try {
+            return json.readValue(value, type);
+        } catch (Exception exception) {
+            throw new IllegalStateException("failed to deserialize apply flow payload", exception);
+        }
+    }
+}

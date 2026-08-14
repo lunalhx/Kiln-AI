@@ -10,11 +10,13 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Runs the isolated response assessment for one closed attempt: builds the
@@ -67,5 +69,34 @@ public final class AssessmentRunner {
         return purpose == AttemptPurpose.DIAGNOSTIC && deterministic == EquivalenceOutcome.PROVEN_EQUIVALENT
                 || purpose == AttemptPurpose.INDEPENDENT_TEST
                 && deterministic == EquivalenceOutcome.PROVEN_NOT_EQUIVALENT;
+    }
+
+    /**
+     * Appends every non-null isolated judgment carried by the outcome to the
+     * Artifact Store. Duplicate recordings are audit records, never state.
+     */
+    public static void recordAssessments(
+            ArtifactStore artifactStore,
+            UUID attemptId,
+            AssessmentOutcome outcome
+    ) {
+        ResponseAssessment assessment = switch (outcome) {
+            case AssessmentOutcome.Passed passed -> passed.assessment();
+            case AssessmentOutcome.Failed failed -> failed.assessment();
+            case AssessmentOutcome.Inconclusive inconclusive -> inconclusive.assessment();
+            case AssessmentOutcome.Blocked blocked -> blocked.assessment();
+        };
+        if (assessment != null) {
+            artifactStore.recordResponseAssessment(attemptId, assessment);
+        }
+        ResponseAssessment verification = switch (outcome) {
+            case AssessmentOutcome.Passed passed -> passed.verification();
+            case AssessmentOutcome.Failed failed -> failed.verification();
+            case AssessmentOutcome.Inconclusive inconclusive -> inconclusive.verification();
+            case AssessmentOutcome.Blocked blocked -> blocked.verification();
+        };
+        if (verification != null) {
+            artifactStore.recordResponseAssessment(attemptId, verification);
+        }
     }
 }

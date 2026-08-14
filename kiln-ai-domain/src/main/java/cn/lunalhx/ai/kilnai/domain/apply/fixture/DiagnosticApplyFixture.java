@@ -4,10 +4,12 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 
 import java.util.List;
+import java.util.UUID;
 
 public final class DiagnosticApplyFixture {
 
     public static final String PASSAGE_ID = "sec-3.3-differentiation-rules";
+    public static final UUID CONCEPT_ID = UUID.fromString("00000000-0000-0000-0000-00000000000c");
 
     private DiagnosticApplyFixture() {
     }

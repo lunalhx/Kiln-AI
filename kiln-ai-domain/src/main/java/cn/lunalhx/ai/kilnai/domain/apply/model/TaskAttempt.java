@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.model;
 
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -25,10 +26,12 @@ public record TaskAttempt(
         Objects.requireNonNull(openedAt, "openedAt must not be null");
     }
 
+    @JsonIgnore
     public boolean isOpen() {
         return status == AttemptStatus.OPEN;
     }
 
+    @JsonIgnore
     public boolean isClosed() {
         return status != AttemptStatus.OPEN;
     }

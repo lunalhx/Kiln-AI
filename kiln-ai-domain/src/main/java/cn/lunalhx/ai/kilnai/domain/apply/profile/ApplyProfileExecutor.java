@@ -14,7 +14,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskUnavailableReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
-import cn.lunalhx.ai.kilnai.domain.apply.port.TaskAttemptStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.gate.GateContext;
 import cn.lunalhx.ai.kilnai.domain.gate.GateOutcome;
@@ -33,7 +33,7 @@ public final class ApplyProfileExecutor {
     private final BundleRegistry registry;
     private final ApplyGenerationPort generationPort;
     private final TaskVerifierPort verifierPort;
-    private final TaskAttemptStore attemptStore;
+    private final ArtifactStore artifactStore;
     private final ApplyPromptCompiler compiler;
     private final TaskPackageAssembler assembler;
     private final TypedArtifactGatePipeline gatePipeline;
@@ -42,12 +42,12 @@ public final class ApplyProfileExecutor {
             BundleRegistry registry,
             ApplyGenerationPort generationPort,
             TaskVerifierPort verifierPort,
-            TaskAttemptStore attemptStore
+            ArtifactStore artifactStore
     ) {
         this.registry = Objects.requireNonNull(registry, "registry must not be null");
         this.generationPort = Objects.requireNonNull(generationPort, "generationPort must not be null");
         this.verifierPort = Objects.requireNonNull(verifierPort, "verifierPort must not be null");
-        this.attemptStore = Objects.requireNonNull(attemptStore, "attemptStore must not be null");
+        this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
         this.compiler = new ApplyPromptCompiler();
         this.assembler = new TaskPackageAssembler();
         this.gatePipeline = new TypedArtifactGatePipeline();
@@ -102,10 +102,11 @@ public final class ApplyProfileExecutor {
             return Optional.empty();
         }
         TaskVerificationVerdict verdict = verifierPort.verify(taskPackage, context);
+        artifactStore.recordTaskVerification(taskPackage.taskPackageId(), verdict);
         if (!verdict.passed()) {
             return Optional.empty();
         }
-        TaskAttempt attempt = attemptStore.openAttempt(taskPackage);
+        TaskAttempt attempt = artifactStore.openAttempt(taskPackage);
         return Optional.of(new ApplyDeliveryResult.Delivered(attempt, taskPackage.learnerProjection()));
     }
 
