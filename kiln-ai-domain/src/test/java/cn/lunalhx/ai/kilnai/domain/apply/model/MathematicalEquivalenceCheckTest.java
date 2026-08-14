@@ -94,6 +94,12 @@ class MathematicalEquivalenceCheckTest {
     }
 
     @Test
+    void anAmbiguousChainedPowerReturnsCannotDecide() {
+        assertEquals(CANNOT_DECIDE,
+                MathematicalEquivalenceCheck.check("x^2^3", "x^8", VARIABLES));
+    }
+
+    @Test
     void anUndeclaredLetterReturnsCannotDecide() {
         assertEquals(CANNOT_DECIDE,
                 MathematicalEquivalenceCheck.check("12*y^2 + 1", "12*y^2 + 1", VARIABLES));

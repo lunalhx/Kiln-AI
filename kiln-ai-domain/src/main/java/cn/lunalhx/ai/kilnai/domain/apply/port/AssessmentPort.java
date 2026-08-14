@@ -1,13 +1,14 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
 
-import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleAssessmentContext;
-import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
 
 /**
- * The isolated model-backed judgment of a Diagnostic rationale. It returns a
- * closed typed judgment and cannot accept Evidence or mutate Flow State.
+ * The isolated model-backed evaluation of one submitted response. It returns
+ * only the closed {@code response_assessment/v1} contract and cannot accept
+ * Evidence or mutate Flow State.
  */
 public interface AssessmentPort {
 
-    RationaleJudgment judgeDiagnosticRationale(RationaleAssessmentContext context);
+    ResponseAssessment assess(ResponseAssessmentContext context);
 }

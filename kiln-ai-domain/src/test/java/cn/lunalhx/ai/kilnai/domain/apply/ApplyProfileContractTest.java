@@ -5,18 +5,28 @@ import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleRegistry;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ApplyScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedApplyGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedAssessmentModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedResponseVerificationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTaskVerifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.DiagnosticSubmissionResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.EquivalenceOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.IndependentSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionRejectionReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskUnavailableReason;
@@ -256,7 +266,7 @@ class ApplyProfileContractTest {
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
                 ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
-        Harness harness = flow(generation, verifier, assessment);
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
         ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
         DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(
@@ -293,7 +303,7 @@ class ApplyProfileContractTest {
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
                 ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
-        Harness harness = flow(generation, verifier, assessment);
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
         ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
         DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(
@@ -323,8 +333,9 @@ class ApplyProfileContractTest {
                         ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
                 ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
-        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(RationaleJudgment.APPLICABLE));
-        Harness harness = flow(generation, verifier, assessment);
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.APPLICABLE)));
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
         ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
         DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(
@@ -345,8 +356,9 @@ class ApplyProfileContractTest {
     void aFailingDiagnosticEndsSafelyWithoutFeedbackAndWithoutAnIndependentTask() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson()));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
-        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(RationaleJudgment.NOT_APPLICABLE));
-        Harness harness = flow(generation, verifier, assessment);
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_APPLICABLE)));
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
         ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
         DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(
@@ -371,7 +383,7 @@ class ApplyProfileContractTest {
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
                 ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
-        Harness harness = flow(generation, verifier, assessment);
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
         ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
         UUID attemptId = diagnostic.attempt().attemptId();
@@ -383,7 +395,7 @@ class ApplyProfileContractTest {
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
 
         assertInstanceOf(DiagnosticSubmissionResult.Ignored.class, replayed);
-        assertEquals(DiagnosticSubmissionResult.IgnoreReason.ALREADY_SUBMITTED,
+        assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED,
                 ((DiagnosticSubmissionResult.Ignored) replayed).reason());
         assertEquals(0, assessment.contexts().size(), "a replay must never trigger a second evaluation");
         assertEquals(2, generation.calls().size(), "a replay must never deliver a second Independent task");
@@ -396,14 +408,14 @@ class ApplyProfileContractTest {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson()));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
-        Harness harness = flow(generation, verifier, assessment);
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
         DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(
                 UUID.randomUUID(), ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
 
         assertInstanceOf(DiagnosticSubmissionResult.Ignored.class, result);
-        assertEquals(DiagnosticSubmissionResult.IgnoreReason.ATTEMPT_NOT_FOUND,
+        assertEquals(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND,
                 ((DiagnosticSubmissionResult.Ignored) result).reason());
         assertTrue(assessment.contexts().isEmpty());
         assertEquals(0, generation.calls().size(), "an unknown attempt must not trigger generation");
@@ -418,7 +430,7 @@ class ApplyProfileContractTest {
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
                 ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
-        Harness harness = flow(generation, verifier, assessment);
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
         ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
         UUID attemptId = diagnostic.attempt().attemptId();
@@ -427,13 +439,13 @@ class ApplyProfileContractTest {
                 attemptId, ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL + " + 1", null);
         assertInstanceOf(DiagnosticSubmissionResult.NotSubmittable.class, mismatched);
-        assertEquals(DiagnosticSubmissionResult.RejectionReason.CONFIRMATION_MISMATCH,
+        assertEquals(SubmissionRejectionReason.CONFIRMATION_MISMATCH,
                 ((DiagnosticSubmissionResult.NotSubmittable) mismatched).reason());
 
         DiagnosticSubmissionResult unparseable = harness.flow().submitDiagnostic(
                 attemptId, "12*y^2 + 1", "12*y^2 + 1", null);
         assertInstanceOf(DiagnosticSubmissionResult.NotSubmittable.class, unparseable);
-        assertEquals(DiagnosticSubmissionResult.RejectionReason.UNPARSEABLE_RAW,
+        assertEquals(SubmissionRejectionReason.UNPARSEABLE_RAW,
                 ((DiagnosticSubmissionResult.NotSubmittable) unparseable).reason());
 
         assertTrue(assessment.contexts().isEmpty(), "no evaluation before a valid confirmed submission");
@@ -457,7 +469,7 @@ class ApplyProfileContractTest {
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
                 ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
-        Harness harness = flow(generation, verifier, assessment);
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
         ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
         harness.flow().submitDiagnostic(diagnostic.attempt().attemptId(),
@@ -492,7 +504,7 @@ class ApplyProfileContractTest {
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
                 ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
-        Harness harness = flow(generation, verifier, assessment);
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
         ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
         String diagnosticFingerprint = harness.store().findPackage(diagnostic.attempt().taskPackageId())
@@ -523,7 +535,7 @@ class ApplyProfileContractTest {
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
                 ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
-        Harness harness = flow(generation, verifier, assessment);
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
         ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
         DiagnosticSubmissionResult passed = harness.flow().submitDiagnostic(
@@ -537,7 +549,7 @@ class ApplyProfileContractTest {
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
 
         assertInstanceOf(DiagnosticSubmissionResult.Ignored.class, result);
-        assertEquals(DiagnosticSubmissionResult.IgnoreReason.NOT_A_DIAGNOSTIC_ATTEMPT,
+        assertEquals(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE,
                 ((DiagnosticSubmissionResult.Ignored) result).reason());
         assertEquals(AttemptStatus.OPEN, harness.store().findAttempt(independentAttemptId).orElseThrow().status(),
                 "the Independent attempt must not be closed through the Diagnostic submission path");
@@ -551,7 +563,7 @@ class ApplyProfileContractTest {
                 ApplyScriptData.sourceGapJson()));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
-        Harness harness = flow(generation, verifier, assessment);
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
         ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
         DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(
@@ -566,15 +578,291 @@ class ApplyProfileContractTest {
         assertEquals(ApplyDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE, unavailable.learnerMessage());
     }
 
+    @Test
+    void cannotDecidePassesOnlyWhenIsolatedAssessmentAndResponseVerificationBothJudgeEquivalent() {
+        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
+                ApplyScriptData.taskReadyJson(),
+                ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                        ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
+                ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
+        ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
+        Harness harness = flow(generation, verifier, assessment, verification);
+
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(
+                diagnostic.attempt().attemptId(),
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE,
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE,
+                null);
+
+        assertInstanceOf(DiagnosticSubmissionResult.Passed.class, result);
+        assertEquals(1, assessment.contexts().size(), "the isolated Assessment must judge the Cannot Decide input");
+        assertEquals(1, verification.contexts().size(),
+                "independent Response Verification must judge the same Cannot Decide input");
+        assertEquals(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                ((DiagnosticSubmissionResult.Passed) result).independentLearnerProjection().taskText());
+    }
+
+    @Test
+    void cannotDecideAssessmentAndVerificationAreIsolatedAndReceiveTheSameInputs() {
+        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
+                ApplyScriptData.taskReadyJson(),
+                ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                        ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
+                ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
+        ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
+        Harness harness = flow(generation, verifier, assessment, verification);
+
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
+        harness.flow().submitDiagnostic(
+                diagnostic.attempt().attemptId(),
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE,
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE,
+                ApplyScriptData.APPLICABLE_RATIONALE);
+
+        assertEquals(1, assessment.contexts().size());
+        assertEquals(1, verification.contexts().size());
+        ResponseAssessmentContext assessed = assessment.contexts().get(0);
+        ResponseAssessmentContext verified = verification.contexts().get(0);
+        assertEquals(assessed, verified,
+                "Assessment and Response Verification must receive the identical raw and confirmed inputs");
+        assertEquals(ApplyScriptData.UNDECIDABLE_DERIVATIVE, assessed.rawAnswer());
+        assertEquals(ApplyScriptData.UNDECIDABLE_DERIVATIVE, assessed.confirmedCanonicalExpression());
+        assertEquals(ApplyScriptData.EXPECTED_EXPRESSION, assessed.expectedCanonicalExpression());
+        assertEquals(ApplyScriptData.APPLICABLE_RATIONALE, assessed.rationale());
+        assertEquals(AttemptPurpose.DIAGNOSTIC, assessed.purpose());
+        assertEquals(EquivalenceOutcome.CANNOT_DECIDE, assessed.deterministicOutcome());
+    }
+
+    @Test
+    void cannotDecideWithDisagreementIsInconclusiveWithoutFailureFeedbackOrEvidence() {
+        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
+                ApplyScriptData.taskReadyJson(),
+                ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                        ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
+                ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
+        ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
+        Harness harness = flow(generation, verifier, assessment, verification);
+
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(
+                diagnostic.attempt().attemptId(),
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE,
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE,
+                null);
+
+        assertInstanceOf(DiagnosticSubmissionResult.Inconclusive.class, result);
+        DiagnosticSubmissionResult.Inconclusive inconclusive =
+                (DiagnosticSubmissionResult.Inconclusive) result;
+        assertEquals(DiagnosticFlow.NEUTRAL_TRANSITION_MESSAGE, inconclusive.neutralTransitionMessage());
+        assertFalse(inconclusive.neutralTransitionMessage().contains("正确"), "no correctness feedback");
+        assertFalse(inconclusive.neutralTransitionMessage().contains("错误"), "no failure feedback");
+        assertFalse(inconclusive.neutralTransitionMessage().contains("答案"), "no answer feedback");
+        assertNotNull(inconclusive.independentAttempt(), "a fresh Independent task must be prepared");
+        String diagnosticFingerprint = harness.store().findPackage(diagnostic.attempt().taskPackageId())
+                .orElseThrow().privateAssessorProjection().taskFingerprint().value();
+        String independentFingerprint = harness.store().findPackage(inconclusive.independentAttempt().taskPackageId())
+                .orElseThrow().privateAssessorProjection().taskFingerprint().value();
+        assertFalse(independentFingerprint.equals(diagnosticFingerprint),
+                "the prepared Independent task must be fresh");
+    }
+
+    @Test
+    void cannotDecideWithBothNonEquivalentIsInconclusiveNeverGuessedWrong() {
+        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
+                ApplyScriptData.taskReadyJson(),
+                ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                        ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
+                ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
+        ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
+        Harness harness = flow(generation, verifier, assessment, verification);
+
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(
+                diagnostic.attempt().attemptId(),
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE,
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE,
+                null);
+
+        assertInstanceOf(DiagnosticSubmissionResult.Inconclusive.class, result,
+                "an unresolved expression must never be judged a failure");
+        assertEquals(2, generation.calls().size(),
+                "the Inconclusive Diagnostic must prepare a fresh Independent task");
+        assertNotNull(((DiagnosticSubmissionResult.Inconclusive) result).independentAttempt());
+    }
+
+    @Test
+    void anIndependentSubmissionWithAnOmittedRationaleIsEligibleForEvidence() {
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED)));
+        ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of());
+        PassedIndependent passed = passDiagnosticAndDeliverIndependent(assessment, verification);
+        IndependentSubmissionFlow flow = new IndependentSubmissionFlow(
+                passed.harness().store(), assessment, verification, CLOCK);
+
+        IndependentSubmissionResult result = flow.submitIndependent(
+                passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+
+        assertInstanceOf(IndependentSubmissionResult.Assessed.class, result);
+        IndependentSubmissionResult.Assessed assessed = (IndependentSubmissionResult.Assessed) result;
+        assertInstanceOf(AssessmentOutcome.Passed.class, assessed.outcome(),
+                "an omitted rationale must not block Independent evidence eligibility");
+        assertEquals(AttemptStatus.SUBMITTED, assessed.closedAttempt().status());
+        assertTrue(verification.contexts().isEmpty(), "a proven result must never invoke Response Verification");
+    }
+
+    @Test
+    void anIndependentSubmissionWithANonSubstantiveRationaleDoesNotBlock() {
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NON_SUBSTANTIVE)));
+        ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of());
+        PassedIndependent passed = passDiagnosticAndDeliverIndependent(assessment, verification);
+        IndependentSubmissionFlow flow = new IndependentSubmissionFlow(
+                passed.harness().store(), assessment, verification, CLOCK);
+
+        IndependentSubmissionResult result = flow.submitIndependent(
+                passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.NON_SUBSTANTIVE_RATIONALE);
+
+        assertInstanceOf(IndependentSubmissionResult.Assessed.class, result);
+        assertInstanceOf(AssessmentOutcome.Passed.class, ((IndependentSubmissionResult.Assessed) result).outcome(),
+                "a non-substantive rationale must not block Independent evidence eligibility");
+    }
+
+    @Test
+    void anIndependentSubmissionWithAClearlyContradictoryRationaleBlocksEvidence() {
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.CLEARLY_CONTRADICTORY)));
+        ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of());
+        PassedIndependent passed = passDiagnosticAndDeliverIndependent(assessment, verification);
+        IndependentSubmissionFlow flow = new IndependentSubmissionFlow(
+                passed.harness().store(), assessment, verification, CLOCK);
+
+        IndependentSubmissionResult result = flow.submitIndependent(
+                passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.CONTRADICTORY_RATIONALE);
+
+        assertInstanceOf(IndependentSubmissionResult.Assessed.class, result);
+        assertInstanceOf(AssessmentOutcome.Blocked.class, ((IndependentSubmissionResult.Assessed) result).outcome(),
+                "a clearly contradictory rationale must block Independent Evidence");
+    }
+
+    @Test
+    void aProvenDeterministicNonEquivalenceIsNeverOverriddenInAnIndependentSubmission() {
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_PROVIDED)));
+        ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of());
+        PassedIndependent passed = passDiagnosticAndDeliverIndependent(assessment, verification);
+        IndependentSubmissionFlow flow = new IndependentSubmissionFlow(
+                passed.harness().store(), assessment, verification, CLOCK);
+
+        IndependentSubmissionResult result = flow.submitIndependent(
+                passed.independentAttemptId(), ApplyScriptData.WRONG_DERIVATIVE,
+                ApplyScriptData.WRONG_DERIVATIVE, null);
+
+        assertInstanceOf(IndependentSubmissionResult.Assessed.class, result);
+        assertInstanceOf(AssessmentOutcome.Failed.class, ((IndependentSubmissionResult.Assessed) result).outcome(),
+                "a proven deterministic non-equivalence is never overridden by a model judgment");
+        assertTrue(assessment.contexts().isEmpty(), "no model judgment may override a proven deterministic result");
+        assertTrue(verification.contexts().isEmpty());
+    }
+
+    @Test
+    void aDuplicateIndependentSubmissionIsIgnoredWithoutASecondAssessment() {
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED)));
+        ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of());
+        PassedIndependent passed = passDiagnosticAndDeliverIndependent(assessment, verification);
+        IndependentSubmissionFlow flow = new IndependentSubmissionFlow(
+                passed.harness().store(), assessment, verification, CLOCK);
+
+        flow.submitIndependent(passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+        IndependentSubmissionResult replayed = flow.submitIndependent(
+                passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+
+        assertInstanceOf(IndependentSubmissionResult.Ignored.class, replayed);
+        assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED,
+                ((IndependentSubmissionResult.Ignored) replayed).reason());
+        assertEquals(1, assessment.contexts().size(), "a replay must never trigger a second evaluation");
+    }
+
+    @Test
+    void anIndependentSubmissionWithDisagreeingCannotDecideJudgmentsIsInconclusive() {
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_PROVIDED)));
+        ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_EQUIVALENT, RationaleJudgment.NOT_PROVIDED)));
+        PassedIndependent passed = passDiagnosticAndDeliverIndependent(assessment, verification);
+        IndependentSubmissionFlow flow = new IndependentSubmissionFlow(
+                passed.harness().store(), assessment, verification, CLOCK);
+
+        IndependentSubmissionResult result = flow.submitIndependent(
+                passed.independentAttemptId(), ApplyScriptData.UNDECIDABLE_DERIVATIVE,
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
+
+        assertInstanceOf(IndependentSubmissionResult.Assessed.class, result);
+        assertInstanceOf(AssessmentOutcome.Inconclusive.class, ((IndependentSubmissionResult.Assessed) result).outcome(),
+                "evaluator disagreement on an uncertain expression must be Inconclusive, not a failure");
+        assertEquals(1, assessment.contexts().size());
+        assertEquals(1, verification.contexts().size());
+        assertEquals(assessment.contexts().get(0), verification.contexts().get(0),
+                "both isolated evaluators must receive the identical raw and confirmed inputs");
+    }
+
+    private PassedIndependent passDiagnosticAndDeliverIndependent(
+            ScriptedAssessmentModel assessment,
+            ScriptedResponseVerificationModel verification
+    ) {
+        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
+                ApplyScriptData.taskReadyJson(),
+                ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                        ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
+                ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
+        Harness harness = flow(generation, verifier, assessment, verification);
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic();
+        DiagnosticSubmissionResult passed = harness.flow().submitDiagnostic(
+                diagnostic.attempt().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
+                ApplyScriptData.UNICODE_CORRECT_CANONICAL,
+                null);
+        return new PassedIndependent(
+                harness,
+                ((DiagnosticSubmissionResult.Passed) passed).independentAttempt().attemptId());
+    }
+
+    private record PassedIndependent(Harness harness, UUID independentAttemptId) {
+    }
+
     private Harness flow(
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
-            ScriptedAssessmentModel assessment
+            ScriptedAssessmentModel assessment,
+            ScriptedResponseVerificationModel verification
     ) {
         TaskAttemptStore store = new InMemoryTaskAttemptStore(CLOCK);
         ExposureLedger ledger = new InMemoryExposureLedger();
         ApplyProfileExecutor executor = new ApplyProfileExecutor(registry, generation, verifier, store);
-        DiagnosticFlow flow = new DiagnosticFlow(executor, store, ledger, assessment,
+        DiagnosticFlow flow = new DiagnosticFlow(executor, store, ledger, assessment, verification,
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
                 CLOCK);

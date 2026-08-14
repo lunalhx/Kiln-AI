@@ -1,6 +1,9 @@
 package cn.lunalhx.ai.kilnai.domain.apply.fake;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyGenerationDraft;
+import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 
 import java.util.List;
@@ -21,7 +24,20 @@ public final class ApplyScriptData {
 
     public static final String APPLICABLE_RATIONALE = "利用幂法则和和差法则逐项求导";
 
+    /** A confirmed expression the checker cannot decide, e.g. a chained power. */
+    public static final String UNDECIDABLE_DERIVATIVE = "x^2^3";
+
+    public static final String NON_SUBSTANTIVE_RATIONALE = "凭感觉";
+    public static final String CONTRADICTORY_RATIONALE = "我用了乘积法则，答案是 6x";
+
     private ApplyScriptData() {
+    }
+
+    public static ResponseAssessment responseAssessment(
+            FinalExpressionJudgment finalExpressionJudgment,
+            RationaleJudgment rationaleJudgment
+    ) {
+        return new ResponseAssessment(ResponseAssessment.SCHEMA, finalExpressionJudgment, rationaleJudgment, List.of());
     }
 
     public static String taskReadyJson() {
