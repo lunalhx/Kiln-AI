@@ -1,0 +1,180 @@
+package cn.lunalhx.ai.kilnai.infrastructure.adapter.model;
+
+import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
+import cn.lunalhx.ai.kilnai.domain.apply.model.EquivalenceOutcome;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
+import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
+import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
+import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.DefaultUsage;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Function;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ApplyModelAdapterTest {
+
+    private static final String SECRET_ENV = "KILN_APPLY_ADAPTER_TEST_KEY";
+    private static final String SECRET = "sk-apply-test-secret";
+
+    @Test
+    void generationReturnsRawModelTextAndNeverRegistersTools() {
+        ScriptedChatModel model = new ScriptedChatModel("{\"outcome\":\"source_gap\"}");
+        ApplyModelAdapter adapter = adapter(model);
+
+        String raw = adapter.generate("compiled prompt", "{\"schema\":\"apply_execution_context/v1\"}");
+
+        assertEquals("{\"outcome\":\"source_gap\"}", raw);
+        assertEquals(List.of("system", "user"), model.prompts.getFirst().getInstructions().stream()
+                .map(message -> message.getMessageType().getValue()).toList());
+        assertEquals("compiled prompt", model.prompts.getFirst().getInstructions().get(0).getText());
+        assertEquals("{\"schema\":\"apply_execution_context/v1\"}",
+                model.prompts.getFirst().getInstructions().get(1).getText());
+        assertEquals(1, model.prompts.size());
+        assertTrue(model.prompts.stream().allMatch(ApplyModelAdapterTest::hasNoTools),
+                "the Apply adapter must never register tools");
+    }
+
+    @Test
+    void taskVerificationParsesAPassVerdict() {
+        ScriptedChatModel model = new ScriptedChatModel("""
+                {"schema":"task_verification/v1","verdict":"pass",
+                 "checks":{"answer_correctness":"pass","rubric_alignment":"pass","source_grounding":"pass",
+                 "blueprint_compliance":"pass","learner_boundary":"pass"},"reason_codes":[]}
+                """);
+        ApplyModelAdapter adapter = adapter(model);
+
+        TaskVerificationVerdict verdict = adapter.verify(null, null);
+
+        assertEquals(TaskVerificationVerdict.Verdict.PASS, verdict.verdict());
+        assertTrue(verdict.passed());
+        assertEquals(5, verdict.checks().size());
+        assertTrue(verdict.checks().values().stream()
+                .allMatch(result -> result == TaskVerificationVerdict.CheckResult.PASS));
+    }
+
+    @Test
+    void taskVerificationParsesARejectWithReasonCodes() {
+        ScriptedChatModel model = new ScriptedChatModel("""
+                {"schema":"task_verification/v1","verdict":"reject",
+                 "checks":{"answer_correctness":"reject","rubric_alignment":"pass","source_grounding":"pass",
+                 "blueprint_compliance":"pass","learner_boundary":"pass"},
+                 "reason_codes":["task_answer_inconsistent"]}
+                """);
+        ApplyModelAdapter adapter = adapter(model);
+
+        TaskVerificationVerdict verdict = adapter.verify(null, null);
+
+        assertEquals(TaskVerificationVerdict.Verdict.REJECT, verdict.verdict());
+        assertTrue(verdict.reasonCodes().contains("task_answer_inconsistent"));
+    }
+
+    @Test
+    void responseAssessmentParsesTheClosedJudgments() {
+        ScriptedChatModel model = new ScriptedChatModel("""
+                {"schema":"response_assessment/v1",
+                 "final_expression_judgment":"equivalent","rationale_judgment":"not_provided","reason_codes":[]}
+                """);
+        ApplyModelAdapter adapter = adapter(model);
+        ResponseAssessmentContext context = new ResponseAssessmentContext(
+                "task", "12*x^2 - 6*x + 7", "12x²−6x+7", "12x²−6x+7", "",
+                AttemptPurpose.INDEPENDENT_TEST, EquivalenceOutcome.CANNOT_DECIDE);
+
+        ResponseAssessment assessment = adapter.assess(context);
+        ResponseAssessment verified = adapter.verify(context);
+
+        assertEquals(FinalExpressionJudgment.EQUIVALENT, assessment.finalExpressionJudgment());
+        assertEquals(RationaleJudgment.NOT_PROVIDED, assessment.rationaleJudgment());
+        assertEquals(assessment, verified);
+        assertEquals(2, model.prompts.size());
+        assertTrue(model.prompts.stream().allMatch(prompt -> prompt.getContents().contains("# Response Assessment")));
+    }
+
+    @Test
+    void aWrongContractSchemaIsRejected() {
+        ScriptedChatModel model = new ScriptedChatModel("{\"schema\":\"task_verification/v2\",\"verdict\":\"pass\"}");
+        ApplyModelAdapter adapter = adapter(model);
+
+        ApplicationException error = assertThrows(ApplicationException.class, () -> adapter.verify(null, null));
+        assertEquals(ErrorCode.SERVICE_UNAVAILABLE, error.errorCode());
+    }
+
+    @Test
+    void missingCatalogFailsClosed() {
+        OperatorCatalog catalog = new OperatorCatalog(List.of(), "acme/gpt-strong", "acme/gpt-small");
+        ApplyModelAdapter adapter = new ApplyModelAdapter(
+                catalog, (binding, apiKey) -> ChatClient.create(new ScriptedChatModel("{}")), secrets());
+
+        ApplicationException error = assertThrows(ApplicationException.class,
+                () -> adapter.generate("prompt", "{}"));
+        assertEquals(ErrorCode.INVALID_ARGUMENT, error.errorCode());
+        assertTrue(error.getMessage().contains("catalog"));
+    }
+
+    private static ApplyModelAdapter adapter(ScriptedChatModel model) {
+        return new ApplyModelAdapter(catalog(), (binding, apiKey) -> ChatClient.create(model), secrets());
+    }
+
+    private static OperatorCatalog catalog() {
+        return new OperatorCatalog(List.of(provider()), "acme/gpt-strong", "acme/gpt-small");
+    }
+
+    private static CatalogProvider provider() {
+        return new CatalogProvider(
+                "acme",
+                OperatorCatalog.OPENAI_COMPATIBLE,
+                "https://api.acme.test/v1",
+                SECRET_ENV,
+                List.of("gpt-strong", "gpt-small")
+        );
+    }
+
+    private static Function<String, String> secrets() {
+        return name -> SECRET_ENV.equals(name) ? SECRET : null;
+    }
+
+    private static boolean hasNoTools(Prompt prompt) {
+        if (prompt.getOptions() instanceof ToolCallingChatOptions options) {
+            return options.getToolCallbacks() == null || options.getToolCallbacks().isEmpty();
+        }
+        return true;
+    }
+
+    private static final class ScriptedChatModel implements ChatModel {
+
+        private final List<Prompt> prompts = new CopyOnWriteArrayList<>();
+        private final String response;
+
+        private ScriptedChatModel(String response) {
+            this.response = response;
+        }
+
+        @Override
+        public ChatResponse call(Prompt prompt) {
+            prompts.add(prompt);
+            return ChatResponse.builder()
+                    .generations(List.of(new Generation(new AssistantMessage(response))))
+                    .metadata(ChatResponseMetadata.builder()
+                            .model("scripted")
+                            .usage(new DefaultUsage(10, 5))
+                            .build())
+                    .build();
+        }
+    }
+}

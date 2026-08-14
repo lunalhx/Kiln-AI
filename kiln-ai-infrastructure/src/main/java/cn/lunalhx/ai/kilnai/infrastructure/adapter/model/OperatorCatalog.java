@@ -1,7 +1,5 @@
 package cn.lunalhx.ai.kilnai.infrastructure.adapter.model;
 
-import cn.lunalhx.ai.kilnai.domain.learning.model.FrozenModelProfile;
-import cn.lunalhx.ai.kilnai.domain.learning.model.ModelBindingSnapshot;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 
@@ -14,16 +12,15 @@ public final class OperatorCatalog {
 
     private volatile Snapshot snapshot;
 
-    public OperatorCatalog(List<CatalogProvider> providers, String strong, String small, Integer toolBudget) {
-        replace(providers, strong, small, toolBudget);
+    public OperatorCatalog(List<CatalogProvider> providers, String strong, String small) {
+        replace(providers, strong, small);
     }
 
-    public void replace(List<CatalogProvider> providers, String strong, String small, Integer toolBudget) {
+    public void replace(List<CatalogProvider> providers, String strong, String small) {
         this.snapshot = new Snapshot(
                 providers == null ? List.of() : List.copyOf(providers),
                 strong,
-                small,
-                toolBudget
+                small
         );
     }
 
@@ -31,32 +28,26 @@ public final class OperatorCatalog {
         return snapshot.providers();
     }
 
-    public FrozenModelProfile resolve(Function<String, String> secrets) {
+    public ModelBindingSnapshot strong(Function<String, String> secrets) {
         Snapshot current = snapshot;
         if (current.providers().isEmpty()) {
             throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "provider catalog is missing");
         }
-        if (isBlank(current.strong()) || isBlank(current.small())) {
-            throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "strong/small model profile is incomplete");
-        }
-        if (current.toolBudget() == null) {
-            throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "tool budget is missing");
-        }
-        return new FrozenModelProfile(
-                bind(current, current.strong(), secrets),
-                bind(current, current.small(), secrets)
-        );
+        return bind(current, current.strong(), secrets);
     }
 
-    public int requiredToolBudget() {
-        Integer toolBudget = snapshot.toolBudget();
-        if (toolBudget == null) {
-            throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "tool budget is missing");
+    public ModelBindingSnapshot small(Function<String, String> secrets) {
+        Snapshot current = snapshot;
+        if (current.providers().isEmpty()) {
+            throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "provider catalog is missing");
         }
-        return toolBudget;
+        return bind(current, current.small(), secrets);
     }
 
     private ModelBindingSnapshot bind(Snapshot current, String identity, Function<String, String> secrets) {
+        if (isBlank(identity)) {
+            throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "strong/small model profile is incomplete");
+        }
         int slash = identity.indexOf('/');
         if (slash <= 0 || slash == identity.length() - 1) {
             throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "unknown model: " + identity);
@@ -96,8 +87,7 @@ public final class OperatorCatalog {
     private record Snapshot(
             List<CatalogProvider> providers,
             String strong,
-            String small,
-            Integer toolBudget
+            String small
     ) {
     }
 }

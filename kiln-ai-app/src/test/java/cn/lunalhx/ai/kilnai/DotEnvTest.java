@@ -38,7 +38,6 @@ class DotEnvTest {
         Map<String, String> values = DotEnv.parse("""
                 kiln.catalog.strong=openai/gpt-4.1
                 kiln.catalog.small=openai/gpt-4.1-mini
-                kiln.catalog.tool-budget=16
                 kiln.catalog.providers[0].provider-id=openai
                 kiln.catalog.providers[0].protocol=openai-compatible
                 kiln.catalog.providers[0].endpoint=https://api.openai.com
@@ -51,7 +50,6 @@ class DotEnvTest {
                 .get();
         assertEquals("openai/gpt-4.1", properties.getStrong());
         assertEquals("openai/gpt-4.1-mini", properties.getSmall());
-        assertEquals(16, properties.getToolBudget());
         assertEquals(1, properties.getProviders().size());
         assertEquals("openai", properties.getProviders().getFirst().getProviderId());
         assertEquals("openai-compatible", properties.getProviders().getFirst().getProtocol());

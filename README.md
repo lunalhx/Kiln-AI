@@ -4,14 +4,15 @@ Kiln-AI is an AI learning system designed to help users develop durable, transfe
 
 ## Current Slice
 
-This repository starts with a runnable Learning vertical slice:
+The repository ships one end-to-end product path: the **Apply** Teaching Node Profile reference. A learner receives a bounded, no-hint task in `zh-CN`, submits a mathematical answer, and — when the task is a fresh Independent Test — can produce Independent Learning Evidence only after deterministic checks and isolated model assessment.
 
-- Create a `Concept`, the smallest unit that can be taught and assessed independently.
-- Record an assessed `LearningEvent`.
-- Update `LearnerConceptProgress` with deterministic domain rules.
-- Schedule a first T+1 day review after a learner first reaches `INDEPENDENT`.
+The flow is:
 
-AI, RAG, ingestion, and authentication are intentionally out of scope for this initial skeleton. They will be infrastructure or adjacent bounded contexts, not owners of learning-state rules.
+`Apply Diagnostic -> neutral transition after pass -> fresh equivalent Apply Independent Test -> task verification -> assessment and verification -> Independent Evidence`
+
+The five first-party Skill Bundles (`apply.task-first`, `reasoning.rule-application`, `representation.formal-expression`, `verification.structured-task-contract`, `subject.calculus-notation`) are frozen, versioned, and immutable; only the Action Bundle contributes draft fields. The Apply Profile compiles an immutable English system prompt and receives execution data as a closed `apply_execution_context/v1` JSON object.
+
+RAG, ingestion, authentication, Learner Memory, and the other four Teaching Node Profiles (Explain, Retrieve, Teach-back, Hint) are intentionally out of scope for this slice.
 
 ## Six-Module Hexagonal Architecture
 
@@ -26,24 +27,17 @@ kiln-ai-trigger -----------------> kiln-ai-domain / kiln-ai-types
 ```
 
 | Module | Responsibility | Allowed dependencies |
-| --- | --- |
+| --- | --- | --- |
 | `kiln-ai-types` | Cross-module error codes and shared types | None |
 | `kiln-ai-domain` | Aggregates, value objects, domain services, and output ports | `kiln-ai-types` |
-| `kiln-ai-infrastructure` | PostgreSQL, Flyway, MyBatis, and output-port adapters | `kiln-ai-domain` |
+| `kiln-ai-infrastructure` | PostgreSQL, Flyway, MyBatis, operator catalog, and output-port adapters | `kiln-ai-domain` |
 | `kiln-ai-api` | HTTP request / response contracts, independent from domain implementation | Validation API only |
 | `kiln-ai-trigger` | HTTP controllers, exception mapping, jobs and listeners | `api`, `domain`, `types` |
 | `kiln-ai-app` | Spring Boot composition root, runtime configuration, executable JAR | `trigger`, `infrastructure` |
 
-The domain owns output ports under `domain/**/adapter/port`. Infrastructure implements those ports under `infrastructure/adapter/repository`. HTTP contracts live in `api`, while Controllers are inbound adapters under `trigger/http`. The app module only assembles the runtime. The domain does not depend on Spring, MyBatis, PostgreSQL, or future AI SDKs.
+The domain owns output ports under `domain/**/adapter/port`. Infrastructure implements those ports under `infrastructure/adapter/repository` and `infrastructure/adapter/model`. HTTP contracts live in `api`, while Controllers are inbound adapters under `trigger/http`. The app module only assembles the runtime. The domain does not depend on Spring, MyBatis, PostgreSQL, or AI SDKs.
 
-The learning bounded context currently contains:
-
-- `Concept` in `domain.content`.
-- `LearnerConceptProgress` and `LearningEvent` in `domain.learning`.
-- `LearningWorkflow` in `domain.pedagogy`.
-- `ReviewTask` in `domain.review`.
-
-An ArchUnit test in `kiln-ai-domain` prevents the domain from depending on Spring, MyBatis, or JPA.
+An ArchUnit test in `kiln-ai-domain` prevents the domain from depending on Spring, MyBatis, JPA, or AI types.
 
 ## Prerequisites
 
@@ -58,7 +52,7 @@ An ArchUnit test in `kiln-ai-domain` prevents the domain from depending on Sprin
    cp deploy/local/.env.example deploy/local/.env
    ```
 
-   Fill `OPENAI_API_KEY` in `deploy/local/.env` with the OpenCode Go key. Startup and Docker Compose both read that file. Tests do not.
+   Fill `OPENAI_API_KEY` in `deploy/local/.env` with an OpenAI-compatible API key. Startup and Docker Compose both read that file. Tests do not.
 
 2. Start PostgreSQL:
 
@@ -72,49 +66,48 @@ An ArchUnit test in `kiln-ai-domain` prevents the domain from depending on Sprin
    ./mvnw -pl kiln-ai-app -am spring-boot:run
    ```
 
-Flyway applies the initial schema automatically. Confirm readiness at `http://localhost:8080/actuator/health`.
+Flyway applies the Apply schema automatically. The learner UI is served at `http://localhost:8080/`.
 
-## Try The Learning Slice
+## Try The Apply Flow
 
-Create a concept:
+The learner UI at `/` walks through the whole flow. The same flow is available over HTTP:
 
-```bash
-curl -X POST http://localhost:8080/api/concepts \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "title": "Sunk cost",
-    "summary": "Irrecoverable past cost that should not determine a current marginal decision.",
-    "sourceReference": "Economics chapter 3"
-  }'
-```
-
-Use the returned `id` as `conceptId`, then record a no-hint independent success:
+Start a Diagnostic task:
 
 ```bash
-curl -X POST http://localhost:8080/api/concepts/<conceptId>/learning-events \
+curl -X POST http://localhost:8080/api/apply/flows \
   -H 'Content-Type: application/json' \
-  -d '{
-    "userId": "<userId>",
-    "eventType": "INDEPENDENT_TEST",
-    "result": "PASS",
-    "hintLevel": 0,
-    "delayedReview": false,
-    "transfer": false,
-    "occurredAt": "2026-08-13T00:00:00Z"
-  }'
+  -H 'Idempotency-Key: <uuid>' \
+  -d '{"learnerId": "<uuid>"}'
 ```
 
-The response reports the current `state`, deterministic `nextAction`, and the first review due time where applicable.
+Submit the Diagnostic answer (the response returns a fresh Independent Test on a neutral transition):
 
-## Domain Rules Already Enforced
+```bash
+curl -X POST http://localhost:8080/api/apply/flows/<flowId>/submissions \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: <uuid>' \
+  -d '{"interactionVersion": 1, "attemptId": "<attemptId>", "rawDerivative": "12x²−6x+7", "confirmedCanonical": "12*x^2-6*x+7", "rationale": null}'
+```
 
-- A passed task with `hintLevel` above zero is `ASSISTED`, not `INDEPENDENT` evidence.
-- Explanations and hints cannot become independent evidence.
-- `DURABLE` requires both a no-hint delayed success and a no-hint transfer success.
-- A failure after `INDEPENDENT` or `DURABLE` downgrades the state to `UNDERSTOOD` and invalidates prior independent evidence.
+Query the latest interaction at any time:
 
-## Verify
+```bash
+curl http://localhost:8080/api/apply/flows/<flowId>
+```
+
+Learner responses never contain expected answers, source identities, Fingerprints, or execution traces.
+
+## Verification
 
 ```bash
 ./mvnw clean test
+```
+
+`ApplyProfileContractTest` is the stable regression oracle: it runs the whole Apply reference with scripted generation, Task Verification, Assessment, and Response Verification fixtures. No live model is called.
+
+`ApplyProfileLiveSmokeTest` is a separate, non-blocking real-model smoke test. It is not a CI oracle and creates no evidence. To run it against the operator-configured model:
+
+```bash
+KILN_LIVE_SMOKE=true ./mvnw -pl kiln-ai-app -am test -Dtest=ApplyProfileLiveSmokeTest -Dsurefire.failIfNoSpecifiedTests=false
 ```

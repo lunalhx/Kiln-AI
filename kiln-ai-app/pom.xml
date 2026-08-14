@@ -12,10 +12,6 @@
 
     <artifactId>kiln-ai-app</artifactId>
 
-    <properties>
-        <enforcer.skipBanGraph>true</enforcer.skipBanGraph>
-    </properties>
-
     <dependencies>
         <dependency>
             <groupId>cn.lunalhx.ai</groupId>

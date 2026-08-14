@@ -1,4 +1,4 @@
-package cn.lunalhx.ai.kilnai.domain.learning.model;
+package cn.lunalhx.ai.kilnai.infrastructure.adapter.model;
 
 public record ModelBindingSnapshot(
         String protocol,

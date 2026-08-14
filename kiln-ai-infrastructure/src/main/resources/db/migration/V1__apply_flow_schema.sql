@@ -1,4 +1,6 @@
--- Apply reference durable flow schema: typed LearningFlowStore + ArtifactStore.
+-- Apply reference durable flow schema: the only product schema after the
+-- destructive cutover. Old spike, tracer-bullet, seed, checkpoint, and
+-- envelope tables were removed without data migration.
 
 CREATE TABLE apply_flows (
     id UUID PRIMARY KEY,

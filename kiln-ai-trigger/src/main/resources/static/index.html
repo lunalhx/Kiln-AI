@@ -1,65 +1,89 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>Kiln-AI Graph Spike</title>
+  <title>Kiln-AI Apply</title>
   <style>
     body { font-family: sans-serif; max-width: 720px; margin: 2rem auto; }
-    button, input { margin: 0.25rem 0; padding: 0.4rem 0.6rem; }
+    button, input, textarea { margin: 0.25rem 0; padding: 0.4rem 0.6rem; }
     pre { background: #f4f4f4; padding: 1rem; white-space: pre-wrap; }
+    #task { font-size: 1.1rem; margin: 0.75rem 0; }
+    #error { color: #b00020; white-space: pre-wrap; }
   </style>
 </head>
 <body>
-  <h1>Kiln-AI validation spike</h1>
-  <p>Prepared fixture: percent-change-v1</p>
-  <label>Learner ID <input id="learnerId" size="36"></label>
-  <button id="start">Start</button>
-  <button id="continue">Continue</button>
-  <label>Answer <input id="answer" value="25"></label>
-  <button id="submit">Submit answer</button>
-  <button id="trace">Trace</button>
+  <h1>Kiln-AI Apply 练习</h1>
+  <button id="start">开始诊断</button>
+  <button id="refresh" disabled>刷新</button>
+  <div id="task"></div>
+  <label>f'(x) <input id="derivative" size="36" disabled></label>
+  <label>理由（可选）<textarea id="rationale" rows="2" cols="36" disabled></textarea></label>
+  <button id="submit" disabled>提交答案</button>
+  <pre id="error"></pre>
   <pre id="view"></pre>
   <script>
     const learnerId = crypto.randomUUID();
-    document.getElementById('learnerId').value = learnerId;
     let flow = null;
     const view = document.getElementById('view');
-    const headers = () => ({
-      'Content-Type': 'application/json',
-      'Idempotency-Key': crypto.randomUUID()
-    });
-    const show = (data) => { view.textContent = JSON.stringify(data, null, 2); };
-    document.getElementById('start').onclick = async () => {
-      const response = await fetch('/api/spike/flows', {
+    const error = document.getElementById('error');
+    const task = document.getElementById('task');
+    const derivative = document.getElementById('derivative');
+    const rationale = document.getElementById('rationale');
+    const start = document.getElementById('start');
+    const submit = document.getElementById('submit');
+    const refresh = document.getElementById('refresh');
+    const key = () => crypto.randomUUID();
+    const headers = () => ({ 'Content-Type': 'application/json', 'Idempotency-Key': key() });
+    const show = (data) => {
+      view.textContent = JSON.stringify(data, null, 2);
+      error.textContent = '';
+      if (data.task) {
+        task.textContent = data.task.taskText;
+        derivative.disabled = false;
+        rationale.disabled = false;
+        submit.disabled = false;
+      } else {
+        task.textContent = data.learnerMessage || '';
+        derivative.disabled = true;
+        rationale.disabled = true;
+        submit.disabled = true;
+      }
+    };
+    const showError = async (response) => {
+      const body = await response.json();
+      error.textContent = response.status + ' ' + JSON.stringify(body);
+      view.textContent = JSON.stringify(flow, null, 2);
+    };
+    start.onclick = async () => {
+      const response = await fetch('/api/apply/flows', {
         method: 'POST', headers: headers(),
-        body: JSON.stringify({ learnerId, fixtureId: 'percent-change-v1' })
+        body: JSON.stringify({ learnerId })
       });
+      if (!response.ok) { return showError(response); }
+      flow = await response.json();
+      show(flow);
+      refresh.disabled = false;
+    };
+    refresh.onclick = async () => {
+      const response = await fetch('/api/apply/flows/' + flow.flowId);
+      if (!response.ok) { return showError(response); }
       flow = await response.json();
       show(flow);
     };
-    document.getElementById('continue').onclick = async () => {
-      const response = await fetch('/api/spike/flows/' + flow.flowId + '/events', {
-        method: 'POST', headers: headers(),
-        body: JSON.stringify({ interactionVersion: flow.interactionVersion, kind: 'CONTINUE_REQUESTED' })
-      });
-      flow = await response.json();
-      show(flow);
-    };
-    document.getElementById('submit').onclick = async () => {
-      const response = await fetch('/api/spike/flows/' + flow.flowId + '/events', {
+    submit.onclick = async () => {
+      const response = await fetch('/api/apply/flows/' + flow.flowId + '/submissions', {
         method: 'POST', headers: headers(),
         body: JSON.stringify({
           interactionVersion: flow.interactionVersion,
-          kind: 'ANSWER_SUBMITTED',
-          text: document.getElementById('answer').value
+          attemptId: flow.attemptId,
+          rawDerivative: derivative.value,
+          confirmedCanonical: derivative.value,
+          rationale: rationale.value || null
         })
       });
+      if (!response.ok) { return showError(response); }
       flow = await response.json();
       show(flow);
-    };
-    document.getElementById('trace').onclick = async () => {
-      const response = await fetch('/api/spike/flows/' + flow.flowId + '/trace');
-      show(await response.json());
     };
   </script>
 </body>

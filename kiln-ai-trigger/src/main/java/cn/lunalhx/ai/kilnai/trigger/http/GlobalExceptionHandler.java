@@ -18,7 +18,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ApplicationException.class)
     ResponseEntity<ApiErrorResponse> handleApplicationException(ApplicationException exception) {
         HttpStatus status = switch (exception.errorCode()) {
-            case FLOW_NOT_FOUND, CONCEPT_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case FLOW_NOT_FOUND -> HttpStatus.NOT_FOUND;
             case CONFLICT -> HttpStatus.CONFLICT;
             case UNPROCESSABLE -> HttpStatus.UNPROCESSABLE_ENTITY;
             case SERVICE_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;

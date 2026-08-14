@@ -12,36 +12,18 @@
 
     <artifactId>kiln-ai-infrastructure</artifactId>
 
-    <properties>
-        <enforcer.skipBanGraph>true</enforcer.skipBanGraph>
-    </properties>
-
     <dependencies>
         <dependency>
             <groupId>cn.lunalhx.ai</groupId>
             <artifactId>kiln-ai-domain</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-graph-core</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.springframework.ai</groupId>
-                    <artifactId>spring-ai-rag</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.springframework.ai</groupId>
-                    <artifactId>spring-ai-retry</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.springframework.ai</groupId>
-                    <artifactId>spring-ai-autoconfigure-retry</artifactId>
-                </exclusion>
-            </exclusions>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-openai</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-openai</artifactId>
+            <artifactId>spring-ai-client-chat</artifactId>
         </dependency>
         <dependency>
             <groupId>org.mybatis.spring.boot</groupId>

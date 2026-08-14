@@ -27,7 +27,7 @@ class ApplyLearnerUiTest {
         try (Playwright playwright = Playwright.create();
              Browser browser = playwright.chromium().launch()) {
             Page page = browser.newPage();
-            page.navigate("http://127.0.0.1:" + port + "/apply.html");
+            page.navigate("http://127.0.0.1:" + port + "/");
             page.click("#start");
             page.waitForFunction("() => document.getElementById('task').textContent.includes('设 f(x)')");
             String diagnostic = page.innerText("#view");

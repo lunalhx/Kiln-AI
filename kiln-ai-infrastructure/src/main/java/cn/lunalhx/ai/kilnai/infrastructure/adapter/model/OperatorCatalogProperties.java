@@ -10,7 +10,6 @@ public class OperatorCatalogProperties {
 
     private String strong;
     private String small;
-    private Integer toolBudget;
     private List<ProviderProperties> providers = new ArrayList<>();
 
     public String getStrong() {
@@ -27,14 +26,6 @@ public class OperatorCatalogProperties {
 
     public void setSmall(String small) {
         this.small = small;
-    }
-
-    public Integer getToolBudget() {
-        return toolBudget;
-    }
-
-    public void setToolBudget(Integer toolBudget) {
-        this.toolBudget = toolBudget;
     }
 
     public List<ProviderProperties> getProviders() {
@@ -55,7 +46,7 @@ public class OperatorCatalogProperties {
                         provider.getModels()
                 ))
                 .toList();
-        return new OperatorCatalog(mapped, strong, small, toolBudget);
+        return new OperatorCatalog(mapped, strong, small);
     }
 
     public static class ProviderProperties {

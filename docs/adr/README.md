@@ -17,23 +17,23 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 
 ## Orchestration and interaction
 
-- [ADR-0011](0011-use-a-guarded-adaptive-learning-state-graph.md): guarded adaptive Learning StateGraph
-- [ADR-0034](0034-use-spring-ai-alibaba-graph-as-the-phase-0-runtime.md): Spring AI Alibaba Graph as the Phase 0 runtime adapter
-- [ADR-0012](0012-pause-the-graph-at-learner-interaction-boundaries.md): checkpoint at learner interaction
+- [ADR-0011](0011-use-a-guarded-adaptive-learning-state-graph.md): superseded — the Apply reference runs a direct durable flow without a graph runtime
+- [ADR-0034](0034-use-spring-ai-alibaba-graph-as-the-phase-0-runtime.md): superseded — the graph runtime was removed in the destructive Apply cutover
+- [ADR-0012](0012-pause-the-graph-at-learner-interaction-boundaries.md): clarification — interaction-boundary pausing is preserved through durable Apply interactions
 - [ADR-0013](0013-normalize-learner-input-before-workflow-execution.md): typed learner input
 - [ADR-0014](0014-protect-independent-evidence-from-substantive-clarification.md): clarification and evidence eligibility
 - [ADR-0015](0015-abandon-open-attempts-when-leaving-a-learning-flow.md): leaving a Flow closes exposed attempts
 - [ADR-0044](0044-use-learner-confirmed-canonical-mathematical-answers.md): confirmed canonical mathematical answers
 - [ADR-0020](0020-use-a-bounded-pedagogy-agent-for-feedback-and-next-action.md): bounded Pedagogy Agent
-- [ADR-0021](0021-coordinate-through-a-typed-blackboard-and-node-specific-context-views.md): typed Blackboard and projected Context Views
+- [ADR-0021](0021-coordinate-through-a-typed-blackboard-and-node-specific-context-views.md): clarification — the Apply reference replaces the Blackboard with closed execution context and durable typed stores
 - [ADR-0022](0022-defer-cross-flow-learner-memory-in-phase-0.md): no cross-Flow Learner Memory
-- [ADR-0030](0030-return-control-to-the-graph-through-interaction-contracts.md): Interaction Contracts
-- [ADR-0032](0032-bound-model-calls-per-graph-run.md): superseded by ADR-0036
-- [ADR-0036](0036-separate-graph-run-node-budget-from-tool-budget.md): Graph Run node budget separate from Tool Budget
-- [ADR-0035](0035-keep-model-selection-operator-owned-and-freeze-it-on-each-flow.md): operator-owned Model Profile, frozen per Learning Flow
+- [ADR-0030](0030-return-control-to-the-graph-through-interaction-contracts.md): clarification — the learner projection carries the allowed-events contract
+- [ADR-0032](0032-bound-model-calls-per-graph-run.md): superseded by ADR-0036, which is itself superseded
+- [ADR-0036](0036-separate-graph-run-node-budget-from-tool-budget.md): superseded — the Apply reference has no graph run or tool budget
+- [ADR-0035](0035-keep-model-selection-operator-owned-and-freeze-it-on-each-flow.md): clarification — the Apply reference resolves the operator catalog per call
 - [ADR-0037](0037-use-an-opencode-style-operator-provider-catalog.md): OpenCode-style Provider Catalog, Strong/Small Model slots
-- [ADR-0038](0038-use-spring-ai-per-call-tools-from-the-authorized-set.md): ChatClient per-call tools from ToolResolver
-- [ADR-0039](0039-connect-every-existing-model-port-through-one-spring-ai-adapter.md): one Spring AI adapter for all existing model ports
+- [ADR-0038](0038-use-spring-ai-per-call-tools-from-the-authorized-set.md): superseded — the Apply stack is zero-tool
+- [ADR-0039](0039-connect-every-existing-model-port-through-one-spring-ai-adapter.md): superseded — the spike ports were removed; the Apply ports use `ApplyModelAdapter`
 
 ## Sources and Concept preparation
 
