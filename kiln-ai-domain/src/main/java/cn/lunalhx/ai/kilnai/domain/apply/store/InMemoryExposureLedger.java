@@ -17,6 +17,7 @@ public final class InMemoryExposureLedger implements ExposureLedger {
     public synchronized void recordTaskExposure(TaskPackage taskPackage) {
         Objects.requireNonNull(taskPackage, "taskPackage must not be null");
         taskFingerprints.add(taskPackage.privateAssessorProjection().taskFingerprint().value());
+        solutionFingerprints.add(taskPackage.privateAssessorProjection().solutionFingerprint().value());
     }
 
     @Override

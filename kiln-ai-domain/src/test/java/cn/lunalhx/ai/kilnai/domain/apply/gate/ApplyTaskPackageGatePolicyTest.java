@@ -95,6 +95,19 @@ class ApplyTaskPackageGatePolicyTest {
     }
 
     @Test
+    void aModelClaimedSolutionFingerprintIsRejected() {
+        assertRejected(copy(validPackage,
+                withSolutionFingerprint(validPackage.privateAssessorProjection(),
+                        new PrivateAssessorProjection.SolutionFingerprint("model", "model-claimed-sfp"))));
+    }
+
+    @Test
+    void leakingASolutionFingerprintIntoLearnerTextIsRejected() {
+        String leak = " 内部：" + validPackage.privateAssessorProjection().solutionFingerprint().value();
+        assertRejected(withTaskText(validPackage, validPackage.learnerProjection().taskText() + leak));
+    }
+
+    @Test
     void aPackageWhoseTaskFingerprintWasAlreadyExposedIsRejected() {
         String fingerprint = validPackage.privateAssessorProjection().taskFingerprint().value();
         ApplyExecutionContext withExclusions = IndependentApplyFixture.independentContext().withNoveltyExclusions(
@@ -105,6 +118,19 @@ class ApplyTaskPackageGatePolicyTest {
 
         assertEquals(GateOutcome.REJECTED, result.outcome());
         assertTrue(result.violations().stream().anyMatch(v -> "novelty.task-fingerprint".equals(v.code())));
+    }
+
+    @Test
+    void aPackageWhoseSolutionFingerprintWasAlreadyExposedIsRejected() {
+        String fingerprint = validPackage.privateAssessorProjection().solutionFingerprint().value();
+        ApplyExecutionContext withExclusions = IndependentApplyFixture.independentContext().withNoveltyExclusions(
+                List.of(), List.of(fingerprint));
+
+        GateResult<TaskPackage> result = pipeline.validate(
+                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
+
+        assertEquals(GateOutcome.REJECTED, result.outcome());
+        assertTrue(result.violations().stream().anyMatch(v -> "novelty.solution-fingerprint".equals(v.code())));
     }
 
     @Test
@@ -206,7 +232,8 @@ class ApplyTaskPackageGatePolicyTest {
             PrivateAssessorProjection.SourceTraceEntry entry
     ) {
         return new PrivateAssessorProjection(source.canonicalExpectedAnswer(), source.rubricMapping(),
-                List.of(entry), source.equivalenceDeclaration(), source.taskFingerprint(), source.executionTrace());
+                List.of(entry), source.equivalenceDeclaration(), source.taskFingerprint(),
+                source.solutionFingerprint(), source.executionTrace());
     }
 
     private PrivateAssessorProjection withFingerprint(
@@ -214,7 +241,17 @@ class ApplyTaskPackageGatePolicyTest {
             PrivateAssessorProjection.TaskFingerprint fingerprint
     ) {
         return new PrivateAssessorProjection(source.canonicalExpectedAnswer(), source.rubricMapping(),
-                source.sourceTrace(), source.equivalenceDeclaration(), fingerprint, source.executionTrace());
+                source.sourceTrace(), source.equivalenceDeclaration(), fingerprint,
+                source.solutionFingerprint(), source.executionTrace());
+    }
+
+    private PrivateAssessorProjection withSolutionFingerprint(
+            PrivateAssessorProjection source,
+            PrivateAssessorProjection.SolutionFingerprint solutionFingerprint
+    ) {
+        return new PrivateAssessorProjection(source.canonicalExpectedAnswer(), source.rubricMapping(),
+                source.sourceTrace(), source.equivalenceDeclaration(), source.taskFingerprint(),
+                solutionFingerprint, source.executionTrace());
     }
 
     private PrivateAssessorProjection withRubricMapping(
@@ -222,6 +259,7 @@ class ApplyTaskPackageGatePolicyTest {
             PrivateAssessorFacts.RubricMapping mapping
     ) {
         return new PrivateAssessorProjection(source.canonicalExpectedAnswer(), List.of(mapping),
-                source.sourceTrace(), source.equivalenceDeclaration(), source.taskFingerprint(), source.executionTrace());
+                source.sourceTrace(), source.equivalenceDeclaration(), source.taskFingerprint(),
+                source.solutionFingerprint(), source.executionTrace());
     }
 }

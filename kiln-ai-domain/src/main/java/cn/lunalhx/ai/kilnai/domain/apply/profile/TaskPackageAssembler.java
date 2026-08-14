@@ -49,6 +49,7 @@ public final class TaskPackageAssembler {
         }
 
         String fingerprintValue = deriveFingerprint(context, draft, canonical.get(), sourceTrace);
+        String solutionFingerprintValue = deriveSolutionFingerprint(context, draft, canonical.get());
 
         TaskPackage taskPackage = new TaskPackage(
                 TaskPackage.SCHEMA,
@@ -64,6 +65,7 @@ public final class TaskPackageAssembler {
                         sourceTrace,
                         draft.privateAssessorFacts().equivalenceDeclaration(),
                         new PrivateAssessorProjection.TaskFingerprint("profile", fingerprintValue),
+                        new PrivateAssessorProjection.SolutionFingerprint("profile", solutionFingerprintValue),
                         new PrivateAssessorProjection.ExecutionTrace(
                                 ApplyProfile.PROFILE_ID,
                                 context.taskBlueprint().pinnedId(),
@@ -115,6 +117,19 @@ public final class TaskPackageAssembler {
                 ApplyJson.write(draft.privateAssessorFacts().rubricMapping()),
                 ApplyJson.write(sourceTrace),
                 context.answerRepresentationContract().pinnedId());
+        return ApplyHash.sha256Hex(raw);
+    }
+
+    private String deriveSolutionFingerprint(
+            ApplyExecutionContext context,
+            ApplyGenerationDraft.TaskReady draft,
+            String canonicalExpression
+    ) {
+        String raw = String.join("|",
+                canonicalExpression,
+                String.join(",", context.answerRepresentationContract().variables()),
+                context.answerRepresentationContract().pinnedId(),
+                draft.privateAssessorFacts().equivalenceDeclaration().domain());
         return ApplyHash.sha256Hex(raw);
     }
 }

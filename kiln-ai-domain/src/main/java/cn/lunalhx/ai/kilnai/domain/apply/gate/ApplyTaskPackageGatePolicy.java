@@ -68,6 +68,11 @@ public final class ApplyTaskPackageGatePolicy implements GatePolicy<TaskPackage>
             violations.add(new GateViolation("novelty.task-fingerprint",
                     "candidate re-exposes a previously exposed task fingerprint"));
         }
+        String solutionFingerprint = candidate.privateAssessorProjection().solutionFingerprint().value();
+        if (context.noveltyExclusions().exposedSolutionFingerprints().contains(solutionFingerprint)) {
+            violations.add(new GateViolation("novelty.solution-fingerprint",
+                    "candidate re-exposes a previously exposed solution fingerprint"));
+        }
 
         List<String> privateSecrets = privateSecrets(candidate.privateAssessorProjection());
         if (privateSecrets.stream().anyMatch(learner.taskText()::contains)) {
@@ -141,6 +146,12 @@ public final class ApplyTaskPackageGatePolicy implements GatePolicy<TaskPackage>
             violations.add(new GateViolation("private.fingerprint",
                     "the profile-derived task fingerprint is required"));
         }
+        if (privateProjection.solutionFingerprint() == null
+                || !"profile".equals(privateProjection.solutionFingerprint().derivedBy())
+                || privateProjection.solutionFingerprint().value().isBlank()) {
+            violations.add(new GateViolation("private.solution-fingerprint",
+                    "the profile-derived solution fingerprint is required"));
+        }
         if (privateProjection.executionTrace() == null
                 || !ApplyProfile.PROFILE_ID.equals(privateProjection.executionTrace().profile())
                 || !context.taskBlueprint().pinnedId().equals(privateProjection.executionTrace().taskBlueprint())
@@ -158,6 +169,7 @@ public final class ApplyTaskPackageGatePolicy implements GatePolicy<TaskPackage>
             secrets.add(entry.passageId());
         });
         secrets.add(privateProjection.taskFingerprint().value());
+        secrets.add(privateProjection.solutionFingerprint().value());
         secrets.add(context.taskBlueprint().pinnedId());
         secrets.addAll(context.conceptSourcePack().passages().stream()
                 .map(ApplyExecutionContext.SourcePassage::passageId).toList());

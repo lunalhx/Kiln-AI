@@ -12,6 +12,7 @@ public record PrivateAssessorProjection(
         List<SourceTraceEntry> sourceTrace,
         EquivalenceDeclaration equivalenceDeclaration,
         TaskFingerprint taskFingerprint,
+        SolutionFingerprint solutionFingerprint,
         ExecutionTrace executionTrace
 ) {
 
@@ -21,6 +22,7 @@ public record PrivateAssessorProjection(
         Objects.requireNonNull(sourceTrace, "sourceTrace must not be null");
         Objects.requireNonNull(equivalenceDeclaration, "equivalenceDeclaration must not be null");
         Objects.requireNonNull(taskFingerprint, "taskFingerprint must not be null");
+        Objects.requireNonNull(solutionFingerprint, "solutionFingerprint must not be null");
         Objects.requireNonNull(executionTrace, "executionTrace must not be null");
         rubricMapping = List.copyOf(rubricMapping);
         sourceTrace = List.copyOf(sourceTrace);
@@ -45,6 +47,13 @@ public record PrivateAssessorProjection(
 
     public record TaskFingerprint(String derivedBy, String value) {
         public TaskFingerprint {
+            Objects.requireNonNull(derivedBy, "derivedBy must not be null");
+            Objects.requireNonNull(value, "value must not be null");
+        }
+    }
+
+    public record SolutionFingerprint(String derivedBy, String value) {
+        public SolutionFingerprint {
             Objects.requireNonNull(derivedBy, "derivedBy must not be null");
             Objects.requireNonNull(value, "value must not be null");
         }
