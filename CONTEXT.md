@@ -25,15 +25,15 @@ The stable, versioned, structured interpretation of a Concept's Mastery Criterio
 _Avoid_: User-facing goal, answer key, Task Rubric
 
 **Task Package**:
-The validated output generated for one learner task in a single Teaching Node execution, containing the learner-visible task plus a hidden answer key, Task Rubric, source references, and version metadata.
+The validated `task_package/v1` output generated for one learner task in a single Teaching Node execution. Its learner projection contains only locale-rendered task text, permitted answer fields, allowed events, and the submission rule; its private assessor projection retains canonical expected-answer facts, Task Rubric mapping, source trace, equivalence declaration, Profile-derived Task Fingerprint, and execution trace. It contains no model chain-of-thought or reusable worked-solution prose. The private projection is never exposed to the learner and is supplied to later nodes only under an explicit Node Context View policy.
 _Avoid_: Additional assessment call, chat message
 
 **Task Blueprint**:
-The structured generation contract for a Task Package, containing Attempt Purpose, Mastery Rubric version and required criteria, difficulty band, allowed representations, source scope, and novelty exclusions. It constrains generation without being learner-visible.
+The frozen, versioned structured generation contract for a Task Package. For Apply it declares Attempt Purpose, Concept and Mastery Criterion references, approved source passages, one task shape and mathematical scope, notation and answer-representation contracts, Profile-owned response fields, an assessment-policy reference, and novelty policy. Diagnostic and Independent Test use distinct Blueprints rather than distinct Profiles or Skills. It constrains generation without being learner-visible.
 _Avoid_: Task Package, prompt prose, Task Rubric
 
 **Task Fingerprint**:
-The structured identity of an exposed task across type, scenario, entities, parameters, representation, reasoning path, answer form, and source combination. It supports novelty checks beyond surface-text similarity.
+The Profile-derived structured identity of an exposed task across type, scenario, entities, parameters, representation, reasoning path, answer form, and source combination. It supports novelty checks beyond surface-text similarity; the generating model is never its final authority.
 _Avoid_: Task ID only, embedding similarity only, answer key
 
 **Fresh Equivalent Task**:
@@ -41,19 +41,31 @@ A new Task Package that measures the same required Mastery Rubric criteria at a 
 _Avoid_: Same task with cosmetic wording, harder transfer task, repeated Task Package
 
 **Task Verification**:
-The isolated pre-delivery evaluation of a generated Task Package for answer correctness, Mastery Rubric alignment, source support, difficulty alignment, and ambiguity. It is mandatory for Independent Test and Delayed Review tasks and is distinct from evaluating a learner response.
+The isolated pre-delivery evaluation of a generated Task Package for answer correctness, Mastery Rubric alignment, source support, difficulty alignment, and ambiguity. It is mandatory for every Phase 0 formal Apply task, including Diagnostic and Independent Test, and is distinct from evaluating a learner response.
 _Avoid_: Assessment, Output Gate, confidence voting
 
 **Task Verifier**:
-The bounded model component that performs Task Verification without receiving the generator's hidden reasoning and without rewriting the task, changing the Rubric, selecting Skills, or modifying Learning State. The same model provider may be used under an isolated context.
+The bounded model component that performs Task Verification without receiving the generator's hidden reasoning and without rewriting the task, changing the Rubric, selecting Skills, or modifying Learning State. It returns only the closed `task_verification/v1` verdict (`pass`, `reject`, or `inconclusive`), check results, and reason codes; uncertainty never passes. The same model provider may be used under an isolated context.
 _Avoid_: Teaching Node Profile, Assessment Agent, automatic task editor
+
+**Task Generation Exhausted**:
+The internal technical-recovery outcome reached after the maximum number of complete Apply generation, Output Gate, and Task Verification cycles fail before learner exposure. It creates no Task Attempt or evidence and returns control to the Graph; it is distinct from a Source Gap, which ends generation immediately because approved material is insufficient. For the Apply reference, either outcome maps to the same deterministic, non-diagnostic learner message and Flow Control options.
+_Avoid_: Learner failure, partially repaired task, evidence loss
+
+**Profile Contract Test**:
+A deterministic end-to-end test of one Teaching Node Profile using scripted model-response fixtures. It validates the compiled Profile contract, typed gates, state transitions, visibility boundary, and evidence behavior without live-model variability. Every Profile requires one before it is considered implemented.
+_Avoid_: Prompt snapshot only, live-model CI test, unit test of one Bundle
+
+**Profile Live Smoke Test**:
+An isolated, non-blocking integration check that runs a Profile's real compiled prompt against an operator-configured model in ephemeral storage. It detects Provider or prompt-compatibility regressions but is never the stable regression oracle.
+_Avoid_: Required CI test, evidence-producing learning run, deterministic evaluation
 
 **Task Rubric**:
 The task-specific evaluation criteria generated with a Task Package and mapped explicitly to the current Mastery Rubric. It may specialize the stable criteria but cannot introduce unrelated mastery requirements.
 _Avoid_: Mastery Rubric, improvised assessment criteria
 
 **Task Attempt**:
-The complete, auditable attempt by one learner on one Task Package, from presentation until submission, abandonment, or conversion to practice. It is the atomic boundary for Assessment and Learning Evidence and may contain multiple response and assistance events.
+The complete, auditable attempt by one learner on one Task Package, from presentation until submission, abandonment, or conversion to practice. It is the atomic boundary for Assessment and Learning Evidence and may contain multiple response and assistance events. Its raw responses, confirmations, assessment records, and assistance records are retained in the Artifact Store; later nodes receive them only through an explicitly permitted Node Context View projection.
 _Avoid_: Chat message, answer revision, Learning Flow
 
 **Attempt Purpose**:
@@ -104,9 +116,29 @@ _Avoid_: Skill, model-only summary, full Knowledge Base export
 An ingestion-boundary implementation that converts one external source format, such as PDF or Markdown, into a Normalized Source Document while preserving provenance and extraction warnings. Adapter selection is deferred in the first tracer bullet.
 _Avoid_: Concept Preparation, document parser embedded in a Teaching Node, product Knowledge Base
 
+**Source Original**:
+The immutable, versioned external material supplied to Kiln-AI, such as a PDF, Markdown file, or captured web page, retained with its identity, media type, content hash, and provenance. It is the authoritative record of what was supplied, not a model context or retrieval index entry.
+_Avoid_: Converted Markdown, vector record, Concept Source Pack
+
+**Curated Source**:
+A Source Original registered by the operator for system use under an understood provenance and usage basis. Phase 0 accepts only Curated Sources; learner-uploaded, private, and shared materials require a later source-ownership and access-control model.
+_Avoid_: Learner upload, anonymous web result, user-owned library
+
+**Source Ingestion**:
+The pre-learning process that registers a Source Original, runs its format-specific Source Adapter, validates and stores the resulting Normalized Source Document, and records extraction warnings. It prepares source material for Concept Preparation but does not decide a Concept boundary or teach a learner.
+_Avoid_: Concept Preparation, Teaching Node, RAG query
+
 **Normalized Source Document**:
-The format-neutral internal contract emitted by a Source Adapter, containing source identity and version, hierarchical sections, text and formula blocks, media references, original-location anchors, and extraction warnings. Downstream Concept Preparation does not depend on the original file type.
+The versioned, structured canonical representation emitted by a Source Adapter, containing source identity and version, hierarchical sections, text and formula blocks, media references, original-location anchors, and extraction warnings. Downstream Concept Preparation does not depend on the original file type, and every element remains traceable to the Source Original.
 _Avoid_: Concept Source Pack, PDF-specific model, learner-facing textbook view
+
+**Source Passage**:
+A bounded, immutable selection of one or more Normalized Source Document blocks supplied to Concept Preparation or a Node Context View, retaining the original document version and anchors.
+_Avoid_: Whole textbook context, untraceable text chunk, model summary
+
+**Retrieval Index**:
+A rebuildable search projection derived from Normalized Source Documents, such as vector or keyword indexes, that can locate candidate Source Passages but is never the authoritative source of content or provenance.
+_Avoid_: Knowledge Base of record, Concept Source Pack, source citation
 
 **Source Gap**:
 A preparation or execution outcome indicating that available source material is missing, contradictory, or insufficient to support the Concept boundary, Mastery Criterion, task answer, or assessment claim. It blocks unsupported evidence rather than being silently filled from model memory.
@@ -152,6 +184,10 @@ _Avoid_: Fixed calendar dates from first mastery, stacked overdue tasks, Agent m
 The domain-oriented content within a Node Context View, including the permitted Target Concept, source, criterion, progress, attempt, and routing projections required for that execution. Different nodes receive different Learning Context projections from the same Learning State.
 _Avoid_: Learning State, complete Learning Blackboard, Skill, Agent memory
 
+**Learner Locale**:
+The explicit locale in a Node Context View that controls all learner-visible task text, field labels, and flow messages. It is distinct from the internal English language of first-party Profile and Skill instructions and from the language of a Source Original; rendering a task in a Learner Locale never changes source provenance.
+_Avoid_: Source language, Bundle authoring language, inferred model preference
+
 **Learning State**:
 The durable, application-owned state of one Learning Flow, reconstructed from domain records and graph checkpoints. It contains identifiers and execution facts needed to resume the flow, while accepted Learning Evidence remains the source of truth for Concept Progress.
 _Avoid_: Chat history, private Agent memory, Concept Progress
@@ -177,7 +213,7 @@ The deterministic component that validates a node's typed result and applies onl
 _Avoid_: Assessment, model tool with arbitrary database writes, event source
 
 **Artifact Store**:
-The versioned storage for large or private execution artifacts such as source passages, Task Packages, Skill resources, raw interaction records, and model traces. The Learning Blackboard normally carries references and bounded summaries rather than copying these artifacts.
+The versioned storage for large or private execution artifacts such as source passages, Task Packages, Skill resources, raw interaction records, validated model artifacts, and model invocation metadata. It does not retain model chain-of-thought. The Learning Blackboard normally carries references and bounded summaries rather than copying these artifacts.
 _Avoid_: Learning Blackboard, Concept Progress, model context window
 
 **Learning StateGraph**:
@@ -224,6 +260,26 @@ _Avoid_: Sleeping Agent, simulated learner response, chat message without persis
 The typed, immutable representation of one learner message entering a resumed Graph Run. Phase 0 event kinds are Answer Submitted, Continue Requested, Hint Requested, Clarification Asked, Flow Control Requested, and Unknown Input; the event records the original message and interpretation metadata.
 _Avoid_: Raw chat text, Teaching Action, accepted state transition
 
+**Mathematical Answer**:
+The learner answer to a mathematical Task Attempt, retaining its original text, formula-editor structure, or handwritten image together with a learner-confirmed canonical mathematical expression when one can be formed. Assessment compares the confirmed expression under the Task Rubric; it never treats a raw string or an unconfirmed recognition result as the answer of record.
+_Avoid_: String equality, OCR text alone, model-inferred final answer
+
+**Answer Representation Contract**:
+The Task Package contract that declares an answer's mathematical kind, permitted variables and notation families, entry mode, rendering rules, and canonicalization-confirmation policy. Phase 0 accepts conventional plain text, Unicode mathematical notation, and LaTeX-like expression text for the same formal-expression contract; it does not require a single keyboard syntax. The Contract defines representation only and never parses or assesses a submitted answer.
+_Avoid_: Answer key, parser configuration as learner UX, assessment rule
+
+**Answer Confirmation**:
+The learner's explicit approval or correction of the rendered canonical expression derived from a Mathematical Answer. Formula-editor submission confirms the expression authored in the editor; parsed text and OCR require confirmation whenever their representation is transformed or uncertain. Without confirmation, an answer is not submitted for Assessment.
+_Avoid_: High-confidence OCR auto-submit, parsing success as consent, model correction
+
+**Mathematical Equivalence Check**:
+A bounded deterministic evaluation of a confirmed Mathematical Answer against a task's expected mathematical result. It returns Proven Equivalent, Proven Not Equivalent, or Cannot Decide; unsupported or ambiguous expressions must return Cannot Decide rather than a guessed negative result.
+_Avoid_: String equality, universal computer algebra claim, model verdict
+
+**Inconclusive Assessment**:
+The outcome when required evaluation sources disagree or cannot establish a reliable result. It accepts no Learning Evidence and is not recorded as learner failure; a later independent attempt requires a Fresh Equivalent Task.
+_Avoid_: Averaged confidence, failed attempt, accepted evidence
+
 **Learner Input Gate**:
 The graph-entry boundary that converts a structured UI/API action or free-form learner message into a Learner Input Event, then asks the Workflow Guard to validate whether that event is legal in the current Learning State. It cannot assess an answer, select pedagogy, load Skills, or mutate state.
 _Avoid_: Router, Pedagogy Agent, Assessment
@@ -241,12 +297,24 @@ A major phase of a Learning Flow: Diagnostic, Learning and Practice, Independent
 _Avoid_: Teaching Action, fixed prompt step
 
 **Diagnostic**:
-The initial, brief, no-hint attempt used to discover whether a learner already satisfies or partially satisfies a new Target Concept's Mastery Criterion. It uses a Retrieve or Apply action with diagnostic purpose and may be skipped in favor of direct instruction.
+The initial, brief, no-hint attempt used to discover whether a learner already satisfies or partially satisfies a new Target Concept's Mastery Criterion. It uses a Retrieve or Apply action with diagnostic purpose and may be skipped in favor of direct instruction. A passing Diagnostic never by itself establishes Independent; it routes the learner to a fresh Independent Test.
 _Avoid_: Diagnose Agent, Diagnose Skill, mandatory exam
+
+**Neutral Transition**:
+The learner-visible transition from a passing Diagnostic to a fresh Independent Test that states only the next interaction and gives no correctness, solution, rule, or targeted feedback. It prevents diagnostic feedback from becoming assistance before independent evidence is collected.
+_Avoid_: Assessment feedback, implicit hint, score reveal
 
 **Teaching Action**:
 A single optional pedagogical intervention selected in response to the Mastery Criterion and current Learning Evidence, such as Explain, Retrieve, Apply, Teach-back, or Hint. Teaching Actions are tools, not mandatory stages.
 _Avoid_: Agent, prompt
+
+**Apply**:
+The Teaching Action that delivers one bounded task requiring a learner to use a Target Concept in a declared context. It creates a Task Package and opens the appropriate Task Attempt but does not explain the Concept, reveal a worked solution, assess the response, or create Learning Evidence. Diagnostic and Independent Test uses are distinguished by their Task Blueprints and gates, not by separate Apply Profiles.
+_Avoid_: Explain, worked example, Assessment, Task Verifier
+
+**Apply Generation Draft**:
+The closed, model-produced `apply_generation/v1` input to the Apply Profile. Its discriminated `outcome` is either `task_ready` (learner task text plus a proposed expected expression, Rubric mapping, source trace, and equivalence declaration) or `source_gap` (a structured reason code and missing requirement IDs). It has no learner events, locale-rendered answer fields, generic private-artifact map, final canonical answer, Task Fingerprint, or model reasoning. The Apply Profile validates and normalizes a valid Draft before turning it into a Task Package.
+_Avoid_: Task Package, generic Teaching Result Envelope, model-controlled interaction contract
 
 **Pedagogy Policy**:
 The combined policy for choosing the next pedagogical move from the Mastery Criterion, Concept Progress, and recent Learning Evidence. In Phase 0 it is implemented as graph transitions governed by a deterministic Workflow Guard plus a bounded Pedagogy Agent that produces the next Pedagogy Plan.
@@ -280,8 +348,12 @@ _Avoid_: Graph router, Pedagogy Agent, Skill Loader, state transition
 A small, versioned module composed with other Skills for one execution. A Skill has one primary responsibility, normally a Teaching Action or a reusable capability; subject-specific Skills remain thin extensions.
 _Avoid_: Agent, monolithic subject package, plugin
 
+**Skill Bundle**:
+The first-party directory that packages one Skill's short, always-loaded `SKILL.md` core instructions, machine-readable frontmatter Manifest, declared lazy resources, and evaluation cases. It has a stable semantic identity and immutable SemVer release version; the registry calculates a content hash for the entire release, and a pinned version is never edited. The core contains only the responsibility, operating contract, non-negotiables, and routine procedure needed in every execution; rare edge cases, long examples, background rationale, and evaluation fixtures are resources. The Execution Plan deterministically activates only the runtime resources whose declared conditions are met, while evaluation fixtures are never runtime-loadable. The registry reads only frontmatter before selection; the Loader reads instructions and selected resources only after the Execution Plan freezes that Skill version. External Skill files are research input, not executable Bundles.
+_Avoid_: Hard-coded registry entry, model-discovered prompt, runtime external plugin
+
 **Skill Manifest**:
-The machine-readable declaration of a Skill's identity, version, eligible Teaching Node Profiles, supported Strategy and Capability Tags, applicability conditions, explicit priority and default status, dependencies, conflicts, resources, tools, and output contributions. The Skill Resolver selects Skills from Manifests without loading their full contents.
+The machine-readable declaration of a Skill Bundle's schema version, stable identity, immutable release version, occupied Slot, summary, eligible Teaching Node Profiles, minimum context requirements, approved output contributions, explicit tool permissions, and declared lazy resources. In a Profile call, only the Action Slot may contribute model-draft fields; Capability and Subject Bundles declare an empty contribution list and constrain that Action's generation. The Apply reference's `kiln.skill/v1` uses a fixed Profile composition and does not declare dependencies, conflicts, priority, or defaults; future Profile routing remains outside this reference's scope. It does not duplicate or redefine the Profile's complete input schema, base envelope, permissions, or state policy. The registry reads Manifests without loading their full contents.
 _Avoid_: Skill instructions, model-selected tool description
 
 **Skill Resolver**:
@@ -321,11 +393,11 @@ A named composition position that limits one Skill Stack to at most one compatib
 _Avoid_: Skill priority, Capability Tag, arbitrary prompt section
 
 **Prompt Compiler**:
-The deterministic component that assembles Profile constraints, one Action Skill, occupied Capability and Subject Slots, approved Skill Resources, and Node Context View into namespaced model instructions. It rejects conflicts and budget overflow rather than relying on prompt order or silent truncation.
+The deterministic component that assembles Profile constraints, one Action Skill, occupied Capability and Subject Slots, approved Skill Resources, and a response contract into namespaced system instructions. It passes the Node Context View separately as structured execution data, rejects conflicts and budget overflow before the model call, and never relies on prompt order or silent truncation.
 _Avoid_: LLM Router, raw string concatenation, context summarizer
 
 **Skill Resource**:
-A declared example, reference, schema, or tool description owned by a Skill already present in the frozen Skill Stack. It may be loaded lazily during execution and is traced, but loading it does not add or replace a Skill.
+A declared example, reference, schema, or tool description owned by a Skill already present in the frozen Skill Stack. Its explicit activation conditions are deterministically evaluated from the frozen Execution Plan, Profile, Blueprint, and validated Context View; every runtime-loaded resource is traced, but the model cannot select an additional resource. Evaluation fixtures are not runtime resources. Loading a resource does not add or replace a Skill.
 _Avoid_: New Skill, unregistered context, Concept source
 
 **Capability Gap**:
@@ -333,7 +405,7 @@ A structured pre-execution or execution outcome indicating that the selected Tea
 _Avoid_: Model improvisation, automatic Skill installation, learner failure
 
 **Teaching Result Envelope**:
-The typed output of one Teaching Node execution, with strictly separated learner-visible content, private artifacts, source trace, and action-specific structured fields. It is not delivered or allowed to advance state until it passes the Output Gate.
+The Profile-assembled typed output of one Teaching Node execution, with strictly separated learner-visible content, private artifacts, source trace, and action-specific structured fields. It is not a raw model response, contains no model reasoning, and is not delivered or allowed to advance state until it passes the Output Gate.
 _Avoid_: Raw model stream, chat message, accepted Task Package
 
 **Interaction Contract**:
@@ -369,7 +441,7 @@ The Execution Plan component that defines which Concept Source Pack, filters, qu
 _Avoid_: Skill selection, hidden model browsing, Knowledge Base
 
 **Assessment**:
-An evaluation node isolated from the Teaching Node execution that judges learner performance against the Task Rubric and produces an Evidence Candidate. It may use the same model provider but not the teaching execution's hidden reasoning.
+An evaluation node isolated from the Teaching Node execution that judges learner performance against the Task Rubric and produces an Evidence Candidate. For the Apply reference it separates a final-expression channel from a rationale channel, obeys proof-bounded deterministic mathematical results, and uses a closed model judgment only where semantic evaluation or deterministic `Cannot Decide` requires it. It may use the same model provider but not the teaching execution's hidden reasoning.
 _Avoid_: Self-grading Teaching Node, state transition
 
 **Evidence Candidate**:

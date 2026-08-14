@@ -12,6 +12,8 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0007](0007-project-coarse-milestones-from-multidimensional-evidence.md): rebuildable coarse milestones
 - [ADR-0008](0008-separate-current-and-highest-mastery-milestones.md): current versus historical milestone
 - [ADR-0009](0009-use-task-attempts-as-the-evidence-boundary.md): Task Attempt as evidence boundary
+- [ADR-0042](0042-confirm-independent-evidence-on-a-fresh-post-diagnostic-task.md): fresh independent confirmation after Diagnostic
+- [ADR-0043](0043-use-a-neutral-transition-from-diagnostic-to-independent-test.md): neutral transition prevents diagnostic-feedback leakage
 
 ## Orchestration and interaction
 
@@ -21,6 +23,7 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0013](0013-normalize-learner-input-before-workflow-execution.md): typed learner input
 - [ADR-0014](0014-protect-independent-evidence-from-substantive-clarification.md): clarification and evidence eligibility
 - [ADR-0015](0015-abandon-open-attempts-when-leaving-a-learning-flow.md): leaving a Flow closes exposed attempts
+- [ADR-0044](0044-use-learner-confirmed-canonical-mathematical-answers.md): confirmed canonical mathematical answers
 - [ADR-0020](0020-use-a-bounded-pedagogy-agent-for-feedback-and-next-action.md): bounded Pedagogy Agent
 - [ADR-0021](0021-coordinate-through-a-typed-blackboard-and-node-specific-context-views.md): typed Blackboard and projected Context Views
 - [ADR-0022](0022-defer-cross-flow-learner-memory-in-phase-0.md): no cross-Flow Learner Memory
@@ -37,6 +40,8 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0016](0016-confirm-a-concept-contract-before-the-first-learning-flow.md): learner-confirmed Concept Contract
 - [ADR-0017](0017-separate-concept-sources-from-teaching-skills.md): Concept Source Packs are distinct from Skills
 - [ADR-0033](0033-normalize-source-formats-before-concept-preparation.md): format-neutral source normalization
+- [ADR-0040](0040-keep-source-truth-outside-retrieval-indexes.md): source truth outside rebuildable retrieval indexes
+- [ADR-0041](0041-restrict-phase-0-sources-to-operator-curated-material.md): operator-curated source boundary
 
 ## Skill architecture
 
@@ -46,6 +51,21 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0023](0023-separate-teaching-node-runtime-profiles-from-action-skills.md): Profile versus Action Skill boundary
 - [ADR-0024](0024-select-action-skill-variants-deterministically-from-strategy-tags.md): Strategy Tag binding
 - [ADR-0025](0025-compose-skill-stacks-through-bounded-slots.md): bounded Skill Slots and Prompt Compiler
+- [ADR-0046](0046-keep-apply-task-first-and-separate-from-explanation.md): task-first Apply boundary
+- [ADR-0047](0047-package-first-party-skills-as-lazily-loaded-bundles.md): first-party lazy Skill Bundles
+- [ADR-0048](0048-use-immutable-semver-bundle-identities.md): immutable SemVer Bundle identities
+- [ADR-0049](0049-activate-skill-resources-deterministically.md): deterministic lazy resource activation
+- [ADR-0050](0050-separate-internal-bundle-language-from-learner-locale.md): internal instruction language versus learner locale
+- [ADR-0051](0051-separate-system-instructions-from-execution-data.md): system instructions separated from execution data
+- [ADR-0052](0052-assemble-apply-task-packages-from-typed-generation-drafts.md): typed Apply generation drafts
+- [ADR-0053](0053-give-action-skills-exclusive-model-draft-field-ownership.md): Action Skill owns model-draft fields
+- [ADR-0054](0054-use-a-closed-discriminated-apply-generation-draft.md): closed discriminated Apply draft
+- [ADR-0055](0055-use-versioned-purpose-specific-apply-task-blueprints.md): versioned purpose-specific Apply Blueprints
+- [ADR-0056](0056-bound-pre-delivery-apply-generation-retries.md): bounded pre-delivery Apply retries
+- [ADR-0057](0057-separate-apply-final-expression-and-rationale-assessment-channels.md): Apply assessment channels
+- [ADR-0058](0058-assemble-versioned-two-projection-apply-task-packages.md): two-projection Apply Task Packages
+- [ADR-0059](0059-separate-profile-contract-tests-from-live-model-smoke-tests.md): deterministic Profile tests versus live smoke tests
+- [ADR-0060](0060-use-one-neutral-message-for-unavailable-apply-tasks.md): neutral unavailable-task message
 
 ## Task generation, validation, and review
 
@@ -55,3 +75,4 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0028](0028-verify-independent-and-review-tasks-before-delivery.md): pre-delivery Task Verification
 - [ADR-0029](0029-schedule-review-work-without-running-the-learning-graph.md): non-Agent review scheduling
 - [ADR-0031](0031-reuse-a-typed-artifact-gate-pipeline-with-specialized-policies.md): shared typed validation pipeline
+- [ADR-0045](0045-combine-proof-bounded-math-checks-with-isolated-model-assessment.md): proof-bounded math checks with isolated model assessment
