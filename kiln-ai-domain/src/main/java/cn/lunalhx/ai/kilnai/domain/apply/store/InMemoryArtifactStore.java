@@ -8,7 +8,6 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
-import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -38,15 +37,7 @@ public final class InMemoryArtifactStore implements ArtifactStore {
         if (packages.containsKey(taskPackage.taskPackageId())) {
             throw new IllegalStateException("task package already persisted: " + taskPackage.taskPackageId());
         }
-        TaskAttempt attempt = new TaskAttempt(
-                UUID.randomUUID(),
-                taskPackage.taskPackageId(),
-                taskPackage.attemptPurpose(),
-                AttemptStatus.OPEN,
-                clock.instant(),
-                null,
-                null
-        );
+        TaskAttempt attempt = TaskAttempt.open(taskPackage, clock.instant());
         packages.put(taskPackage.taskPackageId(), taskPackage);
         attempts.put(attempt.attemptId(), attempt);
         return attempt;
@@ -75,20 +66,11 @@ public final class InMemoryArtifactStore implements ArtifactStore {
         if (current == null) {
             return new AttemptCloseOutcome(AttemptCloseOutcome.Result.NOT_FOUND, null);
         }
-        if (!current.isOpen()) {
-            return new AttemptCloseOutcome(AttemptCloseOutcome.Result.ALREADY_CLOSED, current);
+        AttemptCloseOutcome outcome = current.close(submission, clock.instant());
+        if (outcome.result() == AttemptCloseOutcome.Result.CLOSED) {
+            attempts.put(attemptId, outcome.attempt());
         }
-        TaskAttempt closed = new TaskAttempt(
-                current.attemptId(),
-                current.taskPackageId(),
-                current.purpose(),
-                AttemptStatus.SUBMITTED,
-                current.openedAt(),
-                clock.instant(),
-                submission
-        );
-        attempts.put(attemptId, closed);
-        return new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, closed);
+        return outcome;
     }
 
     @Override

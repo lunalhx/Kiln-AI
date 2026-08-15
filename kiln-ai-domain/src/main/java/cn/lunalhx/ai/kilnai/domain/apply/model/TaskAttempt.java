@@ -35,4 +35,29 @@ public record TaskAttempt(
     public boolean isClosed() {
         return status != AttemptStatus.OPEN;
     }
+
+    public static TaskAttempt open(TaskPackage taskPackage, Instant now) {
+        Objects.requireNonNull(taskPackage, "taskPackage must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        return new TaskAttempt(
+                UUID.randomUUID(),
+                taskPackage.taskPackageId(),
+                taskPackage.attemptPurpose(),
+                AttemptStatus.OPEN,
+                now,
+                null,
+                null
+        );
+    }
+
+    public AttemptCloseOutcome close(TaskSubmission submission, Instant now) {
+        Objects.requireNonNull(submission, "submission must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        if (!isOpen()) {
+            return new AttemptCloseOutcome(AttemptCloseOutcome.Result.ALREADY_CLOSED, this);
+        }
+        return new AttemptCloseOutcome(
+                AttemptCloseOutcome.Result.CLOSED,
+                new TaskAttempt(attemptId, taskPackageId, purpose, AttemptStatus.SUBMITTED, openedAt, now, submission));
+    }
 }

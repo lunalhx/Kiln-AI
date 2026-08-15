@@ -22,4 +22,17 @@ public final class ApplyHash {
     public static String sha256Hex(String value) {
         return sha256Hex(value.getBytes(StandardCharsets.UTF_8));
     }
+
+    public static String sha256HexDelimited(Object... parts) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            for (Object part : parts) {
+                digest.update(String.valueOf(part).getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) 0);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
 }

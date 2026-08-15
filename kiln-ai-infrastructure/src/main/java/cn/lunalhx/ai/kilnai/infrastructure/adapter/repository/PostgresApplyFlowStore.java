@@ -171,19 +171,12 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore 
     @Override
     @Transactional
     public TaskAttempt openAttempt(TaskPackage taskPackage) {
+        TaskAttempt attempt = TaskAttempt.open(taskPackage, clock.instant());
         mapper.insertPackage(new ApplyFlowMapper.PackageRow(
                 taskPackage.taskPackageId(),
                 taskPackage.attemptPurpose().name(),
                 writeJson(taskPackage.learnerProjection()),
                 writeJson(taskPackage.privateAssessorProjection())));
-        TaskAttempt attempt = new TaskAttempt(
-                UUID.randomUUID(),
-                taskPackage.taskPackageId(),
-                taskPackage.attemptPurpose(),
-                AttemptStatus.OPEN,
-                clock.instant(),
-                null,
-                null);
         mapper.insertAttempt(new ApplyFlowMapper.AttemptRow(
                 attempt.attemptId(),
                 attempt.taskPackageId(),
@@ -232,13 +225,22 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore 
     @Override
     @Transactional
     public AttemptCloseOutcome closeAttempt(UUID attemptId, TaskSubmission submission) {
-        int updated = mapper.closeOpenAttempt(attemptId, clock.instant(), writeJson(submission));
+        TaskAttempt current = findAttempt(attemptId).orElse(null);
+        if (current == null) {
+            return new AttemptCloseOutcome(AttemptCloseOutcome.Result.NOT_FOUND, null);
+        }
+        AttemptCloseOutcome outcome = current.close(submission, clock.instant());
+        if (outcome.result() != AttemptCloseOutcome.Result.CLOSED) {
+            return outcome;
+        }
+        TaskAttempt closed = outcome.attempt();
+        int updated = mapper.closeOpenAttempt(attemptId, closed.closedAt(), writeJson(submission));
         if (updated == 0) {
             return findAttempt(attemptId)
-                    .map(current -> new AttemptCloseOutcome(AttemptCloseOutcome.Result.ALREADY_CLOSED, current))
+                    .map(latest -> new AttemptCloseOutcome(AttemptCloseOutcome.Result.ALREADY_CLOSED, latest))
                     .orElseGet(() -> new AttemptCloseOutcome(AttemptCloseOutcome.Result.NOT_FOUND, null));
         }
-        return new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, findAttempt(attemptId).orElseThrow());
+        return new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, closed);
     }
 
     @Override

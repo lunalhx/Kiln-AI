@@ -1,5 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
+import cn.lunalhx.ai.kilnai.domain.apply.ApplyHash;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
@@ -19,10 +20,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Clock;
-import java.util.HexFormat;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -70,7 +68,7 @@ public final class ApplyFlowUseCase {
     public ApplyFlowResult start(UUID learnerId, UUID idempotencyKey) {
         requireUuidKey(idempotencyKey);
         Objects.requireNonNull(learnerId, "learnerId must not be null");
-        String hash = hash("start", learnerId);
+        String hash = ApplyHash.sha256HexDelimited("start", learnerId);
         return replayOrRun(idempotencyKey, hash, () -> {
             UUID flowId = UUID.randomUUID();
             flowStore.insertFlow(new LearningFlowStore.FlowRecord(
@@ -105,7 +103,8 @@ public final class ApplyFlowUseCase {
         Objects.requireNonNull(flowId, "flowId must not be null");
         Objects.requireNonNull(attemptId, "attemptId must not be null");
         Objects.requireNonNull(rawDerivative, "rawDerivative must not be null");
-        String hash = hash("submit", flowId, interactionVersion, attemptId, rawDerivative, confirmedCanonical, rationale);
+        String hash = ApplyHash.sha256HexDelimited("submit", flowId, interactionVersion, attemptId, rawDerivative,
+                confirmedCanonical, rationale);
         return replayOrRun(idempotencyKey, hash, () -> {
             LearningFlowStore.FlowRecord flow = flowStore.findFlow(flowId)
                     .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
@@ -249,19 +248,6 @@ public final class ApplyFlowUseCase {
     private void requireUuidKey(UUID key) {
         if (key == null) {
             throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "Idempotency-Key is required");
-        }
-    }
-
-    private String hash(Object... parts) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            for (Object part : parts) {
-                digest.update(String.valueOf(part).getBytes(StandardCharsets.UTF_8));
-                digest.update((byte) 0);
-            }
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (Exception exception) {
-            throw new IllegalStateException(exception);
         }
     }
 }
