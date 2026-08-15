@@ -11,7 +11,6 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore.ReviewStartBind;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor.PreparedDelivery;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
-import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 
@@ -21,7 +20,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The deterministic start flow of a Due Review Task. It generates, gates, and
+ * The deterministic start flow of a Review Task. It generates, gates, and
  * verifies a Fresh Equivalent Task just in time with the frozen Review
  * Blueprint and the complete Exposure Ledger of the original Apply Flow as
  * novelty exclusions — before any durable state changes. A ready task is then
@@ -30,7 +29,13 @@ import java.util.UUID;
  * interaction, and the processed idempotent command commit together or not at
  * all, so a crash or a losing race can never leave a stranded Review or a
  * second Package or Attempt. A Source Gap or exhausted generation leaves the
- * Review Due with nothing written.
+ * Review Due (or, for a resume, Started) with nothing written.
+ *
+ * <p>The same endpoint also resumes a Started Review whose submitted attempt
+ * was inconclusive and whose replacement could not be prepared: the Review
+ * holds no open Attempt, so the same atomic bind claims it and delivers the
+ * replacement. A Started Review that holds an open Attempt is never
+ * startable, so a replacement can never stack on an unanswered attempt.
  */
 public final class ReviewStartFlow {
 
@@ -66,7 +71,7 @@ public final class ReviewStartFlow {
     private ReviewStartResult run(UUID reviewId, UUID idempotencyKey, String hash) {
         ReviewTask review = reviewStore.findReview(reviewId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.REVIEW_NOT_FOUND, "review task not found"));
-        if (review.status() != ReviewTaskStatus.DUE) {
+        if (!review.isStartable()) {
             throw new ApplicationException(ErrorCode.CONFLICT, "review task is not startable");
         }
         UUID flowId = review.flowId();
@@ -79,7 +84,7 @@ public final class ReviewStartFlow {
         }
         TaskPackage taskPackage = ((PreparedDelivery.TaskReady) prepared).taskPackage();
         int interactionVersion = latestInteractionVersion(flowId) + 1;
-        Optional<ApplyFlowInteraction> bound = reviewStore.bindStartedReview(new ReviewStartBind(
+        Optional<ApplyFlowInteraction> bound = reviewStore.bindReviewAttempt(new ReviewStartBind(
                 reviewId, clock.instant(), flowId, taskPackage, interactionVersion, idempotencyKey, hash));
         if (bound.isPresent()) {
             return new ReviewStartResult.Boundary(bound.get());

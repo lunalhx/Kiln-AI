@@ -84,21 +84,23 @@ public interface ReviewTaskStore {
     }
 
     /**
-     * Atomically binds a successful Review start in one commit: it claims the
-     * Due Review with the conditional DUE to STARTED transition, opens the
-     * Review Attempt from the generated Task Package, records the exposure,
-     * persists the Flow's next Delayed Review interaction with its checkpoint
-     * and the processed idempotent command, and returns the durable
-     * interaction. Returns empty when the Review is no longer Due, in which
-     * case nothing at all is written, so a losing or racing start can never
-     * create a Package, Attempt, Exposure, or interaction.
+     * Atomically binds one Review Attempt in one commit: it claims the Review
+     * with a conditional transition — a Due Review becomes Started, or a
+     * Started Review that currently holds no open Attempt is resumed — opens
+     * the Review Attempt from the generated Task Package, records the
+     * exposure, persists the Flow's next Delayed Review interaction with its
+     * checkpoint and the processed idempotent command, and returns the durable
+     * interaction. Returns empty when the claim fails, in which case nothing at
+     * all is written, so a losing, racing, or duplicate start can never create
+     * a Package, Attempt, Exposure, or interaction and at most one OPEN
+     * Attempt can ever exist per Review Task.
      */
-    Optional<ApplyFlowInteraction> bindStartedReview(ReviewStartBind bind);
+    Optional<ApplyFlowInteraction> bindReviewAttempt(ReviewStartBind bind);
 
     /**
-     * The complete domain-owned specification of one successful Review start.
-     * The store builds the open Attempt, the learner interaction, its
-     * checkpoint, and the processed command from these fields, so the whole
+     * The complete domain-owned specification of one successful Review start
+     * or resume. The store builds the open Attempt, the learner interaction,
+     * its checkpoint, and the processed command from these fields, so the whole
      * binding is one atomic write.
      */
     record ReviewStartBind(
@@ -116,6 +118,45 @@ public interface ReviewTaskStore {
             Objects.requireNonNull(startedAt, "startedAt must not be null");
             Objects.requireNonNull(flowId, "flowId must not be null");
             Objects.requireNonNull(taskPackage, "taskPackage must not be null");
+            Objects.requireNonNull(idempotencyKey, "idempotencyKey must not be null");
+            Objects.requireNonNull(requestHash, "requestHash must not be null");
+        }
+    }
+
+    /**
+     * Atomically resolves one closed inconclusive Review submission in one
+     * commit: it claims the Started Review whose open Attempt is the submitted
+     * one, binds the prepared replacement Package as the Review's single new
+     * OPEN Attempt (recording exposure) when one was prepared, or clears the
+     * open Attempt leaving the Review resumable when none was, and persists the
+     * Flow's next interaction with its checkpoint and the processed idempotent
+     * submission command. Returns empty when the claim fails, in which case
+     * nothing at all is written, so replay, concurrency, and duplicate
+     * submissions can never create a duplicate replacement.
+     */
+    Optional<ApplyFlowInteraction> resolveInconclusiveSubmission(ResolveInconclusiveBind bind);
+
+    /**
+     * The complete domain-owned specification of one inconclusive Review
+     * submission resolution. The replacement Package is null exactly when no
+     * verified fresh task could be prepared, in which case the Review stays
+     * Started with no open Attempt and remains resumable through the start
+     * endpoint.
+     */
+    record ResolveInconclusiveBind(
+            UUID reviewId,
+            UUID closedAttemptId,
+            TaskPackage replacementPackage,
+            int interactionVersion,
+            String learnerMessage,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+
+        public ResolveInconclusiveBind {
+            Objects.requireNonNull(reviewId, "reviewId must not be null");
+            Objects.requireNonNull(closedAttemptId, "closedAttemptId must not be null");
+            Objects.requireNonNull(learnerMessage, "learnerMessage must not be null");
             Objects.requireNonNull(idempotencyKey, "idempotencyKey must not be null");
             Objects.requireNonNull(requestHash, "requestHash must not be null");
         }

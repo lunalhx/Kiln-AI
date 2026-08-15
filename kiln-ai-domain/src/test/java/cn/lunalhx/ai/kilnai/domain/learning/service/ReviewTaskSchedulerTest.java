@@ -273,7 +273,7 @@ class ReviewTaskSchedulerTest {
             TaskPackage fresh = new TaskPackage(
                     TaskPackage.SCHEMA, UUID.randomUUID(), AttemptPurpose.REVIEW,
                     base.learnerProjection(), base.privateAssessorProjection());
-            store.bindStartedReview(new ReviewTaskStore.ReviewStartBind(
+            store.bindReviewAttempt(new ReviewTaskStore.ReviewStartBind(
                     due.reviewId(), CLOCK.instant(), due.flowId(), fresh,
                     1, UUID.randomUUID(), "hash"));
             return store.findReview(due.reviewId()).orElseThrow();

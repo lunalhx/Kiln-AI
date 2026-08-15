@@ -161,7 +161,7 @@ public final class ApplyFlowUseCase {
             }
             case REVIEW -> {
                 ReviewSubmissionResult result = reviewFlow.submitReview(
-                        flow, attemptId, rawDerivative, confirmedCanonical, rationale);
+                        flow, idempotencyKey, hash, attemptId, rawDerivative, confirmedCanonical, rationale);
                 return mapReview(latest, result, idempotencyKey, hash);
             }
             default -> {
@@ -231,6 +231,10 @@ public final class ApplyFlowUseCase {
             case ReviewSubmissionResult.NoEvidence noEvidence -> boundary(
                     latest, LearningStage.DELAYED_REVIEW, null, null, null,
                     noEvidence.learnerMessage(), idempotencyKey, hash);
+            case ReviewSubmissionResult.ReplacementBound bound ->
+                    new ApplyFlowResult.Boundary(bound.interaction());
+            case ReviewSubmissionResult.ReplacementUnavailable unavailable ->
+                    new ApplyFlowResult.Boundary(unavailable.interaction());
             case ReviewSubmissionResult.NotSubmittable notSubmittable ->
                     new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
             case ReviewSubmissionResult.Ignored ignored ->

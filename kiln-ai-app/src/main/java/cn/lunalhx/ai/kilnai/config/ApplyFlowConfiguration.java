@@ -152,10 +152,13 @@ public class ApplyFlowConfiguration {
             AssessmentPort assessmentPort,
             ResponseVerificationPort verificationPort,
             ReviewTaskScheduler reviewScheduler,
+            ApplyProfileExecutor executor,
+            ReviewTaskStore reviewStore,
             Clock clock
     ) {
         return new ReviewSubmissionFlow(
-                artifactStore, flowStore, assessmentPort, verificationPort, reviewScheduler, clock);
+                artifactStore, flowStore, assessmentPort, verificationPort, reviewScheduler,
+                executor, reviewStore, ReviewApplyFixture.reviewContext(), clock);
     }
 
     @Bean
