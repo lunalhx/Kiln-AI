@@ -85,8 +85,26 @@
           + new Date(item.dueAt).toLocaleString()
           + (item.startable ? '（可以开始）' : '（即将到来，暂不可操作）');
         entry.appendChild(line);
+        if (item.startable) {
+          const button = document.createElement('button');
+          button.className = 'start-review';
+          button.textContent = '开始复习';
+          button.dataset.reviewId = item.reviewId;
+          button.onclick = () => startReview(item.reviewId);
+          entry.appendChild(button);
+        }
         reviews.appendChild(entry);
       });
+    };
+    const startReview = async (reviewId) => {
+      const response = await fetch('/api/apply/reviews/' + reviewId + '/start', {
+        method: 'POST', headers: headers()
+      });
+      if (!response.ok) { return showError(response); }
+      flow = await response.json();
+      show(flow);
+      refresh.disabled = false;
+      loadReviews();
     };
     start.onclick = async () => {
       const response = await fetch('/api/apply/flows', {

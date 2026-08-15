@@ -17,6 +17,9 @@ public final class ApplyScriptData {
     public static final String INDEPENDENT_TASK_TEXT = "设 g(x) = 5x³ − 2x + 1，求 g'(x)。";
     public static final String INDEPENDENT_EXPECTED_EXPRESSION = "15*x^2 - 2";
 
+    public static final String REVIEW_TASK_TEXT = "设 h(x) = 2x⁴ − 3x² + 5，求 h'(x)。";
+    public static final String REVIEW_EXPECTED_EXPRESSION = "8*x^3 - 6*x";
+
     public static final String WRONG_DERIVATIVE = "6*x^2 - 3*x + 7";
 
     public static final String UNICODE_CORRECT_DERIVATIVE = "12x²−6x+7";

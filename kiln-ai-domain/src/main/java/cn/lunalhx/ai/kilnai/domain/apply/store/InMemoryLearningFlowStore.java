@@ -138,8 +138,40 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         return review;
     }
 
+    @Override
     public synchronized Optional<ReviewTask> findReview(UUID reviewId) {
         return Optional.ofNullable(reviews.get(reviewId));
+    }
+
+    @Override
+    public synchronized Optional<ReviewTask> claimReviewStarted(UUID reviewId, Instant startedAt) {
+        Objects.requireNonNull(startedAt, "startedAt must not be null");
+        ReviewTask review = reviews.get(reviewId);
+        if (review == null || review.status() != ReviewTaskStatus.DUE) {
+            return Optional.empty();
+        }
+        ReviewTask claimed = new ReviewTask(
+                review.reviewId(), review.learnerId(), review.conceptId(), review.flowId(),
+                review.reviewNumber(), ReviewTaskStatus.STARTED, review.dueAt(), review.createdAt(),
+                startedAt, null, null);
+        reviews.put(reviewId, claimed);
+        return Optional.of(claimed);
+    }
+
+    @Override
+    public synchronized Optional<ReviewTask> releaseReviewToDue(UUID reviewId, Instant startedAt) {
+        Objects.requireNonNull(startedAt, "startedAt must not be null");
+        ReviewTask review = reviews.get(reviewId);
+        if (review == null || review.status() != ReviewTaskStatus.STARTED
+                || !startedAt.equals(review.startedAt())) {
+            return Optional.empty();
+        }
+        ReviewTask released = new ReviewTask(
+                review.reviewId(), review.learnerId(), review.conceptId(), review.flowId(),
+                review.reviewNumber(), ReviewTaskStatus.DUE, review.dueAt(), review.createdAt(),
+                null, null, null);
+        reviews.put(reviewId, released);
+        return Optional.of(released);
     }
 
     @Override

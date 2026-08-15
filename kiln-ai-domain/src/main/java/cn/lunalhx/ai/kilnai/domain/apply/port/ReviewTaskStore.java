@@ -5,6 +5,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -37,4 +38,23 @@ public interface ReviewTaskStore {
     int markDueReviewsDue(Instant now);
 
     List<ReviewTask> unfinishedReviewsFor(UUID learnerId);
+
+    Optional<ReviewTask> findReview(UUID reviewId);
+
+    /**
+     * Atomically claims a Due Review for start: the conditional DUE to
+     * STARTED transition stamped with the given started time. Returns the
+     * claimed Review or empty when the task is no longer Due (not yet due,
+     * already started, completed, or cancelled). Only the winning caller may
+     * proceed to bind an attempt; a losing or racing start creates nothing.
+     */
+    Optional<ReviewTask> claimReviewStarted(UUID reviewId, Instant startedAt);
+
+    /**
+     * Atomically releases a claimed Review back to Due when start generation,
+     * Source Gap, or Task Verification made the Review unavailable. Only the
+     * original claimant, identified by the matching started time, may
+     * release, so a different process cannot free someone else's claim.
+     */
+    Optional<ReviewTask> releaseReviewToDue(UUID reviewId, Instant startedAt);
 }

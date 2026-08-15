@@ -25,14 +25,20 @@ public class ScriptedApplyPortsConfiguration {
     public static final String DIAGNOSTIC_EXPECTED = "12*x^2 - 6*x + 7";
     public static final String INDEPENDENT_TASK = "设 g(x) = 5x³ − 2x + 1，求 g'(x)。";
     public static final String INDEPENDENT_EXPECTED = "15*x^2 - 2";
+    public static final String REVIEW_TASK = "设 h(x) = 2x⁴ − 3x² + 5，求 h'(x)。";
+    public static final String REVIEW_EXPECTED = "8*x^3 - 6*x";
 
     @Bean
     @Primary
     ApplyGenerationPort scriptedApplyGeneration() {
-        return (compiledSystemPrompt, executionContextJson) ->
-                executionContextJson.contains("\"attempt_purpose\":\"independent_test\"")
-                        ? taskReadyJson(INDEPENDENT_TASK, INDEPENDENT_EXPECTED)
-                        : taskReadyJson(DIAGNOSTIC_TASK, DIAGNOSTIC_EXPECTED);
+        return (compiledSystemPrompt, executionContextJson) -> {
+            if (executionContextJson.contains("\"attempt_purpose\":\"review\"")) {
+                return taskReadyJson(REVIEW_TASK, REVIEW_EXPECTED);
+            }
+            return executionContextJson.contains("\"attempt_purpose\":\"independent_test\"")
+                    ? taskReadyJson(INDEPENDENT_TASK, INDEPENDENT_EXPECTED)
+                    : taskReadyJson(DIAGNOSTIC_TASK, DIAGNOSTIC_EXPECTED);
+        };
     }
 
     @Bean

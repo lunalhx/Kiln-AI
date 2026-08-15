@@ -272,6 +272,28 @@ public interface ApplyFlowMapper {
             """)
     int markDueReviewsDue(@Param("now") Instant now);
 
+    @Select("""
+            SELECT id, learner_id, concept_id, flow_id, review_number, status, due_at,
+                   created_at, started_at, completed_at, cancelled_at
+            FROM review_tasks
+            WHERE id = #{reviewId}
+            """)
+    Optional<ReviewTaskRow> findReviewTask(UUID reviewId);
+
+    @Update("""
+            UPDATE review_tasks
+            SET status = 'STARTED', started_at = #{startedAt}
+            WHERE id = #{reviewId} AND status = 'DUE'
+            """)
+    int claimReviewStarted(@Param("reviewId") UUID reviewId, @Param("startedAt") Instant startedAt);
+
+    @Update("""
+            UPDATE review_tasks
+            SET status = 'DUE', started_at = NULL
+            WHERE id = #{reviewId} AND status = 'STARTED' AND started_at = #{startedAt}
+            """)
+    int releaseReviewToDue(@Param("reviewId") UUID reviewId, @Param("startedAt") Instant startedAt);
+
     record ApplyFlowRow(
             UUID id,
             UUID learnerId,

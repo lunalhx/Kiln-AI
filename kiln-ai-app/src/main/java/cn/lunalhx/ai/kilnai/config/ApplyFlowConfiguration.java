@@ -3,9 +3,11 @@ package cn.lunalhx.ai.kilnai.config;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
@@ -129,6 +131,19 @@ public class ApplyFlowConfiguration {
     ) {
         return new IndependentSubmissionFlow(
                 artifactStore, flowStore, assessmentPort, verificationPort, reviewScheduler, clock);
+    }
+
+    @Bean
+    ReviewStartFlow reviewStartFlow(
+            ApplyProfileExecutor executor,
+            ArtifactStore artifactStore,
+            LearningFlowStore flowStore,
+            ReviewTaskStore reviewStore,
+            Clock clock
+    ) {
+        return new ReviewStartFlow(
+                executor, artifactStore, flowStore, reviewStore,
+                ReviewApplyFixture.reviewContext(), clock);
     }
 
     @Bean

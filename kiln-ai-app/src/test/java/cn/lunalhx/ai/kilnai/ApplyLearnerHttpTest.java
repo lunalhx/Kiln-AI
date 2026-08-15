@@ -222,6 +222,138 @@ class ApplyLearnerHttpTest {
                 "the open Independent attempt must remain current");
     }
 
+    @Test
+    void aDueReviewCanBeStartedOverHttpWithAnIdempotentReviewInteraction() {
+        UUID learnerId = UUID.randomUUID();
+        ApplyFlowResponse started = start(learnerId, UUID.randomUUID());
+        ApplyFlowResponse transitioned = submit(
+                started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        submit(
+                started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
+                transitioned.attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+
+        ReviewTaskView due = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody()[0];
+        assertTrue(due.startable(), "the Due Review must be startable");
+
+        UUID startKey = UUID.randomUUID();
+        ApplyFlowResponse review = startReview(due.reviewId(), startKey);
+        assertEquals("AWAITING_LEARNER_INPUT", review.status());
+        assertEquals("DELAYED_REVIEW", review.stage());
+        assertEquals("REVIEW", review.attemptPurpose());
+        assertNotNull(review.attemptId());
+        assertNotNull(review.task());
+        assertEquals(ScriptedApplyPortsConfiguration.REVIEW_TASK, review.task().taskText());
+        assertFalse(review.task().taskText().contains(ScriptedApplyPortsConfiguration.REVIEW_EXPECTED),
+                "the Review expected answer must never reach the learner");
+        assertEquals(4, review.interactionVersion(), "the Review interaction appends the original Flow");
+        assertEquals("INDEPENDENT", review.progress().currentMilestone());
+        assertEquals("DELAYED_REVIEW", review.progress().stage());
+
+        ApplyFlowResponse replayed = startReview(due.reviewId(), startKey);
+        assertEquals(review, replayed, "a replayed start key must return the original interaction");
+
+        ResponseEntity<Map> secondStart = startReviewRawMap(due.reviewId(), UUID.randomUUID());
+        assertEquals(HttpStatus.CONFLICT, secondStart.getStatusCode(),
+                "a different-key second start must conflict without a second attempt");
+
+        ResponseEntity<ReviewTaskView[]> after = http.getForEntity(
+                "/api/apply/reviews?learnerId=" + learnerId, ReviewTaskView[].class);
+        assertEquals("STARTED", after.getBody()[0].status());
+        assertFalse(after.getBody()[0].startable(), "a Started Review is bound and not startable again");
+    }
+
+    @Test
+    void theReviewStartResponseNeverLeaksPrivateFacts() {
+        UUID learnerId = UUID.randomUUID();
+        ApplyFlowResponse started = start(learnerId, UUID.randomUUID());
+        ApplyFlowResponse transitioned = submit(
+                started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        submit(
+                started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
+                transitioned.attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+
+        UUID reviewId = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody()[0].reviewId();
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Idempotency-Key", UUID.randomUUID().toString());
+        ResponseEntity<String> raw = http.exchange(
+                "/api/apply/reviews/" + reviewId + "/start",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of(), headers),
+                String.class);
+
+        assertEquals(HttpStatus.OK, raw.getStatusCode());
+        assertFalse(raw.getBody().contains(learnerId.toString()),
+                "the learner UUID must never appear in the start response");
+        assertFalse(raw.getBody().contains(ScriptedApplyPortsConfiguration.REVIEW_EXPECTED),
+                "expected answers must never leak");
+        assertFalse(raw.getBody().contains("fingerprint"));
+        assertFalse(raw.getBody().contains("openstax"));
+        assertFalse(raw.getBody().contains("assessment"));
+        assertFalse(raw.getBody().contains("evidence"));
+    }
+
+    @Test
+    void aScheduledOrUnknownReviewCannotBeStarted() {
+        UUID learnerId = UUID.randomUUID();
+        ApplyFlowResponse started = start(learnerId, UUID.randomUUID());
+        ApplyFlowResponse transitioned = submit(
+                started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        submit(
+                started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
+                transitioned.attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+
+        ReviewTaskView scheduled = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody()[0];
+        assertEquals(HttpStatus.CONFLICT, startReviewRawMap(scheduled.reviewId(), UUID.randomUUID()).getStatusCode(),
+                "pre-due work must never be startable");
+        assertEquals("SCHEDULED",
+                http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                        ReviewTaskView[].class).getBody()[0].status(),
+                "a refused start must not change the Review");
+
+        assertEquals(HttpStatus.NOT_FOUND, startReviewRawMap(UUID.randomUUID(), UUID.randomUUID()).getStatusCode(),
+                "an unknown Review Task must be not found");
+    }
+
+    private ApplyFlowResponse startReview(UUID reviewId, UUID idempotencyKey) {
+        ResponseEntity<ApplyFlowResponse> response = startReviewRaw(reviewId, idempotencyKey);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        return response.getBody();
+    }
+
+    private ResponseEntity<ApplyFlowResponse> startReviewRaw(UUID reviewId, UUID idempotencyKey) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Idempotency-Key", idempotencyKey.toString());
+        return http.exchange(
+                "/api/apply/reviews/" + reviewId + "/start",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of(), headers),
+                ApplyFlowResponse.class);
+    }
+
+    private ResponseEntity<Map> startReviewRawMap(UUID reviewId, UUID idempotencyKey) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Idempotency-Key", idempotencyKey.toString());
+        return http.exchange(
+                "/api/apply/reviews/" + reviewId + "/start",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of(), headers),
+                Map.class);
+    }
+
     private ApplyFlowResponse start(UUID learnerId, UUID idempotencyKey) {
         HttpHeaders headers = new HttpHeaders();
         headers.add("Idempotency-Key", idempotencyKey.toString());

@@ -85,6 +85,23 @@ class ApplyLearnerUiTest {
             assertFalse(ready.contains("暂不可操作"));
             assertFalse(ready.contains("15*x^2 - 2"));
             assertFalse(ready.contains("fingerprint"));
+
+            page.click(".start-review");
+            page.waitForFunction("() => document.getElementById('task').textContent.includes('设 h(x)')");
+            String reviewView = page.innerText("#view");
+            assertTrue(reviewView.contains("DELAYED_REVIEW"), "the Review interaction must be in Delayed Review");
+            assertTrue(reviewView.contains("REVIEW"), "the Review attempt purpose must be visible");
+            assertTrue(reviewView.contains("AWAITING_LEARNER_INPUT"));
+            assertFalse(reviewView.contains("8*x^3 - 6*x"), "the Review expected answer must never reach the UI");
+            assertFalse(reviewView.contains("fingerprint"));
+            assertFalse(reviewView.contains("openstax"));
+            assertFalse(page.isDisabled("#derivative"),
+                    "the learner must be able to enter answering from the started Due Review");
+            page.waitForFunction("() => document.getElementById('reviews').textContent.includes('STARTED')");
+            String bound = page.innerText("#reviews");
+            assertTrue(bound.contains("STARTED"), "the started Review must show as bound work");
+            assertFalse(bound.contains("可以开始"), "a Started Review must no longer offer a start action");
+            assertFalse(bound.contains("8*x^3 - 6*x"), "no answer facts in the Review collection after start");
         }
     }
 }

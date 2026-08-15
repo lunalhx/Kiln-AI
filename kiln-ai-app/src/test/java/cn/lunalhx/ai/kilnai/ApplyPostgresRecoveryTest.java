@@ -1,8 +1,10 @@
 package cn.lunalhx.ai.kilnai;
 
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
@@ -14,6 +16,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
+import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +36,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -68,6 +72,9 @@ class ApplyPostgresRecoveryTest {
 
     @Autowired
     ReviewTaskStore reviewStore;
+
+    @Autowired
+    ReviewStartFlow reviewStart;
 
     @BeforeEach
     void cleanDatabase() {
@@ -176,6 +183,93 @@ class ApplyPostgresRecoveryTest {
         assertEquals(0, reviewStore.markDueReviewsDue(now), "repeated ticks must be idempotent");
         assertEquals(2, reviewStore.unfinishedReviewsFor(learnerId).size(),
                 "the at-most-one-unfinished-per-learner-and-Concept invariant must survive the tick");
+    }
+
+    @Test
+    void aDueReviewStartDurablyBindsPackageAttemptExposureStartedStateInteractionAndCommand() {
+        UUID learnerId = UUID.randomUUID();
+        UUID startKey = UUID.randomUUID();
+
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, startKey);
+        UUID flowId = started.interaction().flowId();
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) useCase.submit(
+                flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        useCase.submit(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+        ReviewTask due = reviewStore.unfinishedReviewsFor(learnerId).get(0);
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+
+        UUID reviewKey = UUID.randomUUID();
+        ReviewStartResult.Boundary reviewBoundary = (ReviewStartResult.Boundary) reviewStart.start(
+                due.reviewId(), reviewKey);
+        ApplyFlowInteraction reviewInteraction = reviewBoundary.interaction();
+        assertEquals(LearningStage.DELAYED_REVIEW, reviewInteraction.stage());
+        assertEquals(AttemptPurpose.REVIEW, reviewInteraction.attemptPurpose());
+        assertEquals(4, reviewInteraction.interactionVersion());
+
+        ReviewTask startedReview = reviewStore.findReview(due.reviewId()).orElseThrow();
+        assertEquals(ReviewTaskStatus.STARTED, startedReview.status());
+        assertNotNull(startedReview.startedAt());
+        assertEquals(3, artifacts.allPackages().size(),
+                "the durable start must persist exactly one Review Package");
+        assertEquals(AttemptStatus.OPEN,
+                artifacts.findAttempt(reviewInteraction.attemptId()).orElseThrow().status());
+        assertEquals(3, flowStore.exposedTaskFingerprints(flowId).size(),
+                "the durable start must record the Review exposure");
+        assertEquals(3, flowStore.exposedSolutionFingerprints(flowId).size());
+        assertEquals(reviewInteraction, flowStore.latestInteraction(flowId).orElseThrow());
+        assertEquals(reviewInteraction, useCase.query(flowId),
+                "query must recover the exact Review interaction after commit");
+        assertEquals(reviewInteraction, flowStore.findCommand(reviewKey).orElseThrow().response(),
+                "the start command must be durably persisted with its idempotency key");
+
+        ReviewStartResult.Boundary replayed = (ReviewStartResult.Boundary) reviewStart.start(
+                due.reviewId(), reviewKey);
+        assertEquals(reviewInteraction, replayed.interaction());
+        assertEquals(3, artifacts.allPackages().size(),
+                "a durable replay must never create a second Package or Attempt");
+
+        assertThrows(ApplicationException.class,
+                () -> reviewStart.start(due.reviewId(), UUID.randomUUID()),
+                "a different-key second start must conflict");
+        assertEquals(3, artifacts.allPackages().size());
+        assertEquals(1, reviewStore.unfinishedReviewsFor(learnerId).size(),
+                "the at-most-one unfinished Review invariant must survive the start");
+    }
+
+    @Test
+    void theDurableClaimAndReleaseOfAReviewStartAreConditionalAndConcurrencySafe() {
+        UUID learnerId = UUID.randomUUID();
+        UUID startKey = UUID.randomUUID();
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, startKey);
+        LearningFlowStore.FlowRecord flow = flowStore.findFlow(started.interaction().flowId()).orElseThrow();
+        ReviewTask scheduled = reviewStore.acceptEvidenceAndScheduleFirstReview(
+                evidence(flow.learnerId(), flow.conceptId(), flow.flowId(),
+                        started.interaction().attemptId(), Instant.parse("2026-08-15T00:00:00Z")),
+                Instant.parse("2026-08-16T00:00:00Z"));
+        reviewStore.markDueReviewsDue(Instant.parse("2026-08-16T01:00:00Z"));
+        Instant claimTime = Instant.parse("2026-08-16T02:00:00Z");
+
+        assertTrue(reviewStore.claimReviewStarted(scheduled.reviewId(), claimTime).isPresent(),
+                "the first claimant must win the DUE to STARTED transition");
+        ReviewTask claimed = reviewStore.findReview(scheduled.reviewId()).orElseThrow();
+        assertEquals(ReviewTaskStatus.STARTED, claimed.status());
+        assertEquals(claimTime, claimed.startedAt());
+
+        assertTrue(reviewStore.claimReviewStarted(scheduled.reviewId(), claimTime.plusSeconds(1)).isEmpty(),
+                "a racing second claim must never win");
+        assertTrue(reviewStore.releaseReviewToDue(scheduled.reviewId(), claimTime.plusSeconds(1)).isEmpty(),
+                "a different claimant must never release someone else's claim");
+        assertEquals(ReviewTaskStatus.STARTED, reviewStore.findReview(scheduled.reviewId()).orElseThrow().status());
+
+        assertTrue(reviewStore.releaseReviewToDue(scheduled.reviewId(), claimTime).isPresent(),
+                "the original claimant must be able to release an unavailable start");
+        ReviewTask released = reviewStore.findReview(scheduled.reviewId()).orElseThrow();
+        assertEquals(ReviewTaskStatus.DUE, released.status());
+        assertTrue(released.startedAt() == null,
+                "a released Review must carry no stale started time and remain retryable");
     }
 
     private AcceptedLearningEvidence evidence(UUID learnerId, UUID conceptId, UUID flowId, UUID taskAttemptId, Instant acceptedAt) {

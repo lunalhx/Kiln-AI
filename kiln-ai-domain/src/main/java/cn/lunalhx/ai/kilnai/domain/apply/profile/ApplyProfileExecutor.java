@@ -52,21 +52,42 @@ public final class ApplyProfileExecutor {
     }
 
     public ApplyDeliveryResult deliver(ApplyExecutionContext context) {
+        PreparedDelivery prepared = prepareTask(context);
+        return switch (prepared) {
+            case PreparedDelivery.TaskReady ready -> {
+                TaskAttempt attempt = artifactStore.openAttempt(ready.taskPackage());
+                yield new ApplyDeliveryResult.Delivered(attempt, ready.taskPackage().learnerProjection());
+            }
+            case PreparedDelivery.Unavailable unavailable -> new ApplyDeliveryResult.Unavailable(
+                    unavailable.reason(), unavailable.learnerMessage());
+        };
+    }
+
+    /**
+     * Runs the full bounded generation, Output Gate, and Task Verification
+     * cycles without persisting a Task Package or opening a Task Attempt. A
+     * ready candidate returns the verified Task Package so the caller can
+     * durably bind it to its own state transition; Source Gap or exhausted
+     * generation returns an unavailable outcome and persists nothing but the
+     * verification audit records of rejected candidates.
+     */
+    public PreparedDelivery prepareTask(ApplyExecutionContext context) {
         Objects.requireNonNull(context, "context must not be null");
         validateContextCoverage(context, stack);
         String systemPrompt = compiler.compile(stack);
         String contextJson = compiler.serializeContext(context);
         for (int cycle = 1; cycle <= MAX_GENERATION_CYCLES; cycle++) {
             String raw = generationPort.generate(systemPrompt, contextJson);
-            Optional<ApplyDeliveryResult> outcome = handleCandidate(context, stack, raw);
+            Optional<PreparedDelivery> outcome = handleCandidate(context, stack, raw);
             if (outcome.isPresent()) {
                 return outcome.get();
             }
         }
-        return unavailable(TaskUnavailableReason.TASK_GENERATION_EXHAUSTED);
+        return new PreparedDelivery.Unavailable(
+                TaskUnavailableReason.TASK_GENERATION_EXHAUSTED, ApplyDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE);
     }
 
-    private Optional<ApplyDeliveryResult> handleCandidate(
+    private Optional<PreparedDelivery> handleCandidate(
             ApplyExecutionContext context,
             BundleStack stack,
             String raw
@@ -78,7 +99,8 @@ public final class ApplyProfileExecutor {
             return Optional.empty();
         }
         if (draft instanceof ApplyGenerationDraft.SourceGap) {
-            return Optional.of(unavailable(TaskUnavailableReason.SOURCE_GAP));
+            return Optional.of(new PreparedDelivery.Unavailable(
+                    TaskUnavailableReason.SOURCE_GAP, ApplyDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE));
         }
         ApplyGenerationDraft.TaskReady taskReady = (ApplyGenerationDraft.TaskReady) draft;
         GateResult<ApplyGenerationDraft.TaskReady> draftGate = gatePipeline.validate(
@@ -103,8 +125,7 @@ public final class ApplyProfileExecutor {
         if (!verdict.passed()) {
             return Optional.empty();
         }
-        TaskAttempt attempt = artifactStore.openAttempt(taskPackage);
-        return Optional.of(new ApplyDeliveryResult.Delivered(attempt, taskPackage.learnerProjection()));
+        return Optional.of(new PreparedDelivery.TaskReady(taskPackage));
     }
 
     private void validateContextCoverage(ApplyExecutionContext context, BundleStack stack) {
@@ -125,7 +146,26 @@ public final class ApplyProfileExecutor {
         }
     }
 
-    private ApplyDeliveryResult unavailable(TaskUnavailableReason reason) {
-        return new ApplyDeliveryResult.Unavailable(reason, ApplyDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE);
+    /**
+     * The closed outcome of {@link #prepareTask(ApplyExecutionContext)}: a
+     * verified ready Task Package, or an unavailable reason with the shared
+     * neutral learner message. Nothing is persisted for the unavailable
+     * outcome, and the caller owns opening the attempt for a ready package.
+     */
+    public sealed interface PreparedDelivery
+            permits PreparedDelivery.TaskReady, PreparedDelivery.Unavailable {
+
+        record TaskReady(TaskPackage taskPackage) implements PreparedDelivery {
+            public TaskReady {
+                Objects.requireNonNull(taskPackage, "taskPackage must not be null");
+            }
+        }
+
+        record Unavailable(TaskUnavailableReason reason, String learnerMessage) implements PreparedDelivery {
+            public Unavailable {
+                Objects.requireNonNull(reason, "reason must not be null");
+                Objects.requireNonNull(learnerMessage, "learnerMessage must not be null");
+            }
+        }
     }
 }

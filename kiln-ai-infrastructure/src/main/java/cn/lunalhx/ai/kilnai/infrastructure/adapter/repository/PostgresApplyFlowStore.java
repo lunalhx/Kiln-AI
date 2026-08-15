@@ -170,6 +170,31 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         return mapper.markDueReviewsDue(now);
     }
 
+    @Override
+    public Optional<ReviewTask> findReview(UUID reviewId) {
+        return mapper.findReviewTask(reviewId).map(this::toReviewTask);
+    }
+
+    @Override
+    @Transactional
+    public Optional<ReviewTask> claimReviewStarted(UUID reviewId, Instant startedAt) {
+        int claimed = mapper.claimReviewStarted(reviewId, startedAt);
+        if (claimed == 0) {
+            return Optional.empty();
+        }
+        return findReview(reviewId);
+    }
+
+    @Override
+    @Transactional
+    public Optional<ReviewTask> releaseReviewToDue(UUID reviewId, Instant startedAt) {
+        int released = mapper.releaseReviewToDue(reviewId, startedAt);
+        if (released == 0) {
+            return Optional.empty();
+        }
+        return findReview(reviewId);
+    }
+
     private ReviewTask toReviewTask(ApplyFlowMapper.ReviewTaskRow row) {
         return new ReviewTask(
                 row.id(), row.learnerId(), row.conceptId(), row.flowId(), row.reviewNumber(),
