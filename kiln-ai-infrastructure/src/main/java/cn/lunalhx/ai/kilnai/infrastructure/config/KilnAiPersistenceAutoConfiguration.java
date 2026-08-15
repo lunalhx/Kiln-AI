@@ -33,8 +33,8 @@ public class KilnAiPersistenceAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(DataSource.class)
-    InMemoryLearningFlowStore inMemoryLearningFlowStore() {
-        return new InMemoryLearningFlowStore();
+    InMemoryLearningFlowStore inMemoryLearningFlowStore(InMemoryArtifactStore artifactStore, Clock clock) {
+        return new InMemoryLearningFlowStore(clock, artifactStore);
     }
 
     @Bean

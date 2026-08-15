@@ -2,11 +2,16 @@ package cn.lunalhx.ai.kilnai.domain.apply.store;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
@@ -34,6 +39,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     private final Map<UUID, AcceptedLearningEvidence> evidence = new HashMap<>();
     private final Map<UUID, ProcessedCommand> commands = new LinkedHashMap<>();
     private final Map<UUID, ReviewTask> reviews = new LinkedHashMap<>();
+    private final ArtifactStore artifactStore;
     private final java.time.Clock clock;
 
     public InMemoryLearningFlowStore() {
@@ -41,7 +47,19 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     public InMemoryLearningFlowStore(java.time.Clock clock) {
+        this(clock, null);
+    }
+
+    /**
+     * The composite form used by Review start tests: the flow store also owns
+     * the atomic {@code ReviewTaskStore.bindStartedReview} transition, which
+     * persists the generated Package and its open Attempt through the given
+     * artifact store in the same commit as the review, flow, and command
+     * state.
+     */
+    public InMemoryLearningFlowStore(java.time.Clock clock, ArtifactStore artifactStore) {
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
+        this.artifactStore = artifactStore;
     }
 
     @Override
@@ -144,34 +162,32 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
-    public synchronized Optional<ReviewTask> claimReviewStarted(UUID reviewId, Instant startedAt) {
-        Objects.requireNonNull(startedAt, "startedAt must not be null");
-        ReviewTask review = reviews.get(reviewId);
+    public synchronized Optional<ApplyFlowInteraction> bindStartedReview(ReviewTaskStore.ReviewStartBind bind) {
+        Objects.requireNonNull(bind, "bind must not be null");
+        if (artifactStore == null) {
+            throw new IllegalStateException(
+                    "bindStartedReview requires the composite InMemoryLearningFlowStore(clock, artifactStore) form");
+        }
+        ReviewTask review = reviews.get(bind.reviewId());
         if (review == null || review.status() != ReviewTaskStatus.DUE) {
             return Optional.empty();
         }
         ReviewTask claimed = new ReviewTask(
                 review.reviewId(), review.learnerId(), review.conceptId(), review.flowId(),
                 review.reviewNumber(), ReviewTaskStatus.STARTED, review.dueAt(), review.createdAt(),
-                startedAt, null, null);
-        reviews.put(reviewId, claimed);
-        return Optional.of(claimed);
-    }
-
-    @Override
-    public synchronized Optional<ReviewTask> releaseReviewToDue(UUID reviewId, Instant startedAt) {
-        Objects.requireNonNull(startedAt, "startedAt must not be null");
-        ReviewTask review = reviews.get(reviewId);
-        if (review == null || review.status() != ReviewTaskStatus.STARTED
-                || !startedAt.equals(review.startedAt())) {
-            return Optional.empty();
-        }
-        ReviewTask released = new ReviewTask(
-                review.reviewId(), review.learnerId(), review.conceptId(), review.flowId(),
-                review.reviewNumber(), ReviewTaskStatus.DUE, review.dueAt(), review.createdAt(),
-                null, null, null);
-        reviews.put(reviewId, released);
-        return Optional.of(released);
+                bind.startedAt(), null, null);
+        reviews.put(bind.reviewId(), claimed);
+        TaskAttempt attempt = artifactStore.openAttempt(bind.taskPackage());
+        recordTaskExposure(bind.flowId(), bind.taskPackage());
+        ApplyFlowInteraction interaction = new ApplyFlowInteraction(
+                bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
+                LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
+                bind.taskPackage().learnerProjection(), null);
+        commitBoundary(interaction,
+                new ApplyCheckpoint(UUID.randomUUID(), bind.flowId(), bind.interactionVersion(), clock.instant()),
+                new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
+                        interaction, clock.instant()));
+        return Optional.of(interaction);
     }
 
     @Override

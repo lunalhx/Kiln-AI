@@ -69,25 +69,27 @@ public final class ApplyFlowUseCase {
         requireUuidKey(idempotencyKey);
         Objects.requireNonNull(learnerId, "learnerId must not be null");
         String hash = ApplyHash.sha256HexDelimited("start", learnerId);
-        return replayOrRun(idempotencyKey, hash, () -> {
-            UUID flowId = UUID.randomUUID();
-            flowStore.insertFlow(new LearningFlowStore.FlowRecord(
-                    flowId, learnerId, DiagnosticApplyFixture.CONCEPT_ID,
-                    FlowStatus.READY, LearningStage.DIAGNOSTIC, clock.instant()));
-            saveSourcePack();
-            ApplyDeliveryResult delivery = diagnosticFlow.startDiagnostic(flowId);
-            ApplyFlowInteraction interaction = switch (delivery) {
-                case ApplyDeliveryResult.Delivered delivered -> new ApplyFlowInteraction(
-                        flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
-                        delivered.attempt().attemptId(), delivered.attempt().purpose(),
-                        delivered.learnerProjection(), null);
-                case ApplyDeliveryResult.Unavailable unavailable -> new ApplyFlowInteraction(
-                        flowId, 1, FlowStatus.TERMINAL, LearningStage.DIAGNOSTIC,
-                        null, null, null, unavailable.learnerMessage());
-            };
-            commitBoundary(interaction, idempotencyKey, hash);
-            return new ApplyFlowResult.Boundary(interaction);
-        });
+        return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
+                interaction -> new ApplyFlowResult.Boundary(interaction),
+                () -> {
+                    UUID flowId = UUID.randomUUID();
+                    flowStore.insertFlow(new LearningFlowStore.FlowRecord(
+                            flowId, learnerId, DiagnosticApplyFixture.CONCEPT_ID,
+                            FlowStatus.READY, LearningStage.DIAGNOSTIC, clock.instant()));
+                    saveSourcePack();
+                    ApplyDeliveryResult delivery = diagnosticFlow.startDiagnostic(flowId);
+                    ApplyFlowInteraction interaction = switch (delivery) {
+                        case ApplyDeliveryResult.Delivered delivered -> new ApplyFlowInteraction(
+                                flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
+                                delivered.attempt().attemptId(), delivered.attempt().purpose(),
+                                delivered.learnerProjection(), null);
+                        case ApplyDeliveryResult.Unavailable unavailable -> new ApplyFlowInteraction(
+                                flowId, 1, FlowStatus.TERMINAL, LearningStage.DIAGNOSTIC,
+                                null, null, null, unavailable.learnerMessage());
+                    };
+                    commitBoundary(interaction, idempotencyKey, hash);
+                    return new ApplyFlowResult.Boundary(interaction);
+                });
     }
 
     public ApplyFlowResult submit(
@@ -105,17 +107,19 @@ public final class ApplyFlowUseCase {
         Objects.requireNonNull(rawDerivative, "rawDerivative must not be null");
         String hash = ApplyHash.sha256HexDelimited("submit", flowId, interactionVersion, attemptId, rawDerivative,
                 confirmedCanonical, rationale);
-        return replayOrRun(idempotencyKey, hash, () -> {
-            LearningFlowStore.FlowRecord flow = flowStore.findFlow(flowId)
-                    .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
-            ApplyFlowInteraction latest = flowStore.latestInteraction(flowId)
-                    .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
-            if (latest.interactionVersion() != interactionVersion) {
-                throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
-            }
-            return routeSubmission(flow, latest, attemptId, rawDerivative, confirmedCanonical, rationale,
-                    idempotencyKey, hash);
-        });
+        return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
+                interaction -> new ApplyFlowResult.Boundary(interaction),
+                () -> {
+                    LearningFlowStore.FlowRecord flow = flowStore.findFlow(flowId)
+                            .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
+                    ApplyFlowInteraction latest = flowStore.latestInteraction(flowId)
+                            .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
+                    if (latest.interactionVersion() != interactionVersion) {
+                        throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+                    }
+                    return routeSubmission(flow, latest, attemptId, rawDerivative, confirmedCanonical, rationale,
+                            idempotencyKey, hash);
+                });
     }
 
     public ApplyFlowInteraction query(UUID flowId) {
@@ -234,15 +238,6 @@ public final class ApplyFlowUseCase {
     private void saveSourcePack() {
         ApplyExecutionContext.ConceptSourcePack pack = diagnosticContext.conceptSourcePack();
         artifactStore.saveSource(new SourceArtifact(pack.id(), pack.version(), pack.passages()));
-    }
-
-    private ApplyFlowResult replayOrRun(UUID key, String hash, java.util.function.Supplier<ApplyFlowResult> action) {
-        return flowStore.findCommand(key).map(existing -> {
-            if (!existing.requestHash().equals(hash)) {
-                throw new ApplicationException(ErrorCode.CONFLICT, "idempotency key reused with a different payload");
-            }
-            return (ApplyFlowResult) new ApplyFlowResult.Boundary(existing.response());
-        }).orElseGet(action);
     }
 
     private void requireUuidKey(UUID key) {

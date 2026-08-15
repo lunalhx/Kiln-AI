@@ -177,22 +177,53 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
 
     @Override
     @Transactional
-    public Optional<ReviewTask> claimReviewStarted(UUID reviewId, Instant startedAt) {
-        int claimed = mapper.claimReviewStarted(reviewId, startedAt);
+    public Optional<ApplyFlowInteraction> bindStartedReview(ReviewTaskStore.ReviewStartBind bind) {
+        int claimed = mapper.claimReviewStarted(bind.reviewId(), bind.startedAt());
         if (claimed == 0) {
             return Optional.empty();
         }
-        return findReview(reviewId);
-    }
-
-    @Override
-    @Transactional
-    public Optional<ReviewTask> releaseReviewToDue(UUID reviewId, Instant startedAt) {
-        int released = mapper.releaseReviewToDue(reviewId, startedAt);
-        if (released == 0) {
-            return Optional.empty();
-        }
-        return findReview(reviewId);
+        TaskAttempt attempt = TaskAttempt.open(bind.taskPackage(), bind.startedAt());
+        mapper.insertPackage(new ApplyFlowMapper.PackageRow(
+                bind.taskPackage().taskPackageId(),
+                bind.taskPackage().attemptPurpose().name(),
+                writeJson(bind.taskPackage().learnerProjection()),
+                writeJson(bind.taskPackage().privateAssessorProjection()),
+                bind.startedAt()));
+        mapper.insertAttempt(new ApplyFlowMapper.AttemptRow(
+                attempt.attemptId(),
+                attempt.taskPackageId(),
+                attempt.purpose().name(),
+                attempt.status().name(),
+                attempt.openedAt(),
+                null,
+                null));
+        mapper.recordExposure(
+                bind.flowId(),
+                bind.taskPackage().taskPackageId(),
+                bind.taskPackage().privateAssessorProjection().taskFingerprint().value(),
+                bind.taskPackage().privateAssessorProjection().solutionFingerprint().value(),
+                bind.startedAt());
+        ApplyFlowInteraction interaction = new ApplyFlowInteraction(
+                bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
+                LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
+                bind.taskPackage().learnerProjection(), null);
+        mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
+                UUID.randomUUID(),
+                interaction.flowId(),
+                interaction.interactionVersion(),
+                interaction.status().name(),
+                interaction.stage().name(),
+                interaction.attemptId(),
+                interaction.attemptPurpose().name(),
+                writeJson(interaction.learnerProjection()),
+                interaction.learnerMessage(),
+                bind.startedAt()));
+        mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
+                UUID.randomUUID(), bind.flowId(), bind.interactionVersion(), bind.startedAt()));
+        mapper.insertCommand(new ApplyFlowMapper.CommandRow(
+                bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
+                writeJson(interaction), bind.startedAt()));
+        return Optional.of(interaction);
     }
 
     private ReviewTask toReviewTask(ApplyFlowMapper.ReviewTaskRow row) {

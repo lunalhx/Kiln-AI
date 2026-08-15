@@ -348,10 +348,11 @@ class ReviewStartFlowTest {
                 ApplyScriptData.taskReadyJson(),
                 ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
                         ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
+                ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
                 ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION)));
         return harness(generation,
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict())),
+                        ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(ApplyScriptData.responseAssessment(
                         FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED))));
     }
@@ -362,7 +363,7 @@ class ReviewStartFlowTest {
             ScriptedAssessmentModel assessment
     ) {
         InMemoryArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
-        InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK);
+        InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK, artifacts);
         ReviewTaskScheduler reviewScheduler = new ReviewTaskScheduler(flowStore);
         ApplyProfileExecutor executor = new ApplyProfileExecutor(ReferenceBundles.stack(), generation, verifier, artifacts);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
@@ -375,7 +376,7 @@ class ReviewStartFlowTest {
                 artifacts, flowStore, diagnosticFlow, independentFlow,
                 DiagnosticApplyFixture.diagnosticContext(), CLOCK);
         ReviewStartFlow reviewStart = new ReviewStartFlow(
-                executor, artifacts, flowStore, flowStore, ReviewApplyFixture.reviewContext(), CLOCK);
+                executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), CLOCK);
         return new Harness(artifacts, flowStore, generation, useCase, reviewStart);
     }
 

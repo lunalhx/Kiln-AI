@@ -1,10 +1,13 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
 
+import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -42,19 +45,40 @@ public interface ReviewTaskStore {
     Optional<ReviewTask> findReview(UUID reviewId);
 
     /**
-     * Atomically claims a Due Review for start: the conditional DUE to
-     * STARTED transition stamped with the given started time. Returns the
-     * claimed Review or empty when the task is no longer Due (not yet due,
-     * already started, completed, or cancelled). Only the winning caller may
-     * proceed to bind an attempt; a losing or racing start creates nothing.
+     * Atomically binds a successful Review start in one commit: it claims the
+     * Due Review with the conditional DUE to STARTED transition, opens the
+     * Review Attempt from the generated Task Package, records the exposure,
+     * persists the Flow's next Delayed Review interaction with its checkpoint
+     * and the processed idempotent command, and returns the durable
+     * interaction. Returns empty when the Review is no longer Due, in which
+     * case nothing at all is written, so a losing or racing start can never
+     * create a Package, Attempt, Exposure, or interaction.
      */
-    Optional<ReviewTask> claimReviewStarted(UUID reviewId, Instant startedAt);
+    Optional<ApplyFlowInteraction> bindStartedReview(ReviewStartBind bind);
 
     /**
-     * Atomically releases a claimed Review back to Due when start generation,
-     * Source Gap, or Task Verification made the Review unavailable. Only the
-     * original claimant, identified by the matching started time, may
-     * release, so a different process cannot free someone else's claim.
+     * The complete domain-owned specification of one successful Review start.
+     * The store builds the open Attempt, the learner interaction, its
+     * checkpoint, and the processed command from these fields, so the whole
+     * binding is one atomic write.
      */
-    Optional<ReviewTask> releaseReviewToDue(UUID reviewId, Instant startedAt);
+    record ReviewStartBind(
+            UUID reviewId,
+            Instant startedAt,
+            UUID flowId,
+            TaskPackage taskPackage,
+            int interactionVersion,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+
+        public ReviewStartBind {
+            Objects.requireNonNull(reviewId, "reviewId must not be null");
+            Objects.requireNonNull(startedAt, "startedAt must not be null");
+            Objects.requireNonNull(flowId, "flowId must not be null");
+            Objects.requireNonNull(taskPackage, "taskPackage must not be null");
+            Objects.requireNonNull(idempotencyKey, "idempotencyKey must not be null");
+            Objects.requireNonNull(requestHash, "requestHash must not be null");
+        }
+    }
 }

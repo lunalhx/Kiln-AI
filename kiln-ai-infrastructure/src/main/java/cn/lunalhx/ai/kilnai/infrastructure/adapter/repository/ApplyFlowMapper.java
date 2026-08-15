@@ -287,13 +287,6 @@ public interface ApplyFlowMapper {
             """)
     int claimReviewStarted(@Param("reviewId") UUID reviewId, @Param("startedAt") Instant startedAt);
 
-    @Update("""
-            UPDATE review_tasks
-            SET status = 'DUE', started_at = NULL
-            WHERE id = #{reviewId} AND status = 'STARTED' AND started_at = #{startedAt}
-            """)
-    int releaseReviewToDue(@Param("reviewId") UUID reviewId, @Param("startedAt") Instant startedAt);
-
     record ApplyFlowRow(
             UUID id,
             UUID learnerId,

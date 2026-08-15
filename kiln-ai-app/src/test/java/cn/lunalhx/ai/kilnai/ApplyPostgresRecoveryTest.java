@@ -240,7 +240,7 @@ class ApplyPostgresRecoveryTest {
     }
 
     @Test
-    void theDurableClaimAndReleaseOfAReviewStartAreConditionalAndConcurrencySafe() {
+    void aBindAgainstANonDueReviewWritesNothingAndNeverCreatesOrphans() {
         UUID learnerId = UUID.randomUUID();
         UUID startKey = UUID.randomUUID();
         ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, startKey);
@@ -249,27 +249,27 @@ class ApplyPostgresRecoveryTest {
                 evidence(flow.learnerId(), flow.conceptId(), flow.flowId(),
                         started.interaction().attemptId(), Instant.parse("2026-08-15T00:00:00Z")),
                 Instant.parse("2026-08-16T00:00:00Z"));
-        reviewStore.markDueReviewsDue(Instant.parse("2026-08-16T01:00:00Z"));
-        Instant claimTime = Instant.parse("2026-08-16T02:00:00Z");
+        UUID bindKey = UUID.randomUUID();
+        ReviewTaskStore.ReviewStartBind bind = new ReviewTaskStore.ReviewStartBind(
+                scheduled.reviewId(),
+                Instant.parse("2026-08-16T02:00:00Z"),
+                flow.flowId(),
+                artifacts.allPackages().get(0),
+                99,
+                bindKey,
+                "hash");
 
-        assertTrue(reviewStore.claimReviewStarted(scheduled.reviewId(), claimTime).isPresent(),
-                "the first claimant must win the DUE to STARTED transition");
-        ReviewTask claimed = reviewStore.findReview(scheduled.reviewId()).orElseThrow();
-        assertEquals(ReviewTaskStatus.STARTED, claimed.status());
-        assertEquals(claimTime, claimed.startedAt());
-
-        assertTrue(reviewStore.claimReviewStarted(scheduled.reviewId(), claimTime.plusSeconds(1)).isEmpty(),
-                "a racing second claim must never win");
-        assertTrue(reviewStore.releaseReviewToDue(scheduled.reviewId(), claimTime.plusSeconds(1)).isEmpty(),
-                "a different claimant must never release someone else's claim");
-        assertEquals(ReviewTaskStatus.STARTED, reviewStore.findReview(scheduled.reviewId()).orElseThrow().status());
-
-        assertTrue(reviewStore.releaseReviewToDue(scheduled.reviewId(), claimTime).isPresent(),
-                "the original claimant must be able to release an unavailable start");
-        ReviewTask released = reviewStore.findReview(scheduled.reviewId()).orElseThrow();
-        assertEquals(ReviewTaskStatus.DUE, released.status());
-        assertTrue(released.startedAt() == null,
-                "a released Review must carry no stale started time and remain retryable");
+        assertTrue(reviewStore.bindStartedReview(bind).isEmpty(),
+                "a not-yet-Due Review must never be claimed by a bind");
+        assertEquals(ReviewTaskStatus.SCHEDULED, reviewStore.findReview(scheduled.reviewId()).orElseThrow().status());
+        assertEquals(1, artifacts.allPackages().size(),
+                "a refused bind must never persist a Package or Attempt");
+        assertEquals(1, flowStore.latestInteraction(flow.flowId()).orElseThrow().interactionVersion(),
+                "a refused bind must never advance the Flow interaction");
+        assertTrue(flowStore.findCommand(bindKey).isEmpty(),
+                "a refused bind must never persist its command");
+        assertEquals(0, flowStore.exposedTaskFingerprints(flow.flowId()).size(),
+                "a refused bind must never record Exposure");
     }
 
     private AcceptedLearningEvidence evidence(UUID learnerId, UUID conceptId, UUID flowId, UUID taskAttemptId, Instant acceptedAt) {

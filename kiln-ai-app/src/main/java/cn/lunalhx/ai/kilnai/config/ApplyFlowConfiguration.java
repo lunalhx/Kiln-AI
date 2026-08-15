@@ -136,14 +136,12 @@ public class ApplyFlowConfiguration {
     @Bean
     ReviewStartFlow reviewStartFlow(
             ApplyProfileExecutor executor,
-            ArtifactStore artifactStore,
             LearningFlowStore flowStore,
             ReviewTaskStore reviewStore,
             Clock clock
     ) {
         return new ReviewStartFlow(
-                executor, artifactStore, flowStore, reviewStore,
-                ReviewApplyFixture.reviewContext(), clock);
+                executor, flowStore, reviewStore, ReviewApplyFixture.reviewContext(), clock);
     }
 
     @Bean
