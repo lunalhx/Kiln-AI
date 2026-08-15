@@ -1,7 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleLoader;
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleRegistry;
+import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
+import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ApplyScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedApplyGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedAssessmentModel;
@@ -18,7 +18,6 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionRejectionReason;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
-import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
@@ -324,7 +323,7 @@ class ApplyFlowUseCaseTest {
     ) {
         InMemoryArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
         InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore();
-        ApplyProfileExecutor executor = new ApplyProfileExecutor(referenceRegistry(), generation, verifier, artifacts);
+        ApplyProfileExecutor executor = new ApplyProfileExecutor(ReferenceBundles.stack(), generation, verifier, artifacts);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
                 DiagnosticApplyFixture.diagnosticContext(), IndependentApplyFixture.independentContext(), CLOCK);
@@ -352,13 +351,7 @@ class ApplyFlowUseCaseTest {
         }
     }
 
-    private BundleRegistry referenceRegistry() {
-        BundleRegistry registry = new BundleRegistry();
-        BundleLoader loader = new BundleLoader();
-        ApplyProfile.FIXED_STACK.forEach(pinned -> {
-            int at = pinned.lastIndexOf('@');
-            registry.register(loader.load(pinned.substring(0, at)));
-        });
-        return registry;
+    private BundleStack referenceStack() {
+        return ReferenceBundles.stack();
     }
 }

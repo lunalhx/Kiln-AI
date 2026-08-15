@@ -1,7 +1,6 @@
 package cn.lunalhx.ai.kilnai;
 
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleLoader;
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleRegistry;
+import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
@@ -15,6 +14,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
+import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.BundleLoader;
+import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.SkillBundleSource;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.model.ApplyModelAdapter;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.model.OpenAiCompatibleChatClientFactory;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.model.OperatorCatalog;
@@ -62,7 +63,7 @@ class ApplyProfileLiveSmokeTest {
         ArtifactStore artifacts = new InMemoryArtifactStore(Clock.systemUTC());
         LearningFlowStore flowStore = new InMemoryLearningFlowStore();
         ApplyProfileExecutor executor = new ApplyProfileExecutor(
-                referenceRegistry(), model, model, artifacts);
+                referenceStack(), model, model, artifacts);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, artifacts, flowStore, model, model,
                 DiagnosticApplyFixture.diagnosticContext(),
@@ -100,13 +101,11 @@ class ApplyProfileLiveSmokeTest {
         return properties.toCatalog();
     }
 
-    private static BundleRegistry referenceRegistry() {
-        BundleRegistry registry = new BundleRegistry();
+    private static BundleStack referenceStack() {
         BundleLoader loader = new BundleLoader();
-        ApplyProfile.FIXED_STACK.forEach(pinned -> {
-            int at = pinned.lastIndexOf('@');
-            registry.register(loader.load(pinned.substring(0, at)));
-        });
-        return registry;
+        return new BundleStack(ApplyProfile.FIXED_STACK.stream()
+                .map(loader::load)
+                .map(SkillBundleSource::toBundle)
+                .toList());
     }
 }

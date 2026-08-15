@@ -1,11 +1,10 @@
 package cn.lunalhx.ai.kilnai.domain.apply.profile;
 
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleLoader;
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleRegistry;
+import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleSlot;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
+import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.SkillBundle;
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.SkillBundleSource;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.skill.CapabilityGap;
@@ -21,24 +20,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ApplyPromptCompilerTest {
 
-    private final BundleLoader loader = new BundleLoader();
     private final ApplyPromptCompiler compiler = new ApplyPromptCompiler();
 
-    private BundleRegistry referenceRegistry() {
-        BundleRegistry registry = new BundleRegistry();
-        for (String bundleId : List.of(
-                "apply.task-first",
-                "reasoning.rule-application",
-                "representation.formal-expression",
-                "verification.structured-task-contract",
-                "subject.calculus-notation")) {
-            registry.register(loader.load(bundleId));
-        }
-        return registry;
-    }
-
     private BundleStack referenceStack() {
-        return new BundleStack(referenceRegistry().all().stream().toList());
+        return ReferenceBundles.stack();
     }
 
     @Test
@@ -81,35 +66,30 @@ class ApplyPromptCompilerTest {
 
     @Test
     void rejectsNonActionBundlesThatContributeDraftFields() {
-        SkillBundleSource action = loader.load("apply.task-first");
-        SkillBundleSource reasoning = new SkillBundleSource(
-                withContribution(loader.load("reasoning.rule-application").manifest(),
-                        List.of("learner_task_text")),
-                loader.load("reasoning.rule-application").coreMarkdown(),
-                loader.load("reasoning.rule-application").fullFileContent());
+        SkillBundle reasoning = ReferenceBundles.bundle("reasoning.rule-application@0.1.0");
+        SkillBundle reasoningWithContribution = ReferenceBundles.rewrap(
+                withContribution(reasoning.manifest(), List.of("learner_task_text")), reasoning);
         BundleStack stack = new BundleStack(List.of(
-                register(action), register(reasoning),
-                register(loader.load("representation.formal-expression")),
-                register(loader.load("verification.structured-task-contract")),
-                register(loader.load("subject.calculus-notation"))));
+                ReferenceBundles.bundle("apply.task-first@0.1.0"), reasoningWithContribution,
+                ReferenceBundles.bundle("representation.formal-expression@0.1.0"),
+                ReferenceBundles.bundle("verification.structured-task-contract@0.1.0"),
+                ReferenceBundles.bundle("subject.calculus-notation@0.1.0")));
         assertThrows(CapabilityGap.class, () -> compiler.compile(stack));
     }
 
     @Test
     void stackRejectsConflictingSlots() {
-        BundleRegistry registry = referenceRegistry();
-        SkillBundle action = registry.resolve("apply.task-first", "0.1.0");
-        SkillBundle secondAction = new SkillBundle(
-                new cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest(
+        SkillBundle action = ReferenceBundles.bundle("apply.task-first@0.1.0");
+        SkillBundle secondAction = ReferenceBundles.rewrap(
+                new BundleManifest(
                         "kiln.skill/v1", "apply.task-first.copy", "0.1.0", BundleSlot.ACTION,
                         "copy", List.of("concept_contract"), List.of("learner_task_text"),
-                        new cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest.Permissions(List.of()),
-                        new cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest.Compatibility(
-                                List.of("apply"), "apply_generation/v1"),
+                        new BundleManifest.Permissions(List.of()),
+                        new BundleManifest.Compatibility(List.of("apply"), "apply_generation/v1"),
                         List.of()),
-                "body", "hash");
+                action);
         List<SkillBundle> conflicting = new ArrayList<>(List.of(action, secondAction));
-        registry.all().stream()
+        ReferenceBundles.all().stream()
                 .filter(bundle -> bundle.manifest().slot() != BundleSlot.ACTION)
                 .forEach(conflicting::add);
         assertThrows(IllegalArgumentException.class, () -> new BundleStack(conflicting));
@@ -117,31 +97,29 @@ class ApplyPromptCompilerTest {
 
     @Test
     void rejectsBundlesThatDeclareTools() {
-        SkillBundleSource action = loader.load("apply.task-first");
-        SkillBundleSource tooled = new SkillBundleSource(
-                withTools(loader.load("reasoning.rule-application").manifest(), List.of("calculator@1")),
-                loader.load("reasoning.rule-application").coreMarkdown(),
-                loader.load("reasoning.rule-application").fullFileContent());
+        SkillBundle action = ReferenceBundles.bundle("apply.task-first@0.1.0");
+        SkillBundle reasoning = ReferenceBundles.bundle("reasoning.rule-application@0.1.0");
+        SkillBundle tooled = ReferenceBundles.rewrap(
+                withTools(reasoning.manifest(), List.of("calculator@1")), reasoning);
         BundleStack stack = new BundleStack(List.of(
-                register(action), register(tooled),
-                register(loader.load("representation.formal-expression")),
-                register(loader.load("verification.structured-task-contract")),
-                register(loader.load("subject.calculus-notation"))));
+                action, tooled,
+                ReferenceBundles.bundle("representation.formal-expression@0.1.0"),
+                ReferenceBundles.bundle("verification.structured-task-contract@0.1.0"),
+                ReferenceBundles.bundle("subject.calculus-notation@0.1.0")));
         assertThrows(CapabilityGap.class, () -> compiler.compile(stack));
     }
 
     @Test
     void rejectsBundlesIncompatibleWithTheApplyProfile() {
-        SkillBundleSource action = loader.load("apply.task-first");
-        SkillBundleSource incompatible = new SkillBundleSource(
-                withCompatibility(loader.load("reasoning.rule-application").manifest(), List.of("explain")),
-                loader.load("reasoning.rule-application").coreMarkdown(),
-                loader.load("reasoning.rule-application").fullFileContent());
+        SkillBundle action = ReferenceBundles.bundle("apply.task-first@0.1.0");
+        SkillBundle reasoning = ReferenceBundles.bundle("reasoning.rule-application@0.1.0");
+        SkillBundle incompatible = ReferenceBundles.rewrap(
+                withCompatibility(reasoning.manifest(), List.of("explain")), reasoning);
         BundleStack stack = new BundleStack(List.of(
-                register(action), register(incompatible),
-                register(loader.load("representation.formal-expression")),
-                register(loader.load("verification.structured-task-contract")),
-                register(loader.load("subject.calculus-notation"))));
+                action, incompatible,
+                ReferenceBundles.bundle("representation.formal-expression@0.1.0"),
+                ReferenceBundles.bundle("verification.structured-task-contract@0.1.0"),
+                ReferenceBundles.bundle("subject.calculus-notation@0.1.0")));
         assertThrows(CapabilityGap.class, () -> compiler.compile(stack));
     }
 
@@ -155,36 +133,32 @@ class ApplyPromptCompilerTest {
                 "subject.calculus-notation@0.1.0"), ApplyProfile.FIXED_STACK);
     }
 
-    private SkillBundle register(SkillBundleSource source) {
-        return new BundleRegistry().register(source);
-    }
-
-    private cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest withContribution(
-            cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest manifest,
+    private BundleManifest withContribution(
+            BundleManifest manifest,
             List<String> contribution) {
-        return new cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest(
+        return new BundleManifest(
                 manifest.schema(), manifest.id(), manifest.version(), manifest.slot(), manifest.summary(),
                 manifest.requiresContext(), new ArrayList<>(contribution), manifest.permissions(),
                 manifest.compatibility(), manifest.resources());
     }
 
-    private cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest withTools(
-            cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest manifest,
+    private BundleManifest withTools(
+            BundleManifest manifest,
             List<String> tools) {
-        return new cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest(
+        return new BundleManifest(
                 manifest.schema(), manifest.id(), manifest.version(), manifest.slot(), manifest.summary(),
                 manifest.requiresContext(), manifest.outputContribution(),
-                new cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest.Permissions(tools),
+                new BundleManifest.Permissions(tools),
                 manifest.compatibility(), manifest.resources());
     }
 
-    private cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest withCompatibility(
-            cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest manifest,
+    private BundleManifest withCompatibility(
+            BundleManifest manifest,
             List<String> profiles) {
-        return new cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest(
+        return new BundleManifest(
                 manifest.schema(), manifest.id(), manifest.version(), manifest.slot(), manifest.summary(),
                 manifest.requiresContext(), manifest.outputContribution(), manifest.permissions(),
-                new cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleManifest.Compatibility(
+                new BundleManifest.Compatibility(
                         profiles, manifest.compatibility().responseDraft()),
                 manifest.resources());
     }

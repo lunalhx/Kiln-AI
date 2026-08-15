@@ -1,6 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.profile;
 
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleRegistry;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.SkillBundle;
 import cn.lunalhx.ai.kilnai.domain.apply.gate.ApplyGenerationDraftGatePolicy;
@@ -22,7 +21,6 @@ import cn.lunalhx.ai.kilnai.domain.gate.GateResult;
 import cn.lunalhx.ai.kilnai.domain.gate.TypedArtifactGatePipeline;
 import cn.lunalhx.ai.kilnai.domain.skill.CapabilityGap;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -30,7 +28,7 @@ public final class ApplyProfileExecutor {
 
     private static final int MAX_GENERATION_CYCLES = 2;
 
-    private final BundleRegistry registry;
+    private final BundleStack stack;
     private final ApplyGenerationPort generationPort;
     private final TaskVerifierPort verifierPort;
     private final ArtifactStore artifactStore;
@@ -39,12 +37,12 @@ public final class ApplyProfileExecutor {
     private final TypedArtifactGatePipeline gatePipeline;
 
     public ApplyProfileExecutor(
-            BundleRegistry registry,
+            BundleStack stack,
             ApplyGenerationPort generationPort,
             TaskVerifierPort verifierPort,
             ArtifactStore artifactStore
     ) {
-        this.registry = Objects.requireNonNull(registry, "registry must not be null");
+        this.stack = Objects.requireNonNull(stack, "stack must not be null");
         this.generationPort = Objects.requireNonNull(generationPort, "generationPort must not be null");
         this.verifierPort = Objects.requireNonNull(verifierPort, "verifierPort must not be null");
         this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
@@ -55,7 +53,6 @@ public final class ApplyProfileExecutor {
 
     public ApplyDeliveryResult deliver(ApplyExecutionContext context) {
         Objects.requireNonNull(context, "context must not be null");
-        BundleStack stack = resolveStack();
         validateContextCoverage(context, stack);
         String systemPrompt = compiler.compile(stack);
         String contextJson = compiler.serializeContext(context);
@@ -110,13 +107,6 @@ public final class ApplyProfileExecutor {
         return Optional.of(new ApplyDeliveryResult.Delivered(attempt, taskPackage.learnerProjection()));
     }
 
-    private BundleStack resolveStack() {
-        List<SkillBundle> bundles = ApplyProfile.FIXED_STACK.stream()
-                .map(this::resolve)
-                .toList();
-        return new BundleStack(bundles);
-    }
-
     private void validateContextCoverage(ApplyExecutionContext context, BundleStack stack) {
         java.util.Set<String> provided = java.util.Set.of(
                 "concept_contract",
@@ -133,14 +123,6 @@ public final class ApplyProfileExecutor {
                         "bundle " + bundle.pinnedId() + " requires context not supplied by the execution context");
             }
         }
-    }
-
-    private SkillBundle resolve(String pinnedId) {
-        int at = pinnedId.lastIndexOf('@');
-        if (at <= 0 || at == pinnedId.length() - 1) {
-            throw new IllegalArgumentException("invalid pinned bundle id: " + pinnedId);
-        }
-        return registry.resolve(pinnedId.substring(0, at), pinnedId.substring(at + 1));
     }
 
     private ApplyDeliveryResult unavailable(TaskUnavailableReason reason) {

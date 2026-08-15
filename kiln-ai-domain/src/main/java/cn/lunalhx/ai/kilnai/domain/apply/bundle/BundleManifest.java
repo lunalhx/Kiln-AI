@@ -1,7 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.bundle;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import java.util.Objects;
 
@@ -40,33 +38,13 @@ public record BundleManifest(
         return id + "@" + version;
     }
 
-    @JsonCreator
-    public static BundleManifest create(
-            @JsonProperty("schema") String schema,
-            @JsonProperty("id") String id,
-            @JsonProperty("version") String version,
-            @JsonProperty("slot") String slot,
-            @JsonProperty("summary") String summary,
-            @JsonProperty("requires_context") List<String> requiresContext,
-            @JsonProperty("output_contribution") List<String> outputContribution,
-            @JsonProperty("permissions") Permissions permissions,
-            @JsonProperty("compatibility") Compatibility compatibility,
-            @JsonProperty("resources") List<String> resources
-    ) {
-        return new BundleManifest(
-                schema, id, version, BundleSlot.valueOf(slot.toUpperCase()), summary,
-                requiresContext, outputContribution, permissions, compatibility, resources
-        );
-    }
-
-    public record Permissions(@JsonProperty("tools") List<String> tools) {
+    public record Permissions(List<String> tools) {
         public Permissions {
             tools = List.copyOf(tools == null ? List.of() : tools);
         }
     }
 
-    public record Compatibility(@JsonProperty("profiles") List<String> profiles,
-                                @JsonProperty("response_draft") String responseDraft) {
+    public record Compatibility(List<String> profiles, String responseDraft) {
         public Compatibility {
             profiles = List.copyOf(profiles == null ? List.of() : profiles);
         }

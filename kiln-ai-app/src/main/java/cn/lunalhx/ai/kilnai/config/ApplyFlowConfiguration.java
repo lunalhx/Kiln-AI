@@ -1,7 +1,6 @@
 package cn.lunalhx.ai.kilnai.config;
 
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleLoader;
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleRegistry;
+import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
@@ -17,6 +16,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
+import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.BundleLoader;
+import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.SkillBundleSource;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -79,24 +80,22 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    BundleRegistry applyBundleRegistry() {
-        BundleRegistry registry = new BundleRegistry();
+    BundleStack applyBundleStack() {
         BundleLoader loader = new BundleLoader();
-        ApplyProfile.FIXED_STACK.forEach(pinned -> {
-            int at = pinned.lastIndexOf('@');
-            registry.register(loader.load(pinned.substring(0, at)));
-        });
-        return registry;
+        return new BundleStack(ApplyProfile.FIXED_STACK.stream()
+                .map(loader::load)
+                .map(SkillBundleSource::toBundle)
+                .toList());
     }
 
     @Bean
     ApplyProfileExecutor applyProfileExecutor(
-            BundleRegistry registry,
+            BundleStack stack,
             ApplyGenerationPort generationPort,
             TaskVerifierPort verifierPort,
             ArtifactStore artifactStore
     ) {
-        return new ApplyProfileExecutor(registry, generationPort, verifierPort, artifactStore);
+        return new ApplyProfileExecutor(stack, generationPort, verifierPort, artifactStore);
     }
 
     @Bean

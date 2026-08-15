@@ -1,7 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.apply;
 
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleLoader;
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleRegistry;
+import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
+import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ApplyScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedApplyGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedAssessmentModel;
@@ -60,7 +60,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ApplyProfileContractTest {
 
     private final ApplyExecutionContext context = DiagnosticApplyFixture.diagnosticContext();
-    private final BundleRegistry registry = referenceRegistry();
+    private final BundleStack stack = referenceStack();
 
     private static final Clock CLOCK =
             Clock.fixed(Instant.parse("2026-08-14T00:00:00Z"), ZoneOffset.UTC);
@@ -70,7 +70,7 @@ class ApplyProfileContractTest {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson()));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
         ArtifactStore store = new InMemoryArtifactStore(Clock.fixed(Instant.parse("2026-08-14T00:00:00Z"), ZoneOffset.UTC));
-        ApplyProfileExecutor executor = new ApplyProfileExecutor(registry, generation, verifier, store);
+        ApplyProfileExecutor executor = new ApplyProfileExecutor(stack, generation, verifier, store);
 
         ApplyDeliveryResult result = executor.deliver(context);
 
@@ -124,7 +124,7 @@ class ApplyProfileContractTest {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson()));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
         ArtifactStore store = new InMemoryArtifactStore(Clock.systemUTC());
-        new ApplyProfileExecutor(registry, generation, verifier, store).deliver(context);
+        new ApplyProfileExecutor(stack, generation, verifier, store).deliver(context);
 
         String systemPrompt = generation.lastSystemPrompt();
         String contextJson = generation.lastContextJson();
@@ -149,7 +149,7 @@ class ApplyProfileContractTest {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(ApplyScriptData.sourceGapJson()));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of());
         ArtifactStore store = new InMemoryArtifactStore(Clock.systemUTC());
-        ApplyProfileExecutor executor = new ApplyProfileExecutor(registry, generation, verifier, store);
+        ApplyProfileExecutor executor = new ApplyProfileExecutor(stack, generation, verifier, store);
 
         ApplyDeliveryResult result = executor.deliver(context);
 
@@ -171,7 +171,7 @@ class ApplyProfileContractTest {
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
                 ApplyScriptData.rejectVerdict(), ApplyScriptData.passVerdict()));
         ArtifactStore store = new InMemoryArtifactStore(Clock.systemUTC());
-        ApplyProfileExecutor executor = new ApplyProfileExecutor(registry, generation, verifier, store);
+        ApplyProfileExecutor executor = new ApplyProfileExecutor(stack, generation, verifier, store);
 
         ApplyDeliveryResult result = executor.deliver(context);
 
@@ -193,7 +193,7 @@ class ApplyProfileContractTest {
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
                 ApplyScriptData.inconclusiveVerdict(), ApplyScriptData.inconclusiveVerdict()));
         ArtifactStore store = new InMemoryArtifactStore(Clock.systemUTC());
-        ApplyProfileExecutor executor = new ApplyProfileExecutor(registry, generation, verifier, store);
+        ApplyProfileExecutor executor = new ApplyProfileExecutor(stack, generation, verifier, store);
 
         ApplyDeliveryResult result = executor.deliver(context);
 
@@ -211,7 +211,7 @@ class ApplyProfileContractTest {
                 "{not valid json", ApplyScriptData.taskReadyJson()));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
         ArtifactStore store = new InMemoryArtifactStore(Clock.systemUTC());
-        ApplyProfileExecutor executor = new ApplyProfileExecutor(registry, generation, verifier, store);
+        ApplyProfileExecutor executor = new ApplyProfileExecutor(stack, generation, verifier, store);
 
         ApplyDeliveryResult result = executor.deliver(context);
 
@@ -228,7 +228,7 @@ class ApplyProfileContractTest {
                 polluted, ApplyScriptData.taskReadyJson()));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
         ArtifactStore store = new InMemoryArtifactStore(Clock.systemUTC());
-        ApplyProfileExecutor executor = new ApplyProfileExecutor(registry, generation, verifier, store);
+        ApplyProfileExecutor executor = new ApplyProfileExecutor(stack, generation, verifier, store);
 
         ApplyDeliveryResult result = executor.deliver(context);
 
@@ -246,12 +246,12 @@ class ApplyProfileContractTest {
     @Test
     void theFingerprintsAreDeterministicallyDerivedFromValidatedTaskFacts() {
         ArtifactStore firstStore = new InMemoryArtifactStore(Clock.systemUTC());
-        new ApplyProfileExecutor(registry,
+        new ApplyProfileExecutor(stack,
                 new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())), firstStore)
                 .deliver(context);
         ArtifactStore secondStore = new InMemoryArtifactStore(Clock.systemUTC());
-        new ApplyProfileExecutor(registry,
+        new ApplyProfileExecutor(stack,
                 new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())), secondStore)
                 .deliver(context);
@@ -1077,7 +1077,7 @@ class ApplyProfileContractTest {
     ) {
         ArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
         LearningFlowStore flowStore = new InMemoryLearningFlowStore();
-        ApplyProfileExecutor executor = new ApplyProfileExecutor(registry, generation, verifier, artifacts);
+        ApplyProfileExecutor executor = new ApplyProfileExecutor(stack, generation, verifier, artifacts);
         DiagnosticFlow flow = new DiagnosticFlow(executor, artifacts, flowStore, assessment, verification,
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
@@ -1088,13 +1088,7 @@ class ApplyProfileContractTest {
     private record Harness(DiagnosticFlow flow, ArtifactStore artifacts, LearningFlowStore flowStore) {
     }
 
-    private BundleRegistry referenceRegistry() {
-        BundleRegistry registry = new BundleRegistry();
-        BundleLoader loader = new BundleLoader();
-        ApplyProfile.FIXED_STACK.forEach(pinned -> {
-            int at = pinned.lastIndexOf('@');
-            registry.register(loader.load(pinned.substring(0, at)));
-        });
-        return registry;
+    private BundleStack referenceStack() {
+        return ReferenceBundles.stack();
     }
 }

@@ -1,8 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.gate;
 
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleLoader;
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleRegistry;
-import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
+import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ApplyScriptData;
@@ -165,14 +163,8 @@ class ApplyTaskPackageGatePolicyTest {
     }
 
     private TaskPackage assemble(ApplyGenerationDraft.TaskReady draft) {
-        BundleRegistry registry = new BundleRegistry();
-        BundleLoader loader = new BundleLoader();
-        PINNED_STACK.forEach(pinned -> {
-            int at = pinned.lastIndexOf('@');
-            registry.register(loader.load(pinned.substring(0, at)));
-        });
         return new TaskPackageAssembler()
-                .assemble(context, draft, new BundleStack(registry.all().stream().toList()))
+                .assemble(context, draft, ReferenceBundles.stack())
                 .orElseThrow();
     }
 
