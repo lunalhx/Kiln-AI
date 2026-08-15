@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai;
 
 import cn.lunalhx.ai.kilnai.api.dto.ApplyFlowResponse;
 import cn.lunalhx.ai.kilnai.api.dto.ReviewTaskView;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -14,6 +15,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.TestPropertySource;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
@@ -32,6 +35,9 @@ class ApplyLearnerHttpTest {
 
     @Autowired
     TestRestTemplate http;
+
+    @Autowired
+    ReviewTaskStore reviewStore;
 
     @Test
     void learnerHttpFlowStartsQueriesSubmitsAndProtectsPrivateProjections() {
@@ -139,8 +145,38 @@ class ApplyLearnerHttpTest {
     }
 
     @Test
-    void theReviewCollectionNeverLeaksPrivateFacts() {
+    void aDueReviewIsMarkedStartableInTheCollection() {
         UUID learnerId = UUID.randomUUID();
+        ApplyFlowResponse started = start(learnerId, UUID.randomUUID());
+        ApplyFlowResponse transitioned = submit(
+                started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        submit(
+                started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
+                transitioned.attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+
+        ResponseEntity<ReviewTaskView[]> upcoming = http.getForEntity(
+                "/api/apply/reviews?learnerId=" + learnerId, ReviewTaskView[].class);
+        assertEquals(1, upcoming.getBody().length);
+        assertEquals("SCHEDULED", upcoming.getBody()[0].status());
+        assertFalse(upcoming.getBody()[0].startable());
+
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+
+        ResponseEntity<ReviewTaskView[]> due = http.getForEntity(
+                "/api/apply/reviews?learnerId=" + learnerId, ReviewTaskView[].class);
+        assertEquals(1, due.getBody().length);
+        ReviewTaskView view = due.getBody()[0];
+        assertEquals("DUE", view.status());
+        assertTrue(view.startable(), "a Due Review is the only startable work");
+        assertNotNull(view.reviewId());
+        assertNotNull(view.dueAt());
+    }
+
+    @Test
+    void theReviewCollectionNeverLeaksPrivateFacts() {        UUID learnerId = UUID.randomUUID();
         ApplyFlowResponse started = start(learnerId, UUID.randomUUID());
         ApplyFlowResponse transitioned = submit(
                 started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),

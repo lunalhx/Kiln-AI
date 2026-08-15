@@ -143,6 +143,23 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
+    public synchronized int markDueReviewsDue(Instant now) {
+        Objects.requireNonNull(now, "now must not be null");
+        int transitions = 0;
+        for (Map.Entry<UUID, ReviewTask> entry : reviews.entrySet()) {
+            ReviewTask review = entry.getValue();
+            if (review.status() == ReviewTaskStatus.SCHEDULED && !review.dueAt().isAfter(now)) {
+                entry.setValue(new ReviewTask(
+                        review.reviewId(), review.learnerId(), review.conceptId(), review.flowId(),
+                        review.reviewNumber(), ReviewTaskStatus.DUE, review.dueAt(), review.createdAt(),
+                        null, null, null));
+                transitions++;
+            }
+        }
+        return transitions;
+    }
+
+    @Override
     public synchronized List<ReviewTask> unfinishedReviewsFor(UUID learnerId) {
         return unfinishedReviewsFor(learnerId, null);
     }

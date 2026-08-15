@@ -131,7 +131,7 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT id, attempt_purpose, learner_projection::text AS learner_projection_json,
-                   private_assessor_projection::text AS private_assessor_projection_json
+                   private_assessor_projection::text AS private_assessor_projection_json, created_at
             FROM apply_packages
             WHERE id = #{taskPackageId}
             """)
@@ -139,7 +139,7 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT id, attempt_purpose, learner_projection::text AS learner_projection_json,
-                   private_assessor_projection::text AS private_assessor_projection_json
+                   private_assessor_projection::text AS private_assessor_projection_json, created_at
             FROM apply_packages
             ORDER BY created_at ASC
             """)
@@ -265,6 +265,13 @@ public interface ApplyFlowMapper {
             """)
     List<ReviewTaskRow> listUnfinishedReviews(UUID learnerId);
 
+    @Update("""
+            UPDATE review_tasks
+            SET status = 'DUE'
+            WHERE status = 'SCHEDULED' AND due_at <= #{now}
+            """)
+    int markDueReviewsDue(@Param("now") Instant now);
+
     record ApplyFlowRow(
             UUID id,
             UUID learnerId,
@@ -308,7 +315,8 @@ public interface ApplyFlowMapper {
             UUID id,
             String attemptPurpose,
             String learnerProjectionJson,
-            String privateAssessorProjectionJson
+            String privateAssessorProjectionJson,
+            Instant createdAt
     ) {
     }
 

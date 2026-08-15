@@ -15,9 +15,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
-import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
-import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewCollectionUseCase;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewDueTransitionUseCase;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.BundleLoader;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.SkillBundleSource;
@@ -27,7 +26,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import javax.sql.DataSource;
 import java.time.Clock;
 
 /**
@@ -37,18 +35,6 @@ import java.time.Clock;
  */
 @Configuration
 public class ApplyFlowConfiguration {
-
-    @Bean
-    @ConditionalOnMissingBean(DataSource.class)
-    ArtifactStore inMemoryArtifactStore(Clock clock) {
-        return new InMemoryArtifactStore(clock);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(DataSource.class)
-    LearningFlowStore inMemoryLearningFlowStore() {
-        return new InMemoryLearningFlowStore();
-    }
 
     @Bean
     @ConditionalOnMissingBean(ApplyGenerationPort.class)
@@ -118,13 +104,18 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    ReviewTaskScheduler reviewTaskScheduler(LearningFlowStore flowStore) {
-        return new ReviewTaskScheduler((ReviewTaskStore) flowStore);
+    ReviewTaskScheduler reviewTaskScheduler(ReviewTaskStore reviewStore) {
+        return new ReviewTaskScheduler(reviewStore);
     }
 
     @Bean
-    ReviewCollectionUseCase reviewCollectionUseCase(LearningFlowStore flowStore) {
-        return new ReviewCollectionUseCase((ReviewTaskStore) flowStore, flowStore);
+    ReviewDueTransitionUseCase reviewDueTransitionUseCase(ReviewTaskStore reviewStore, Clock clock) {
+        return new ReviewDueTransitionUseCase(reviewStore, clock);
+    }
+
+    @Bean
+    ReviewCollectionUseCase reviewCollectionUseCase(ReviewTaskStore reviewStore, LearningFlowStore flowStore) {
+        return new ReviewCollectionUseCase(reviewStore, flowStore);
     }
 
     @Bean

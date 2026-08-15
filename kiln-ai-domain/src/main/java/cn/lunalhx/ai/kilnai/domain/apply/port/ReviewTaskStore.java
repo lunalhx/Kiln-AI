@@ -26,5 +26,15 @@ public interface ReviewTaskStore {
      */
     ReviewTask acceptEvidenceAndScheduleFirstReview(AcceptedLearningEvidence evidence, Instant dueAt);
 
+    /**
+     * Atomically changes every Scheduled Review whose due time has arrived
+     * (inclusive) to Due and returns the number of transitions made. The
+     * transition is a conditional, concurrency-safe update that performs no
+     * model call and creates no Package, Attempt, Exposure, Evidence, or
+     * Flow work; repeated ticks are idempotent and overdue Due work stays
+     * Due.
+     */
+    int markDueReviewsDue(Instant now);
+
     List<ReviewTask> unfinishedReviewsFor(UUID learnerId);
 }

@@ -12,12 +12,15 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -52,6 +55,9 @@ class ApplyPostgresRecoveryTest {
     }
 
     @Autowired
+    JdbcTemplate jdbc;
+
+    @Autowired
     ApplyFlowUseCase useCase;
 
     @Autowired
@@ -62,6 +68,15 @@ class ApplyPostgresRecoveryTest {
 
     @Autowired
     ReviewTaskStore reviewStore;
+
+    @BeforeEach
+    void cleanDatabase() {
+        jdbc.execute("""
+                TRUNCATE review_tasks, apply_exposures, apply_commands, apply_checkpoints,
+                         apply_interactions, apply_evidence, apply_assessments, apply_verifications,
+                         apply_attempts, apply_packages, apply_sources, apply_flows RESTART IDENTITY CASCADE
+                """);
+    }
 
     @Test
     void anIndependentPassAtomicallySchedulesOneReviewOneDue24HoursLater() {
@@ -94,25 +109,78 @@ class ApplyPostgresRecoveryTest {
     @Test
     void theDatabaseEnforcesAtMostOneUnfinishedReviewPerLearnerAndConcept() {
         UUID learnerId = UUID.randomUUID();
-        UUID flowId = UUID.randomUUID();
-        UUID conceptId = UUID.randomUUID();
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
+        LearningFlowStore.FlowRecord flow = flowStore.findFlow(started.interaction().flowId()).orElseThrow();
         Instant now = Instant.parse("2026-08-15T00:00:00Z");
 
         reviewStore.acceptEvidenceAndScheduleFirstReview(
-                evidence(learnerId, conceptId, flowId, now.minusSeconds(3600)), now.plus(Duration.ofHours(24)));
+                evidence(flow.learnerId(), flow.conceptId(), flow.flowId(),
+                        started.interaction().attemptId(), now.minusSeconds(3600)),
+                now.plus(Duration.ofHours(24)));
         reviewStore.acceptEvidenceAndScheduleFirstReview(
-                evidence(learnerId, conceptId, flowId, now), now.plus(Duration.ofHours(25)));
+                evidence(flow.learnerId(), flow.conceptId(), flow.flowId(),
+                        started.interaction().attemptId(), now),
+                now.plus(Duration.ofHours(25)));
 
         assertEquals(1, reviewStore.unfinishedReviewsFor(learnerId).size(),
                 "the scheduler cancels stale work so at most one unfinished Review survives");
-        assertThrows(DuplicateKeyException.class, () -> reviewStore.acceptEvidenceAndScheduleFirstReview(
-                evidence(learnerId, conceptId, flowId, now.plusSeconds(1)), now.plus(Duration.ofHours(26))),
+        assertThrows(DuplicateKeyException.class, () -> jdbc.update("""
+                        INSERT INTO review_tasks (id, learner_id, concept_id, flow_id, review_number,
+                                                  status, due_at, created_at)
+                        VALUES (?, ?, ?, ?, 2, 'SCHEDULED', ?, ?)
+                        """,
+                        UUID.randomUUID(), learnerId, flow.conceptId(), flow.flowId(),
+                        java.sql.Timestamp.from(now.plus(Duration.ofHours(26))), java.sql.Timestamp.from(now)),
                 "the partial unique index must reject a second unfinished Review for the same learner and Concept");
     }
 
-    private AcceptedLearningEvidence evidence(UUID learnerId, UUID conceptId, UUID flowId, Instant acceptedAt) {
+    @Test
+    void theDueTransitionMarksOnlyEligibleScheduledReviewsDueAndIsIdempotent() {
+        UUID learnerId = UUID.randomUUID();
+        UUID conceptDue = UUID.randomUUID();
+        UUID conceptFuture = UUID.randomUUID();
+        Instant now = Instant.parse("2026-08-16T11:00:00Z");
+        UUID flowDue = UUID.randomUUID();
+        UUID flowFuture = UUID.randomUUID();
+        flowStore.insertFlow(new LearningFlowStore.FlowRecord(
+                flowDue, learnerId, conceptDue, FlowStatus.READY, LearningStage.DIAGNOSTIC, now));
+        flowStore.insertFlow(new LearningFlowStore.FlowRecord(
+                flowFuture, learnerId, conceptFuture, FlowStatus.READY, LearningStage.DIAGNOSTIC, now));
+        jdbc.update("""
+                        INSERT INTO review_tasks (id, learner_id, concept_id, flow_id, review_number,
+                                                  status, due_at, created_at)
+                        VALUES (?, ?, ?, ?, 1, 'SCHEDULED', ?, ?)
+                        """,
+                UUID.randomUUID(), learnerId, conceptDue, flowDue,
+                java.sql.Timestamp.from(now.minus(Duration.ofHours(1))), java.sql.Timestamp.from(now));
+        jdbc.update("""
+                        INSERT INTO review_tasks (id, learner_id, concept_id, flow_id, review_number,
+                                                  status, due_at, created_at)
+                        VALUES (?, ?, ?, ?, 1, 'SCHEDULED', ?, ?)
+                        """,
+                UUID.randomUUID(), learnerId, conceptFuture, flowFuture,
+                java.sql.Timestamp.from(now.plus(Duration.ofHours(1))), java.sql.Timestamp.from(now));
+
+        int transitions = reviewStore.markDueReviewsDue(now);
+
+        assertEquals(1, transitions, "only the arrived Scheduled Review may become Due");
+        List<ReviewTask> reviews = reviewStore.unfinishedReviewsFor(learnerId);
+        assertEquals(2, reviews.size());
+        assertEquals(ReviewTaskStatus.DUE,
+                reviews.stream().filter(review -> review.conceptId().equals(conceptDue))
+                        .findFirst().orElseThrow().status());
+        assertEquals(ReviewTaskStatus.SCHEDULED,
+                reviews.stream().filter(review -> review.conceptId().equals(conceptFuture))
+                        .findFirst().orElseThrow().status(),
+                "the pre-due Review must stay Scheduled");
+        assertEquals(0, reviewStore.markDueReviewsDue(now), "repeated ticks must be idempotent");
+        assertEquals(2, reviewStore.unfinishedReviewsFor(learnerId).size(),
+                "the at-most-one-unfinished-per-learner-and-Concept invariant must survive the tick");
+    }
+
+    private AcceptedLearningEvidence evidence(UUID learnerId, UUID conceptId, UUID flowId, UUID taskAttemptId, Instant acceptedAt) {
         return new AcceptedLearningEvidence(
-                UUID.randomUUID(), UUID.randomUUID(), flowId, conceptId, learnerId,
+                UUID.randomUUID(), taskAttemptId, flowId, conceptId, learnerId,
                 LearningResult.PASS, AttemptPurpose.INDEPENDENT_TEST, 0, List.of(), acceptedAt);
     }
 

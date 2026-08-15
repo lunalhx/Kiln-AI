@@ -38,7 +38,7 @@ public class ReviewFlowController {
                         view.status().name(),
                         view.reviewNumber(),
                         view.dueAt(),
-                        false,
+                        view.startable(),
                         progress(view.progress())))
                 .toList();
     }

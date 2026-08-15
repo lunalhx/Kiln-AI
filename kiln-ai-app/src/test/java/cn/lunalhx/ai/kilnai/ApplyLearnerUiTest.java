@@ -1,13 +1,18 @@
 package cn.lunalhx.ai.kilnai;
 
+import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
+
+import java.time.Duration;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -21,6 +26,9 @@ class ApplyLearnerUiTest {
 
     @LocalServerPort
     int port;
+
+    @Autowired
+    ReviewTaskStore reviewStore;
 
     @Test
     void uiCompletesTheApplyFlowWithoutPrivateFields() {
@@ -66,6 +74,17 @@ class ApplyLearnerUiTest {
             String recovered = page.innerText("#view");
             assertTrue(recovered.contains("已完成"),
                     "a refresh must recover the same terminal interaction");
+
+            reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+            page.reload();
+            page.waitForFunction("() => document.getElementById('reviews').textContent.includes('可以开始')");
+            String ready = page.innerText("#reviews");
+            assertTrue(ready.contains("DUE"), "the arrived Review must be Due");
+            assertTrue(ready.contains("可以开始"),
+                    "the reference UI must switch from upcoming to ready-to-start");
+            assertFalse(ready.contains("暂不可操作"));
+            assertFalse(ready.contains("15*x^2 - 2"));
+            assertFalse(ready.contains("fingerprint"));
         }
     }
 }

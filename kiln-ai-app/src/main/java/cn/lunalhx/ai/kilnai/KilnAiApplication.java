@@ -2,9 +2,11 @@ package cn.lunalhx.ai.kilnai;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.util.Map;
 
+@EnableScheduling
 @SpringBootApplication(excludeName = {
         "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration",
         "org.springframework.ai.model.chat.client.autoconfigure.ChatClientAutoConfiguration",

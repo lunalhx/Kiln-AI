@@ -38,6 +38,7 @@ public final class ReviewCollectionUseCase {
                         review.status(),
                         review.reviewNumber(),
                         review.dueAt(),
+                        review.status() == ReviewTaskStatus.DUE,
                         projectProgress(learnerId, review.conceptId())))
                 .toList();
     }
@@ -55,6 +56,7 @@ public final class ReviewCollectionUseCase {
             ReviewTaskStatus status,
             int reviewNumber,
             Instant dueAt,
+            boolean startable,
             ConceptProgress progress
     ) {
     }

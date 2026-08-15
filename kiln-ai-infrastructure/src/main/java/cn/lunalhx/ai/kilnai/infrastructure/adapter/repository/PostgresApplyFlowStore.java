@@ -22,8 +22,6 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
@@ -38,10 +36,9 @@ import java.util.UUID;
  * Postgres-backed typed LearningFlowStore and ArtifactStore for the Apply
  * reference. Every boundary commit (package plus open Attempt, closed Attempt
  * plus submission, learner interaction plus checkpoint plus processed command)
- * is one database transaction.
+ * is one database transaction. Instantiated by
+ * {@code KilnAiPersistenceAutoConfiguration} only when a DataSource exists.
  */
-@Repository
-@ConditionalOnBean(DataSource.class)
 public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore, ReviewTaskStore {
 
     private final ApplyFlowMapper mapper;
@@ -167,6 +164,12 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         return mapper.listUnfinishedReviews(learnerId).stream().map(this::toReviewTask).toList();
     }
 
+    @Override
+    @Transactional
+    public int markDueReviewsDue(Instant now) {
+        return mapper.markDueReviewsDue(now);
+    }
+
     private ReviewTask toReviewTask(ApplyFlowMapper.ReviewTaskRow row) {
         return new ReviewTask(
                 row.id(), row.learnerId(), row.conceptId(), row.flowId(), row.reviewNumber(),
@@ -225,7 +228,8 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 taskPackage.taskPackageId(),
                 taskPackage.attemptPurpose().name(),
                 writeJson(taskPackage.learnerProjection()),
-                writeJson(taskPackage.privateAssessorProjection())));
+                writeJson(taskPackage.privateAssessorProjection()),
+                clock.instant()));
         mapper.insertAttempt(new ApplyFlowMapper.AttemptRow(
                 attempt.attemptId(),
                 attempt.taskPackageId(),

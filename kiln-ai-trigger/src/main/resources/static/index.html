@@ -12,6 +12,7 @@
     .reviews { margin-top: 1rem; }
     .review { border: 1px solid #ddd; padding: 0.5rem 0.75rem; margin: 0.4rem 0; }
     .review .upcoming { color: #555; }
+    .review .ready { color: #1a7f37; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -78,11 +79,12 @@
       items.forEach((item) => {
         const entry = document.createElement('div');
         entry.className = 'review';
-        const upcoming = document.createElement('div');
-        upcoming.className = 'upcoming';
-        upcoming.textContent = 'Review ' + item.reviewNumber + ' · ' + item.status
-          + ' · 到期时间 ' + new Date(item.dueAt).toLocaleString() + '（即将到来，暂不可操作）';
-        entry.appendChild(upcoming);
+        const line = document.createElement('div');
+        line.className = item.startable ? 'ready' : 'upcoming';
+        line.textContent = 'Review ' + item.reviewNumber + ' · ' + item.status + ' · 到期时间 '
+          + new Date(item.dueAt).toLocaleString()
+          + (item.startable ? '（可以开始）' : '（即将到来，暂不可操作）');
+        entry.appendChild(line);
         reviews.appendChild(entry);
       });
     };
@@ -117,6 +119,7 @@
       flow = await response.json();
       show(flow);
     };
+    loadReviews();
   </script>
 </body>
 </html>
