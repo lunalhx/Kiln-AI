@@ -280,6 +280,26 @@ public interface ApplyFlowMapper {
             """)
     Optional<ReviewTaskRow> findReviewTask(UUID reviewId);
 
+    @Select("""
+            SELECT id, learner_id, concept_id, flow_id, review_number, status, due_at,
+                   created_at, started_at, completed_at, cancelled_at
+            FROM review_tasks
+            WHERE learner_id = #{learnerId} AND concept_id = #{conceptId} AND status = 'STARTED'
+            LIMIT 1
+            """)
+    Optional<ReviewTaskRow> findStartedReview(
+            @Param("learnerId") UUID learnerId,
+            @Param("conceptId") UUID conceptId);
+
+    @Update("""
+            UPDATE review_tasks
+            SET status = 'COMPLETED', completed_at = #{completedAt}
+            WHERE id = #{reviewId} AND status = 'STARTED'
+            """)
+    int completeStartedReview(
+            @Param("reviewId") UUID reviewId,
+            @Param("completedAt") Instant completedAt);
+
     @Update("""
             UPDATE review_tasks
             SET status = 'STARTED', started_at = #{startedAt}

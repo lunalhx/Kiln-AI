@@ -45,6 +45,45 @@ public interface ReviewTaskStore {
     Optional<ReviewTask> findReview(UUID reviewId);
 
     /**
+     * The single STARTED Review of one learner and Concept, when one exists.
+     * The at-most-one-unfinished invariant guarantees at most one row.
+     */
+    Optional<ReviewTask> findStartedReview(UUID learnerId, UUID conceptId);
+
+    /**
+     * Atomically accepts one qualifying Review PASS evidence, completes the
+     * given started Review at the evidence acceptance time, and schedules the
+     * successor Review Task due at {@code nextDueAt} — or schedules nothing
+     * when {@code nextDueAt} is null (Review 4). The transition is exactly
+     * once per Task Attempt: repeating it for an attempt that already has
+     * Evidence writes nothing, and it writes nothing at all when the Review is
+     * not STARTED. The caller computes {@code nextDueAt} from its cadence
+     * policy; the store owns only the atomic transition and the unfinished
+     * Review invariant.
+     */
+    Optional<ReviewAdvance> acceptEvidenceAndAdvanceReview(
+            AcceptedLearningEvidence evidence,
+            UUID completedReviewId,
+            Instant nextDueAt);
+
+    /**
+     * The durable outcome of one accepted Review pass: the accepted evidence,
+     * the completed Review Task, and the scheduled successor (null when the
+     * cadence ended at Review 4).
+     */
+    record ReviewAdvance(
+            AcceptedLearningEvidence evidence,
+            ReviewTask completedReview,
+            ReviewTask successor
+    ) {
+
+        public ReviewAdvance {
+            Objects.requireNonNull(evidence, "evidence must not be null");
+            Objects.requireNonNull(completedReview, "completedReview must not be null");
+        }
+    }
+
+    /**
      * Atomically binds a successful Review start in one commit: it claims the
      * Due Review with the conditional DUE to STARTED transition, opens the
      * Review Attempt from the generated Task Package, records the exposure,

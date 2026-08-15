@@ -176,6 +176,59 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
+    public Optional<ReviewTask> findStartedReview(UUID learnerId, UUID conceptId) {
+        return mapper.findStartedReview(learnerId, conceptId).map(this::toReviewTask);
+    }
+
+    @Override
+    @Transactional
+    public Optional<ReviewTaskStore.ReviewAdvance> acceptEvidenceAndAdvanceReview(
+            AcceptedLearningEvidence evidence,
+            UUID completedReviewId,
+            Instant nextDueAt
+    ) {
+        if (mapper.evidenceExists(evidence.taskAttemptId()).isPresent()) {
+            return Optional.empty();
+        }
+        int completed = mapper.completeStartedReview(completedReviewId, evidence.acceptedAt());
+        if (completed == 0) {
+            return Optional.empty();
+        }
+        mapper.insertEvidence(new ApplyFlowMapper.EvidenceRow(
+                evidence.id(),
+                evidence.taskAttemptId(),
+                evidence.flowId(),
+                evidence.conceptId(),
+                evidence.learnerId(),
+                evidence.result().name(),
+                evidence.attemptPurpose().name(),
+                evidence.highestHintLevel(),
+                writeJson(evidence.assistanceTrace()),
+                evidence.acceptedAt()));
+        ReviewTask completedReview = toReviewTask(mapper.findReviewTask(completedReviewId).orElseThrow());
+        ReviewTask successor = null;
+        if (nextDueAt != null) {
+            successor = new ReviewTask(
+                    UUID.randomUUID(), evidence.learnerId(), evidence.conceptId(), evidence.flowId(),
+                    completedReview.reviewNumber() + 1, ReviewTaskStatus.SCHEDULED, nextDueAt,
+                    clock.instant(), null, null, null);
+            mapper.insertReviewTask(new ApplyFlowMapper.ReviewTaskRow(
+                    successor.reviewId(),
+                    successor.learnerId(),
+                    successor.conceptId(),
+                    successor.flowId(),
+                    successor.reviewNumber(),
+                    successor.status().name(),
+                    successor.dueAt(),
+                    successor.createdAt(),
+                    successor.startedAt(),
+                    successor.completedAt(),
+                    successor.cancelledAt()));
+        }
+        return Optional.of(new ReviewTaskStore.ReviewAdvance(evidence, completedReview, successor));
+    }
+
+    @Override
     @Transactional
     public Optional<ApplyFlowInteraction> bindStartedReview(ReviewTaskStore.ReviewStartBind bind) {
         int claimed = mapper.claimReviewStarted(bind.reviewId(), bind.startedAt());

@@ -44,6 +44,18 @@ public record AcceptedLearningEvidence(
                 && attemptPurpose == AttemptPurpose.INDEPENDENT_TEST;
     }
 
+    /**
+     * A qualifying Review success: a conclusive no-hint pass on a Review
+     * Attempt, which advances the consecutive Review-success count toward
+     * Durable exactly like the Delayed Review policy describes.
+     */
+    @JsonIgnore
+    public boolean isReviewSuccess() {
+        return result == LearningResult.PASS
+                && highestHintLevel == 0
+                && attemptPurpose == AttemptPurpose.REVIEW;
+    }
+
     @JsonIgnore
     public boolean isPracticeSuccess() {
         return result == LearningResult.PASS && attemptPurpose == AttemptPurpose.PRACTICE;

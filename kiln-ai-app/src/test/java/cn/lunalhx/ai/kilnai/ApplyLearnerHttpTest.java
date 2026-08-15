@@ -328,6 +328,123 @@ class ApplyLearnerHttpTest {
                 "an unknown Review Task must be not found");
     }
 
+    @Test
+    void aReviewPassThroughTheApplySubmissionEndpointSchedulesTheNextReviewAndShowsSafeProgress() {
+        UUID learnerId = UUID.randomUUID();
+        ApplyFlowResponse started = start(learnerId, UUID.randomUUID());
+        ApplyFlowResponse transitioned = submit(
+                started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        submit(
+                started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
+                transitioned.attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+
+        ReviewTaskView due = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody()[0];
+        ApplyFlowResponse review = startReview(due.reviewId(), UUID.randomUUID());
+
+        Instant before = Instant.now();
+        UUID submitKey = UUID.randomUUID();
+        ApplyFlowResponse completed = submit(
+                review.flowId(), submitKey, review.interactionVersion(), review.attemptId(),
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED,
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED, null);
+        Instant after = Instant.now();
+
+        assertEquals("TERMINAL", completed.status());
+        assertEquals("DELAYED_REVIEW", completed.stage());
+        assertTrue(completed.learnerMessage().contains("复习已完成"));
+        assertFalse(completed.learnerMessage().contains(ScriptedApplyPortsConfiguration.REVIEW_EXPECTED),
+                "no answer facts in the Review completion message");
+        assertFalse(completed.learnerMessage().contains("fingerprint"));
+        assertFalse(completed.learnerMessage().contains("assessment"));
+        assertEquals("INDEPENDENT", completed.progress().currentMilestone());
+        assertEquals("INDEPENDENT", completed.progress().highestMilestoneReached());
+        assertEquals("DELAYED_REVIEW", completed.progress().stage());
+
+        ApplyFlowResponse replayed = submit(
+                review.flowId(), submitKey, review.interactionVersion(), review.attemptId(),
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED,
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED, null);
+        assertEquals(completed, replayed,
+                "a replayed Review submission key must return the original result");
+
+        ReviewTaskView[] remaining = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody();
+        assertEquals(1, remaining.length, "exactly one successor Review must be scheduled");
+        ReviewTaskView successor = remaining[0];
+        assertEquals(2, successor.reviewNumber());
+        assertEquals("SCHEDULED", successor.status());
+        assertFalse(successor.startable());
+        assertNotNull(successor.dueAt());
+        assertTrue(successor.dueAt().isAfter(before.plus(Duration.ofDays(3))),
+                "Review 2 must be due 3 days after the actual Review 1 completion");
+        assertTrue(successor.dueAt().isBefore(after.plus(Duration.ofDays(3)).plusSeconds(1)),
+                "Review 2 must be due 3 days after the actual Review 1 completion");
+        assertEquals("INDEPENDENT", successor.progress().currentMilestone());
+    }
+
+    @Test
+    void theFourReviewCadenceOverHttpProjectsDurableAndEndsWithNoUnfinishedWork() {
+        UUID learnerId = UUID.randomUUID();
+        ApplyFlowResponse started = start(learnerId, UUID.randomUUID());
+        ApplyFlowResponse transitioned = submit(
+                started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        submit(
+                started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
+                transitioned.attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+
+        ApplyFlowResponse afterReview1 = passReview(learnerId, 1,
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED);
+        assertEquals("INDEPENDENT", afterReview1.progress().currentMilestone(),
+                "three Review passes keep the milestone Independent");
+
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofDays(4)));
+        ApplyFlowResponse afterReview2 = passReview(learnerId, 2,
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED_2);
+        assertEquals("INDEPENDENT", afterReview2.progress().currentMilestone());
+
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofDays(8)));
+        ApplyFlowResponse afterReview3 = passReview(learnerId, 3,
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED_3);
+        assertEquals("INDEPENDENT", afterReview3.progress().currentMilestone());
+
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofDays(22)));
+        ApplyFlowResponse durable = passReview(learnerId, 4,
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED_4);
+        assertEquals("TERMINAL", durable.status());
+        assertEquals("DURABLE", durable.progress().currentMilestone(),
+                "the fourth Review pass must project Durable");
+        assertEquals("DURABLE", durable.progress().highestMilestoneReached());
+        assertEquals("DELAYED_REVIEW", durable.progress().stage());
+        assertFalse(durable.learnerMessage().contains(ScriptedApplyPortsConfiguration.REVIEW_EXPECTED_4));
+        assertFalse(durable.learnerMessage().contains("fingerprint"));
+
+        ReviewTaskView[] finished = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody();
+        assertEquals(0, finished.length,
+                "Durable must end the cadence with no unfinished Review work");
+    }
+
+    /** Starts the currently Due Review with the given number and submits its passing answer. */
+    private ApplyFlowResponse passReview(UUID learnerId, int reviewNumber, String expectedAnswer) {
+        ReviewTaskView due = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody()[0];
+        assertEquals(reviewNumber, due.reviewNumber());
+        assertTrue(due.startable(), "the Review must be Due and startable");
+        ApplyFlowResponse review = startReview(due.reviewId(), UUID.randomUUID());
+        return submit(
+                review.flowId(), UUID.randomUUID(), review.interactionVersion(), review.attemptId(),
+                expectedAnswer, expectedAnswer, null);
+    }
+
     private ApplyFlowResponse startReview(UUID reviewId, UUID idempotencyKey) {
         ResponseEntity<ApplyFlowResponse> response = startReviewRaw(reviewId, idempotencyKey);
         assertEquals(HttpStatus.OK, response.getStatusCode());

@@ -8,6 +8,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
@@ -145,15 +146,29 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
+    ReviewSubmissionFlow reviewSubmissionFlow(
+            ArtifactStore artifactStore,
+            LearningFlowStore flowStore,
+            AssessmentPort assessmentPort,
+            ResponseVerificationPort verificationPort,
+            ReviewTaskScheduler reviewScheduler,
+            Clock clock
+    ) {
+        return new ReviewSubmissionFlow(
+                artifactStore, flowStore, assessmentPort, verificationPort, reviewScheduler, clock);
+    }
+
+    @Bean
     ApplyFlowUseCase applyFlowUseCase(
             ArtifactStore artifactStore,
             LearningFlowStore flowStore,
             DiagnosticFlow diagnosticFlow,
             IndependentSubmissionFlow independentFlow,
+            ReviewSubmissionFlow reviewFlow,
             Clock clock
     ) {
         return new ApplyFlowUseCase(
-                artifactStore, flowStore, diagnosticFlow, independentFlow,
+                artifactStore, flowStore, diagnosticFlow, independentFlow, reviewFlow,
                 DiagnosticApplyFixture.diagnosticContext(), clock);
     }
 }

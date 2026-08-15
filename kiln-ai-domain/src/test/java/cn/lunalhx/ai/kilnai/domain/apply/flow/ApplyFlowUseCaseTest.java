@@ -332,9 +332,12 @@ class ApplyFlowUseCaseTest {
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
                 artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
                 reviewScheduler, CLOCK);
+        ReviewSubmissionFlow reviewFlow = new ReviewSubmissionFlow(
+                artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
+                reviewScheduler, CLOCK);
         return new Harness(
-                artifacts, flowStore, generation, diagnosticFlow, independentFlow,
-                new ApplyFlowUseCase(artifacts, flowStore, diagnosticFlow, independentFlow,
+                artifacts, flowStore, generation, diagnosticFlow, independentFlow, reviewFlow,
+                new ApplyFlowUseCase(artifacts, flowStore, diagnosticFlow, independentFlow, reviewFlow,
                         DiagnosticApplyFixture.diagnosticContext(), CLOCK));
     }
 
@@ -344,12 +347,13 @@ class ApplyFlowUseCaseTest {
             ScriptedApplyGenerationModel generation,
             DiagnosticFlow diagnosticFlow,
             IndependentSubmissionFlow independentFlow,
+            ReviewSubmissionFlow reviewFlow,
             ApplyFlowUseCase useCase
     ) {
 
         ApplyFlowUseCase newUseCase() {
             return new ApplyFlowUseCase(
-                    artifacts, flowStore, diagnosticFlow, independentFlow,
+                    artifacts, flowStore, diagnosticFlow, independentFlow, reviewFlow,
                     DiagnosticApplyFixture.diagnosticContext(), CLOCK);
         }
     }

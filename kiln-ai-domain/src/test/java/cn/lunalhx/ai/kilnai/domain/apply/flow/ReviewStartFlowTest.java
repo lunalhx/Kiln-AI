@@ -372,8 +372,11 @@ class ReviewStartFlowTest {
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
                 artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
                 reviewScheduler, CLOCK);
+        ReviewSubmissionFlow reviewFlow = new ReviewSubmissionFlow(
+                artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
+                reviewScheduler, CLOCK);
         ApplyFlowUseCase useCase = new ApplyFlowUseCase(
-                artifacts, flowStore, diagnosticFlow, independentFlow,
+                artifacts, flowStore, diagnosticFlow, independentFlow, reviewFlow,
                 DiagnosticApplyFixture.diagnosticContext(), CLOCK);
         ReviewStartFlow reviewStart = new ReviewStartFlow(
                 executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), CLOCK);

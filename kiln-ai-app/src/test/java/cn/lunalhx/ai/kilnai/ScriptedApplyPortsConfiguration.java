@@ -27,18 +27,41 @@ public class ScriptedApplyPortsConfiguration {
     public static final String INDEPENDENT_EXPECTED = "15*x^2 - 2";
     public static final String REVIEW_TASK = "设 h(x) = 2x⁴ − 3x² + 5，求 h'(x)。";
     public static final String REVIEW_EXPECTED = "8*x^3 - 6*x";
+    public static final String REVIEW_TASK_2 = "设 p(x) = 3x⁵ − 4x + 2，求 p'(x)。";
+    public static final String REVIEW_EXPECTED_2 = "15*x^4 - 4";
+    public static final String REVIEW_TASK_3 = "设 q(x) = 6x⁴ + 5x² − 3，求 q'(x)。";
+    public static final String REVIEW_EXPECTED_3 = "24*x^3 + 10*x";
+    public static final String REVIEW_TASK_4 = "设 r(x) = 7x³ − 2x + 9，求 r'(x)。";
+    public static final String REVIEW_EXPECTED_4 = "21*x^2 - 2";
 
     @Bean
     @Primary
     ApplyGenerationPort scriptedApplyGeneration() {
         return (compiledSystemPrompt, executionContextJson) -> {
             if (executionContextJson.contains("\"attempt_purpose\":\"review\"")) {
-                return taskReadyJson(REVIEW_TASK, REVIEW_EXPECTED);
+                // The novelty exclusions already carry every previously
+                // exposed task fingerprint; their count selects the Review
+                // of the cadence, so the same call is always deterministic.
+                int reviewNumber = exposedTaskCount(executionContextJson) - 2 + 1;
+                return switch (reviewNumber) {
+                    case 1 -> taskReadyJson(REVIEW_TASK, REVIEW_EXPECTED);
+                    case 2 -> taskReadyJson(REVIEW_TASK_2, REVIEW_EXPECTED_2);
+                    case 3 -> taskReadyJson(REVIEW_TASK_3, REVIEW_EXPECTED_3);
+                    default -> taskReadyJson(REVIEW_TASK_4, REVIEW_EXPECTED_4);
+                };
             }
             return executionContextJson.contains("\"attempt_purpose\":\"independent_test\"")
                     ? taskReadyJson(INDEPENDENT_TASK, INDEPENDENT_EXPECTED)
                     : taskReadyJson(DIAGNOSTIC_TASK, DIAGNOSTIC_EXPECTED);
         };
+    }
+
+    private static int exposedTaskCount(String executionContextJson) {
+        String marker = "\"exposed_task_fingerprints\":[";
+        int start = executionContextJson.indexOf(marker);
+        int end = executionContextJson.indexOf(']', start);
+        String contents = executionContextJson.substring(start + marker.length(), end).trim();
+        return contents.isEmpty() ? 0 : contents.split(",").length;
     }
 
     @Bean

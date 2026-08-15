@@ -162,6 +162,47 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
+    public synchronized Optional<ReviewTask> findStartedReview(UUID learnerId, UUID conceptId) {
+        return reviews.values().stream()
+                .filter(review -> review.learnerId().equals(learnerId))
+                .filter(review -> review.conceptId().equals(conceptId))
+                .filter(review -> review.status() == ReviewTaskStatus.STARTED)
+                .findFirst();
+    }
+
+    @Override
+    public synchronized Optional<ReviewTaskStore.ReviewAdvance> acceptEvidenceAndAdvanceReview(
+            AcceptedLearningEvidence evidence,
+            UUID completedReviewId,
+            Instant nextDueAt
+    ) {
+        Objects.requireNonNull(evidence, "evidence must not be null");
+        Objects.requireNonNull(completedReviewId, "completedReviewId must not be null");
+        if (this.evidence.containsKey(evidence.taskAttemptId())) {
+            return Optional.empty();
+        }
+        ReviewTask current = reviews.get(completedReviewId);
+        if (current == null || current.status() != ReviewTaskStatus.STARTED) {
+            return Optional.empty();
+        }
+        this.evidence.putIfAbsent(evidence.taskAttemptId(), evidence);
+        ReviewTask completed = new ReviewTask(
+                current.reviewId(), current.learnerId(), current.conceptId(), current.flowId(),
+                current.reviewNumber(), ReviewTaskStatus.COMPLETED, current.dueAt(), current.createdAt(),
+                current.startedAt(), evidence.acceptedAt(), null);
+        reviews.put(completed.reviewId(), completed);
+        ReviewTask successor = null;
+        if (nextDueAt != null) {
+            successor = new ReviewTask(
+                    UUID.randomUUID(), current.learnerId(), current.conceptId(), current.flowId(),
+                    current.reviewNumber() + 1, ReviewTaskStatus.SCHEDULED, nextDueAt,
+                    clock.instant(), null, null, null);
+            reviews.put(successor.reviewId(), successor);
+        }
+        return Optional.of(new ReviewTaskStore.ReviewAdvance(evidence, completed, successor));
+    }
+
+    @Override
     public synchronized Optional<ApplyFlowInteraction> bindStartedReview(ReviewTaskStore.ReviewStartBind bind) {
         Objects.requireNonNull(bind, "bind must not be null");
         if (artifactStore == null) {

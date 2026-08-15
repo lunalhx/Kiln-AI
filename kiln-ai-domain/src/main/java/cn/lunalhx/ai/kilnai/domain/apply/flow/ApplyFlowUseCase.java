@@ -9,6 +9,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.DiagnosticSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.IndependentSubmissionResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
@@ -46,6 +47,7 @@ public final class ApplyFlowUseCase {
     private final LearningFlowStore flowStore;
     private final DiagnosticFlow diagnosticFlow;
     private final IndependentSubmissionFlow independentFlow;
+    private final ReviewSubmissionFlow reviewFlow;
     private final ApplyExecutionContext diagnosticContext;
     private final Clock clock;
 
@@ -54,6 +56,7 @@ public final class ApplyFlowUseCase {
             LearningFlowStore flowStore,
             DiagnosticFlow diagnosticFlow,
             IndependentSubmissionFlow independentFlow,
+            ReviewSubmissionFlow reviewFlow,
             ApplyExecutionContext diagnosticContext,
             Clock clock
     ) {
@@ -61,6 +64,7 @@ public final class ApplyFlowUseCase {
         this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
         this.diagnosticFlow = Objects.requireNonNull(diagnosticFlow, "diagnosticFlow must not be null");
         this.independentFlow = Objects.requireNonNull(independentFlow, "independentFlow must not be null");
+        this.reviewFlow = Objects.requireNonNull(reviewFlow, "reviewFlow must not be null");
         this.diagnosticContext = Objects.requireNonNull(diagnosticContext, "diagnosticContext must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
@@ -155,6 +159,11 @@ public final class ApplyFlowUseCase {
                         flow, attemptId, rawDerivative, confirmedCanonical, rationale);
                 return mapIndependent(latest, result, idempotencyKey, hash);
             }
+            case REVIEW -> {
+                ReviewSubmissionResult result = reviewFlow.submitReview(
+                        flow, attemptId, rawDerivative, confirmedCanonical, rationale);
+                return mapReview(latest, result, idempotencyKey, hash);
+            }
             default -> {
                 return new ApplyFlowResult.SubmissionIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
             }
@@ -205,6 +214,26 @@ public final class ApplyFlowUseCase {
             case IndependentSubmissionResult.NotSubmittable notSubmittable ->
                     new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
             case IndependentSubmissionResult.Ignored ignored ->
+                    new ApplyFlowResult.SubmissionIgnored(ignored.reason());
+        };
+    }
+
+    private ApplyFlowResult mapReview(
+            ApplyFlowInteraction latest,
+            ReviewSubmissionResult result,
+            UUID idempotencyKey,
+            String hash
+    ) {
+        return switch (result) {
+            case ReviewSubmissionResult.EvidenceAccepted accepted -> boundary(
+                    latest, LearningStage.DELAYED_REVIEW, null, null, null,
+                    accepted.learnerMessage(), idempotencyKey, hash);
+            case ReviewSubmissionResult.NoEvidence noEvidence -> boundary(
+                    latest, LearningStage.DELAYED_REVIEW, null, null, null,
+                    noEvidence.learnerMessage(), idempotencyKey, hash);
+            case ReviewSubmissionResult.NotSubmittable notSubmittable ->
+                    new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
+            case ReviewSubmissionResult.Ignored ignored ->
                     new ApplyFlowResult.SubmissionIgnored(ignored.reason());
         };
     }

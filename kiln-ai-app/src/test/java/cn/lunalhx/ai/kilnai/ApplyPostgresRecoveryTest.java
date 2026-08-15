@@ -240,6 +240,78 @@ class ApplyPostgresRecoveryTest {
     }
 
     @Test
+    void aReviewPassOverPostgresCompletesTheReviewSchedulesTheSuccessorAndIsExactlyOnce() {
+        UUID learnerId = UUID.randomUUID();
+        UUID startKey = UUID.randomUUID();
+
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, startKey);
+        UUID flowId = started.interaction().flowId();
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) useCase.submit(
+                flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        useCase.submit(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+        ReviewTask due = reviewStore.unfinishedReviewsFor(learnerId).get(0);
+        ReviewStartResult.Boundary reviewBoundary = (ReviewStartResult.Boundary) reviewStart.start(
+                due.reviewId(), UUID.randomUUID());
+
+        Instant before = Instant.now();
+        UUID submitKey = UUID.randomUUID();
+        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) useCase.submit(
+                flowId, reviewBoundary.interaction().interactionVersion(), submitKey,
+                reviewBoundary.interaction().attemptId(),
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED,
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED, null);
+        Instant after = Instant.now();
+        assertEquals(FlowStatus.TERMINAL, completed.interaction().status());
+
+        ReviewTask completedReview = reviewStore.findReview(due.reviewId()).orElseThrow();
+        assertEquals(ReviewTaskStatus.COMPLETED, completedReview.status());
+        assertNotNull(completedReview.completedAt(),
+                "the completed Review must record its actual completion time");
+        assertTrue(!completedReview.completedAt().isBefore(before)
+                        && !completedReview.completedAt().isAfter(after),
+                "the completion time must be the actual acceptance time");
+
+        List<AcceptedLearningEvidence> reviewEvidence = flowStore.allEvidence().stream()
+                .filter(item -> item.attemptPurpose() == AttemptPurpose.REVIEW).toList();
+        assertEquals(1, reviewEvidence.size(),
+                "exactly one Review PASS evidence record must be accepted");
+        assertEquals(LearningResult.PASS, reviewEvidence.get(0).result());
+        assertEquals(0, reviewEvidence.get(0).highestHintLevel());
+        assertEquals(completedReview.completedAt(), reviewEvidence.get(0).acceptedAt(),
+                "the evidence acceptance time must be the Review completion time");
+
+        List<ReviewTask> unfinished = reviewStore.unfinishedReviewsFor(learnerId);
+        assertEquals(1, unfinished.size(),
+                "at most one unfinished Review must survive the pass");
+        ReviewTask successor = unfinished.get(0);
+        assertEquals(2, successor.reviewNumber());
+        assertEquals(ReviewTaskStatus.SCHEDULED, successor.status());
+        assertTrue(successor.dueAt().isAfter(before.plus(Duration.ofDays(3))),
+                "Review 2 must be due 3 days after the actual completion");
+        assertTrue(successor.dueAt().isBefore(after.plus(Duration.ofDays(3)).plusSeconds(1)),
+                "Review 2 must be due 3 days after the actual completion");
+
+        ApplyFlowResult.Boundary replayed = (ApplyFlowResult.Boundary) useCase.submit(
+                flowId, reviewBoundary.interaction().interactionVersion(), submitKey,
+                reviewBoundary.interaction().attemptId(),
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED,
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED, null);
+        assertEquals(completed.interaction(), replayed.interaction(),
+                "a replayed key after the commit must return the original result");
+        assertEquals(1, reviewStore.unfinishedReviewsFor(learnerId).size(),
+                "a replay must never duplicate the successor");
+        assertEquals(1, flowStore.allEvidence().stream()
+                        .filter(item -> item.attemptPurpose() == AttemptPurpose.REVIEW).count(),
+                "a replay must never duplicate Evidence");
+        assertEquals(ReviewTaskStatus.COMPLETED,
+                reviewStore.findReview(due.reviewId()).orElseThrow().status());
+    }
+
+    @Test
     void aBindAgainstANonDueReviewWritesNothingAndNeverCreatesOrphans() {
         UUID learnerId = UUID.randomUUID();
         UUID startKey = UUID.randomUUID();
@@ -268,8 +340,12 @@ class ApplyPostgresRecoveryTest {
                 "a refused bind must never advance the Flow interaction");
         assertTrue(flowStore.findCommand(bindKey).isEmpty(),
                 "a refused bind must never persist its command");
-        assertEquals(0, flowStore.exposedTaskFingerprints(flow.flowId()).size(),
+        int exposedBefore = flowStore.exposedTaskFingerprints(flow.flowId()).size();
+        assertTrue(exposedBefore >= 1, "the displayed Diagnostic task is already part of the Exposure Ledger");
+        assertEquals(exposedBefore, flowStore.exposedTaskFingerprints(flow.flowId()).size(),
                 "a refused bind must never record Exposure");
+        assertEquals(exposedBefore, flowStore.exposedSolutionFingerprints(flow.flowId()).size(),
+                "a refused bind must never record a solution Exposure");
     }
 
     private AcceptedLearningEvidence evidence(UUID learnerId, UUID conceptId, UUID flowId, UUID taskAttemptId, Instant acceptedAt) {

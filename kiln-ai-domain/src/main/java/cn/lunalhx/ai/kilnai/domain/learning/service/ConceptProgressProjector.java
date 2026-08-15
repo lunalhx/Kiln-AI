@@ -16,6 +16,13 @@ import java.util.UUID;
 public final class ConceptProgressProjector {
 
     /**
+     * The number of consecutive qualifying Review successes after the latest
+     * Independent success that project Current Milestone and Highest Milestone
+     * Reached as Durable.
+     */
+    public static final int QUALIFYING_REVIEW_COUNT = 4;
+
+    /**
      * The deterministic Evidence fold order: acceptance time first, then the
      * Evidence id, so ties never depend on storage or stream order.
      */
@@ -37,8 +44,19 @@ public final class ConceptProgressProjector {
         MasteryMilestone current = MasteryMilestone.UNASSESSED;
         MasteryMilestone highest = MasteryMilestone.UNASSESSED;
         Instant updatedAt = Instant.EPOCH;
+        int reviewSuccessCount = 0;
         for (AcceptedLearningEvidence item : ordered) {
-            current = nextCurrent(current, item);
+            if (item.isIndependentSuccess()) {
+                current = MasteryMilestone.INDEPENDENT;
+                reviewSuccessCount = 0;
+            } else if (item.isReviewSuccess() && hasIndependentFoundation(current)) {
+                reviewSuccessCount++;
+                if (reviewSuccessCount >= QUALIFYING_REVIEW_COUNT) {
+                    current = MasteryMilestone.DURABLE;
+                }
+            } else {
+                current = nextCurrent(current, item);
+            }
             highest = max(highest, current);
             updatedAt = item.acceptedAt();
         }
@@ -46,6 +64,16 @@ public final class ConceptProgressProjector {
                 ? LearningStage.DELAYED_REVIEW
                 : LearningStage.LEARNING_AND_PRACTICE;
         return new ConceptProgress(learnerId, conceptId, current, highest, stage, updatedAt);
+    }
+
+    /**
+     * A Review success only advances the consecutive count while the latest
+     * accepted evidence still supports at least an Independent foundation;
+     * any qualifying failure or the absence of an Independent pass ends the
+     * consecutive run, so the count can never reach Durable across a fall.
+     */
+    private static boolean hasIndependentFoundation(MasteryMilestone current) {
+        return current == MasteryMilestone.INDEPENDENT || current == MasteryMilestone.DURABLE;
     }
 
     private MasteryMilestone nextCurrent(MasteryMilestone current, AcceptedLearningEvidence item) {
