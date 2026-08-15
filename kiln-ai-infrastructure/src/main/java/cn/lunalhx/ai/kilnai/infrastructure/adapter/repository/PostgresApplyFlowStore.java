@@ -3,6 +3,7 @@ package cn.lunalhx.ai.kilnai.infrastructure.adapter.repository;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -143,7 +144,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 evidence.acceptedAt()));
         ReviewTask review = new ReviewTask(
                 UUID.randomUUID(), evidence.learnerId(), evidence.conceptId(), evidence.flowId(),
-                1, ReviewTaskStatus.SCHEDULED, dueAt, clock.instant(), null, null, null);
+                1, ReviewTaskStatus.SCHEDULED, dueAt, clock.instant(), null, null, null, null);
         mapper.insertReviewTask(new ApplyFlowMapper.ReviewTaskRow(
                 review.reviewId(),
                 review.learnerId(),
@@ -154,6 +155,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 review.dueAt(),
                 review.createdAt(),
                 review.startedAt(),
+                review.openAttemptId(),
                 review.completedAt(),
                 review.cancelledAt()));
         return review;
@@ -211,7 +213,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
             successor = new ReviewTask(
                     UUID.randomUUID(), evidence.learnerId(), evidence.conceptId(), evidence.flowId(),
                     completedReview.reviewNumber() + 1, ReviewTaskStatus.SCHEDULED, nextDueAt,
-                    clock.instant(), null, null, null);
+                    clock.instant(), null, null, null, null);
             mapper.insertReviewTask(new ApplyFlowMapper.ReviewTaskRow(
                     successor.reviewId(),
                     successor.learnerId(),
@@ -222,6 +224,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                     successor.dueAt(),
                     successor.createdAt(),
                     successor.startedAt(),
+                    successor.openAttemptId(),
                     successor.completedAt(),
                     successor.cancelledAt()));
         }
@@ -259,12 +262,12 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
 
     @Override
     @Transactional
-    public Optional<ApplyFlowInteraction> bindStartedReview(ReviewTaskStore.ReviewStartBind bind) {
-        int claimed = mapper.claimReviewStarted(bind.reviewId(), bind.startedAt());
+    public Optional<ApplyFlowInteraction> bindReviewAttempt(ReviewTaskStore.ReviewStartBind bind) {
+        TaskAttempt attempt = TaskAttempt.open(bind.taskPackage(), bind.startedAt());
+        int claimed = mapper.claimReviewAttempt(bind.reviewId(), bind.startedAt(), attempt.attemptId());
         if (claimed == 0) {
             return Optional.empty();
         }
-        TaskAttempt attempt = TaskAttempt.open(bind.taskPackage(), bind.startedAt());
         mapper.insertPackage(new ApplyFlowMapper.PackageRow(
                 bind.taskPackage().taskPackageId(),
                 bind.taskPackage().attemptPurpose().name(),
@@ -289,6 +292,76 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
                 bind.taskPackage().learnerProjection(), null);
+        insertBoundary(bind.flowId(), bind.interactionVersion(), interaction,
+                bind.idempotencyKey(), bind.requestHash(), bind.startedAt());
+        return Optional.of(interaction);
+    }
+
+    @Override
+    @Transactional
+    public Optional<ApplyFlowInteraction> resolveInconclusiveSubmission(
+            ReviewTaskStore.ResolveInconclusiveBind bind
+    ) {
+        ReviewTask review = toReviewTask(mapper.findReviewTask(bind.reviewId()).orElse(null));
+        if (review == null) {
+            return Optional.empty();
+        }
+        TaskAttempt replacement = null;
+        UUID openAttemptId = null;
+        LearnerProjection replacementProjection = null;
+        if (bind.replacementPackage() != null) {
+            replacement = TaskAttempt.open(bind.replacementPackage(), clock.instant());
+            openAttemptId = replacement.attemptId();
+            replacementProjection = bind.replacementPackage().learnerProjection();
+        }
+        int resolved = mapper.resolveInconclusiveClaim(
+                bind.reviewId(), bind.closedAttemptId(), openAttemptId);
+        if (resolved == 0) {
+            return Optional.empty();
+        }
+        if (replacement != null) {
+            mapper.insertPackage(new ApplyFlowMapper.PackageRow(
+                    bind.replacementPackage().taskPackageId(),
+                    bind.replacementPackage().attemptPurpose().name(),
+                    writeJson(bind.replacementPackage().learnerProjection()),
+                    writeJson(bind.replacementPackage().privateAssessorProjection()),
+                    clock.instant()));
+            mapper.insertAttempt(new ApplyFlowMapper.AttemptRow(
+                    replacement.attemptId(),
+                    replacement.taskPackageId(),
+                    replacement.purpose().name(),
+                    replacement.status().name(),
+                    replacement.openedAt(),
+                    null,
+                    null));
+            mapper.recordExposure(
+                    review.flowId(),
+                    bind.replacementPackage().taskPackageId(),
+                    bind.replacementPackage().privateAssessorProjection().taskFingerprint().value(),
+                    bind.replacementPackage().privateAssessorProjection().solutionFingerprint().value(),
+                    clock.instant());
+        }
+        ApplyFlowInteraction interaction = replacement == null
+                ? new ApplyFlowInteraction(
+                        review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
+                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage())
+                : new ApplyFlowInteraction(
+                        review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
+                        LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
+                        replacementProjection, bind.learnerMessage());
+        insertBoundary(review.flowId(), bind.interactionVersion(), interaction,
+                bind.idempotencyKey(), bind.requestHash(), clock.instant());
+        return Optional.of(interaction);
+    }
+
+    private void insertBoundary(
+            UUID flowId,
+            int interactionVersion,
+            ApplyFlowInteraction interaction,
+            UUID idempotencyKey,
+            String requestHash,
+            Instant createdAt
+    ) {
         mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
                 UUID.randomUUID(),
                 interaction.flowId(),
@@ -296,23 +369,25 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 interaction.status().name(),
                 interaction.stage().name(),
                 interaction.attemptId(),
-                interaction.attemptPurpose().name(),
-                writeJson(interaction.learnerProjection()),
+                interaction.attemptPurpose() == null ? null : interaction.attemptPurpose().name(),
+                interaction.learnerProjection() == null ? null : writeJson(interaction.learnerProjection()),
                 interaction.learnerMessage(),
-                bind.startedAt()));
+                createdAt));
         mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
-                UUID.randomUUID(), bind.flowId(), bind.interactionVersion(), bind.startedAt()));
+                UUID.randomUUID(), flowId, interactionVersion, createdAt));
         mapper.insertCommand(new ApplyFlowMapper.CommandRow(
-                bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
-                writeJson(interaction), bind.startedAt()));
-        return Optional.of(interaction);
+                idempotencyKey, requestHash, flowId,
+                writeJson(interaction), createdAt));
     }
 
     private ReviewTask toReviewTask(ApplyFlowMapper.ReviewTaskRow row) {
+        if (row == null) {
+            return null;
+        }
         return new ReviewTask(
                 row.id(), row.learnerId(), row.conceptId(), row.flowId(), row.reviewNumber(),
                 ReviewTaskStatus.valueOf(row.status()), row.dueAt(), row.createdAt(),
-                row.startedAt(), row.completedAt(), row.cancelledAt());
+                row.startedAt(), row.openAttemptId(), row.completedAt(), row.cancelledAt());
     }
 
     @Override

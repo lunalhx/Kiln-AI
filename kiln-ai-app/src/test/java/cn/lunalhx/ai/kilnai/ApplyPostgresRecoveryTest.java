@@ -391,7 +391,7 @@ class ApplyPostgresRecoveryTest {
                 bindKey,
                 "hash");
 
-        assertTrue(reviewStore.bindStartedReview(bind).isEmpty(),
+        assertTrue(reviewStore.bindReviewAttempt(bind).isEmpty(),
                 "a not-yet-Due Review must never be claimed by a bind");
         assertEquals(ReviewTaskStatus.SCHEDULED, reviewStore.findReview(scheduled.reviewId()).orElseThrow().status());
         assertEquals(1, artifacts.allPackages().size(),

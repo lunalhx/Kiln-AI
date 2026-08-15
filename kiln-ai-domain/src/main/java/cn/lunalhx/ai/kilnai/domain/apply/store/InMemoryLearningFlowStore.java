@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.store;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
@@ -151,7 +152,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         this.evidence.putIfAbsent(evidence.taskAttemptId(), evidence);
         ReviewTask review = new ReviewTask(
                 UUID.randomUUID(), evidence.learnerId(), evidence.conceptId(), evidence.flowId(),
-                1, ReviewTaskStatus.SCHEDULED, dueAt, clock.instant(), null, null, null);
+                1, ReviewTaskStatus.SCHEDULED, dueAt, clock.instant(), null, null, null, null);
         reviews.put(review.reviewId(), review);
         return review;
     }
@@ -189,14 +190,14 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         ReviewTask completed = new ReviewTask(
                 current.reviewId(), current.learnerId(), current.conceptId(), current.flowId(),
                 current.reviewNumber(), ReviewTaskStatus.COMPLETED, current.dueAt(), current.createdAt(),
-                current.startedAt(), evidence.acceptedAt(), null);
+                current.startedAt(), null, evidence.acceptedAt(), null);
         reviews.put(completed.reviewId(), completed);
         ReviewTask successor = null;
         if (nextDueAt != null) {
             successor = new ReviewTask(
                     UUID.randomUUID(), current.learnerId(), current.conceptId(), current.flowId(),
                     current.reviewNumber() + 1, ReviewTaskStatus.SCHEDULED, nextDueAt,
-                    clock.instant(), null, null, null);
+                    clock.instant(), null, null, null, null);
             reviews.put(successor.reviewId(), successor);
         }
         return Optional.of(new ReviewTaskStore.ReviewAdvance(evidence, completed, successor));
@@ -229,28 +230,31 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         ReviewTask completed = new ReviewTask(
                 current.reviewId(), current.learnerId(), current.conceptId(), current.flowId(),
                 current.reviewNumber(), ReviewTaskStatus.COMPLETED, current.dueAt(), current.createdAt(),
-                current.startedAt(), evidence.acceptedAt(), null);
+                current.startedAt(), null, evidence.acceptedAt(), null);
         reviews.put(completed.reviewId(), completed);
         return Optional.of(new ReviewTaskStore.ReviewStop(evidence, completed));
     }
 
     @Override
-    public synchronized Optional<ApplyFlowInteraction> bindStartedReview(ReviewTaskStore.ReviewStartBind bind) {
+    public synchronized Optional<ApplyFlowInteraction> bindReviewAttempt(ReviewTaskStore.ReviewStartBind bind) {
         Objects.requireNonNull(bind, "bind must not be null");
         if (artifactStore == null) {
             throw new IllegalStateException(
-                    "bindStartedReview requires the composite InMemoryLearningFlowStore(clock, artifactStore) form");
+                    "bindReviewAttempt requires the composite InMemoryLearningFlowStore(clock, artifactStore) form");
         }
         ReviewTask review = reviews.get(bind.reviewId());
-        if (review == null || review.status() != ReviewTaskStatus.DUE) {
+        boolean dueStart = review != null && review.status() == ReviewTaskStatus.DUE;
+        boolean resume = review != null && review.status() == ReviewTaskStatus.STARTED
+                && review.openAttemptId() == null;
+        if (!dueStart && !resume) {
             return Optional.empty();
         }
         ReviewTask claimed = new ReviewTask(
                 review.reviewId(), review.learnerId(), review.conceptId(), review.flowId(),
                 review.reviewNumber(), ReviewTaskStatus.STARTED, review.dueAt(), review.createdAt(),
-                bind.startedAt(), null, null);
-        reviews.put(bind.reviewId(), claimed);
+                resume ? review.startedAt() : bind.startedAt(), null, null, null);
         TaskAttempt attempt = artifactStore.openAttempt(bind.taskPackage());
+        reviews.put(bind.reviewId(), claimed.withOpenAttempt(attempt.attemptId()));
         recordTaskExposure(bind.flowId(), bind.taskPackage());
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
@@ -259,6 +263,45 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         commitBoundary(interaction,
                 new ApplyCheckpoint(UUID.randomUUID(), bind.flowId(), bind.interactionVersion(), clock.instant()),
                 new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
+                        interaction, clock.instant()));
+        return Optional.of(interaction);
+    }
+
+    @Override
+    public synchronized Optional<ApplyFlowInteraction> resolveInconclusiveSubmission(
+            ReviewTaskStore.ResolveInconclusiveBind bind
+    ) {
+        Objects.requireNonNull(bind, "bind must not be null");
+        if (artifactStore == null) {
+            throw new IllegalStateException(
+                    "resolveInconclusiveSubmission requires the composite InMemoryLearningFlowStore(clock, artifactStore) form");
+        }
+        ReviewTask review = reviews.get(bind.reviewId());
+        if (review == null || review.status() != ReviewTaskStatus.STARTED
+                || !Objects.equals(review.openAttemptId(), bind.closedAttemptId())) {
+            return Optional.empty();
+        }
+        TaskAttempt replacement = null;
+        UUID openAttemptId = null;
+        LearnerProjection replacementProjection = null;
+        if (bind.replacementPackage() != null) {
+            replacement = artifactStore.openAttempt(bind.replacementPackage());
+            openAttemptId = replacement.attemptId();
+            recordTaskExposure(review.flowId(), bind.replacementPackage());
+            replacementProjection = bind.replacementPackage().learnerProjection();
+        }
+        reviews.put(bind.reviewId(), review.withOpenAttempt(openAttemptId));
+        ApplyFlowInteraction interaction = replacement == null
+                ? new ApplyFlowInteraction(
+                        review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
+                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage())
+                : new ApplyFlowInteraction(
+                        review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
+                        LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
+                        replacementProjection, bind.learnerMessage());
+        commitBoundary(interaction,
+                new ApplyCheckpoint(UUID.randomUUID(), review.flowId(), bind.interactionVersion(), clock.instant()),
+                new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), review.flowId(),
                         interaction, clock.instant()));
         return Optional.of(interaction);
     }
@@ -273,7 +316,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
                 entry.setValue(new ReviewTask(
                         review.reviewId(), review.learnerId(), review.conceptId(), review.flowId(),
                         review.reviewNumber(), ReviewTaskStatus.DUE, review.dueAt(), review.createdAt(),
-                        null, null, null));
+                        null, null, null, null));
                 transitions++;
             }
         }
@@ -298,7 +341,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         return new ReviewTask(
                 review.reviewId(), review.learnerId(), review.conceptId(), review.flowId(),
                 review.reviewNumber(), ReviewTaskStatus.CANCELLED, review.dueAt(), review.createdAt(),
-                review.startedAt(), review.completedAt(), clock.instant());
+                review.startedAt(), null, review.completedAt(), clock.instant());
     }
 
     @Override

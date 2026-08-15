@@ -127,8 +127,15 @@ class ApplyFlowStoreJsonRoundTripTest {
         ReviewTask review = new ReviewTask(
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), flowId, 1,
                 ReviewTaskStatus.SCHEDULED, Instant.parse("2026-08-16T00:00:00Z"),
-                Instant.parse("2026-08-15T00:00:00Z"), null, null, null);
+                Instant.parse("2026-08-15T00:00:00Z"), null, null, null, null);
         assertEquals(review, roundTrip(review));
+
+        ReviewTask startedWithReplacement = new ReviewTask(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), flowId, 1,
+                ReviewTaskStatus.STARTED, Instant.parse("2026-08-16T00:00:00Z"),
+                Instant.parse("2026-08-15T00:00:00Z"), Instant.parse("2026-08-16T01:00:00Z"),
+                UUID.randomUUID(), null, null);
+        assertEquals(startedWithReplacement, roundTrip(startedWithReplacement));
     }
 
     @SuppressWarnings("unchecked")

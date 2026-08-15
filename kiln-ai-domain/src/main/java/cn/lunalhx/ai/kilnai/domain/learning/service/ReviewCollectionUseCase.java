@@ -38,7 +38,7 @@ public final class ReviewCollectionUseCase {
                         review.status(),
                         review.reviewNumber(),
                         review.dueAt(),
-                        review.status() == ReviewTaskStatus.DUE,
+                        review.isStartable(),
                         projectProgress(learnerId, review.conceptId())))
                 .toList();
     }

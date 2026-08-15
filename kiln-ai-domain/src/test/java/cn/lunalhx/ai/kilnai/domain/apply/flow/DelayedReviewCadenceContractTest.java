@@ -497,7 +497,7 @@ class DelayedReviewCadenceContractTest {
                 reviewScheduler, clock);
         ReviewSubmissionFlow reviewSubmissionFlow = new ReviewSubmissionFlow(
                 artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
-                reviewScheduler, clock);
+                reviewScheduler, executor, flowStore, ReviewApplyFixture.reviewContext(), clock);
         ApplyFlowUseCase useCase = new ApplyFlowUseCase(
                 artifacts, flowStore, diagnosticFlow, independentFlow, reviewSubmissionFlow,
                 DiagnosticApplyFixture.diagnosticContext(), clock);

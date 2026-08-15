@@ -236,17 +236,17 @@ public interface ApplyFlowMapper {
     @Insert("""
             INSERT INTO review_tasks (
                 id, learner_id, concept_id, flow_id, review_number, status, due_at,
-                created_at, started_at, completed_at, cancelled_at
+                created_at, started_at, open_attempt_id, completed_at, cancelled_at
             ) VALUES (
                 #{id}, #{learnerId}, #{conceptId}, #{flowId}, #{reviewNumber}, #{status}, #{dueAt},
-                #{createdAt}, #{startedAt}, #{completedAt}, #{cancelledAt}
+                #{createdAt}, #{startedAt}, #{openAttemptId}, #{completedAt}, #{cancelledAt}
             )
             """)
     void insertReviewTask(ReviewTaskRow row);
 
     @Update("""
             UPDATE review_tasks
-            SET status = 'CANCELLED', cancelled_at = #{cancelledAt}
+            SET status = 'CANCELLED', cancelled_at = #{cancelledAt}, open_attempt_id = NULL
             WHERE learner_id = #{learnerId} AND concept_id = #{conceptId}
               AND status IN ('SCHEDULED', 'DUE', 'STARTED')
             """)
@@ -258,7 +258,7 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT id, learner_id, concept_id, flow_id, review_number, status, due_at,
-                   created_at, started_at, completed_at, cancelled_at
+                   created_at, started_at, open_attempt_id, completed_at, cancelled_at
             FROM review_tasks
             WHERE learner_id = #{learnerId} AND status IN ('SCHEDULED', 'DUE', 'STARTED')
             ORDER BY due_at ASC
@@ -274,7 +274,7 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT id, learner_id, concept_id, flow_id, review_number, status, due_at,
-                   created_at, started_at, completed_at, cancelled_at
+                   created_at, started_at, open_attempt_id, completed_at, cancelled_at
             FROM review_tasks
             WHERE id = #{reviewId}
             """)
@@ -282,7 +282,7 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT id, learner_id, concept_id, flow_id, review_number, status, due_at,
-                   created_at, started_at, completed_at, cancelled_at
+                   created_at, started_at, open_attempt_id, completed_at, cancelled_at
             FROM review_tasks
             WHERE learner_id = #{learnerId} AND concept_id = #{conceptId} AND status = 'STARTED'
             LIMIT 1
@@ -293,19 +293,47 @@ public interface ApplyFlowMapper {
 
     @Update("""
             UPDATE review_tasks
-            SET status = 'COMPLETED', completed_at = #{completedAt}
+            SET status = 'COMPLETED', completed_at = #{completedAt}, open_attempt_id = NULL
             WHERE id = #{reviewId} AND status = 'STARTED'
             """)
     int completeStartedReview(
             @Param("reviewId") UUID reviewId,
             @Param("completedAt") Instant completedAt);
 
+    /**
+     * Claims a Review for one new Review Attempt: a Due Review becomes Started,
+     * or a Started Review holding no open Attempt is resumed. The claim carries
+     * the new Attempt id so the at-most-one-OPEN-Attempt invariant is enforced
+     * by the conditional update itself.
+     */
     @Update("""
             UPDATE review_tasks
-            SET status = 'STARTED', started_at = #{startedAt}
-            WHERE id = #{reviewId} AND status = 'DUE'
+            SET status = 'STARTED',
+                started_at = COALESCE(started_at, #{startedAt}),
+                open_attempt_id = #{attemptId}
+            WHERE id = #{reviewId}
+              AND (status = 'DUE' OR (status = 'STARTED' AND open_attempt_id IS NULL))
             """)
-    int claimReviewStarted(@Param("reviewId") UUID reviewId, @Param("startedAt") Instant startedAt);
+    int claimReviewAttempt(
+            @Param("reviewId") UUID reviewId,
+            @Param("startedAt") Instant startedAt,
+            @Param("attemptId") UUID attemptId);
+
+    /**
+     * Atomically advances an Inconclusive submission: the Started Review whose
+     * open Attempt is the closed submission switches its pointer to the new
+     * replacement Attempt, or clears it (null) when no replacement could be
+     * prepared, leaving the Review resumable.
+     */
+    @Update("""
+            UPDATE review_tasks
+            SET open_attempt_id = #{newOpenAttemptId}
+            WHERE id = #{reviewId} AND status = 'STARTED' AND open_attempt_id = #{closedAttemptId}
+            """)
+    int resolveInconclusiveClaim(
+            @Param("reviewId") UUID reviewId,
+            @Param("closedAttemptId") UUID closedAttemptId,
+            @Param("newOpenAttemptId") UUID newOpenAttemptId);
 
     record ApplyFlowRow(
             UUID id,
@@ -390,6 +418,7 @@ public interface ApplyFlowMapper {
             Instant dueAt,
             Instant createdAt,
             Instant startedAt,
+            UUID openAttemptId,
             Instant completedAt,
             Instant cancelledAt
     ) {

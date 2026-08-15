@@ -13,6 +13,8 @@
     .review { border: 1px solid #ddd; padding: 0.5rem 0.75rem; margin: 0.4rem 0; }
     .review .upcoming { color: #555; }
     .review .ready { color: #1a7f37; font-weight: 600; }
+    .review .resumable { color: #b26a00; font-weight: 600; }
+    #notice { color: #b26a00; margin: 0.5rem 0; white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -20,6 +22,7 @@
   <button id="start">开始诊断</button>
   <button id="refresh" disabled>刷新</button>
   <div id="task"></div>
+  <div id="notice"></div>
   <label>f'(x) <input id="derivative" size="36" disabled></label>
   <label>理由（可选）<textarea id="rationale" rows="2" cols="36" disabled></textarea></label>
   <button id="submit" disabled>提交答案</button>
@@ -39,6 +42,7 @@
     const submit = document.getElementById('submit');
     const refresh = document.getElementById('refresh');
     const reviews = document.getElementById('reviews');
+    const notice = document.getElementById('notice');
     const key = () => crypto.randomUUID();
     const headers = () => ({ 'Content-Type': 'application/json', 'Idempotency-Key': key() });
     const show = (data) => {
@@ -50,10 +54,14 @@
         rationale.disabled = false;
         submit.disabled = false;
       } else {
-        task.textContent = data.learnerMessage || '';
+        task.textContent = '';
         derivative.disabled = true;
         rationale.disabled = true;
         submit.disabled = true;
+      }
+      notice.textContent = data.task ? (data.learnerMessage || '') : '';
+      if (!data.task) {
+        task.textContent = data.learnerMessage || '';
       }
       if (data.status === 'TERMINAL') {
         loadReviews();
@@ -79,16 +87,18 @@
       items.forEach((item) => {
         const entry = document.createElement('div');
         entry.className = 'review';
+        const resumable = item.startable && item.status === 'STARTED';
         const line = document.createElement('div');
-        line.className = item.startable ? 'ready' : 'upcoming';
+        line.className = resumable ? 'resumable' : (item.startable ? 'ready' : 'upcoming');
         line.textContent = 'Review ' + item.reviewNumber + ' · ' + item.status + ' · 到期时间 '
           + new Date(item.dueAt).toLocaleString()
-          + (item.startable ? '（可以开始）' : '（即将到来，暂不可操作）');
+          + (resumable ? '（系统未能确定上次结果，可继续）'
+             : item.startable ? '（可以开始）' : '（即将到来，暂不可操作）');
         entry.appendChild(line);
         if (item.startable) {
           const button = document.createElement('button');
           button.className = 'start-review';
-          button.textContent = '开始复习';
+          button.textContent = resumable ? '继续复习' : '开始复习';
           button.dataset.reviewId = item.reviewId;
           button.onclick = () => startReview(item.reviewId);
           entry.appendChild(button);

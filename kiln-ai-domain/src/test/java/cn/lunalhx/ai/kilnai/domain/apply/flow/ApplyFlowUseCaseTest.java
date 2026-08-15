@@ -9,6 +9,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedResponseVerificationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTaskVerifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
@@ -334,7 +335,7 @@ class ApplyFlowUseCaseTest {
                 reviewScheduler, CLOCK);
         ReviewSubmissionFlow reviewFlow = new ReviewSubmissionFlow(
                 artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
-                reviewScheduler, CLOCK);
+                reviewScheduler, executor, flowStore, ReviewApplyFixture.reviewContext(), CLOCK);
         return new Harness(
                 artifacts, flowStore, generation, diagnosticFlow, independentFlow, reviewFlow,
                 new ApplyFlowUseCase(artifacts, flowStore, diagnosticFlow, independentFlow, reviewFlow,
