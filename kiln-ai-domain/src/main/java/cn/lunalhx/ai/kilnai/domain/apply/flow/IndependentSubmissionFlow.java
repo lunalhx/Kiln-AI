@@ -10,9 +10,11 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ConceptProgress;
+import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ConceptProgressProjector;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 
 import java.time.Clock;
 import java.util.List;
@@ -23,8 +25,9 @@ import java.util.UUID;
  * The Independent-Test submission flow: one formal submission atomically
  * closes the Independent Attempt and runs the isolated Assessment. Only a
  * passing final-expression channel with a non-contradictory rationale accepts
- * exactly one Independent Evidence record and projects the updated Concept
- * Progress. Every other outcome—failed, Inconclusive, blocked by a clearly
+ * exactly one Independent Evidence record, atomically schedules the unique
+ * Review 1 due 24 hours later, and projects the updated Concept Progress.
+ * Every other outcome—failed, Inconclusive, blocked by a clearly
  * contradictory rationale, duplicate submission, or unclosed attempt—never
  * creates Evidence. The learner sees only a safe continue-or-end message.
  * All state is persisted durably; the flow carries no in-memory state.
@@ -38,6 +41,7 @@ public final class IndependentSubmissionFlow {
     private final LearningFlowStore flowStore;
     private final AssessmentRunner assessmentRunner;
     private final SubmissionCloser submissionCloser;
+    private final ReviewTaskScheduler reviewScheduler;
     private final Clock clock;
     private final ConceptProgressProjector progressProjector = new ConceptProgressProjector();
 
@@ -46,6 +50,7 @@ public final class IndependentSubmissionFlow {
             LearningFlowStore flowStore,
             AssessmentPort assessmentPort,
             ResponseVerificationPort verificationPort,
+            ReviewTaskScheduler reviewScheduler,
             Clock clock
     ) {
         this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
@@ -54,6 +59,7 @@ public final class IndependentSubmissionFlow {
                 Objects.requireNonNull(assessmentPort, "assessmentPort must not be null"),
                 Objects.requireNonNull(verificationPort, "verificationPort must not be null"));
         this.submissionCloser = new SubmissionCloser(artifactStore, clock);
+        this.reviewScheduler = Objects.requireNonNull(reviewScheduler, "reviewScheduler must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -96,10 +102,11 @@ public final class IndependentSubmissionFlow {
                     0,
                     List.of(),
                     clock.instant());
-            flowStore.acceptEvidence(evidence);
+            ReviewTask scheduledReview = reviewScheduler.acceptEvidenceAndScheduleFirstReview(evidence);
             return new IndependentSubmissionResult.EvidenceAccepted(
                     closedAttempt,
                     evidence,
+                    scheduledReview,
                     projectProgress(flow.learnerId(), flow.conceptId()),
                     INDEPENDENT_COMPLETE_MESSAGE);
         }
@@ -109,7 +116,6 @@ public final class IndependentSubmissionFlow {
     private ConceptProgress projectProgress(UUID learnerId, UUID conceptId) {
         List<AcceptedLearningEvidence> conceptEvidence = flowStore.allEvidence().stream()
                 .filter(item -> item.learnerId().equals(learnerId) && item.conceptId().equals(conceptId))
-                .sorted(java.util.Comparator.comparing(AcceptedLearningEvidence::acceptedAt))
                 .toList();
         return progressProjector.project(learnerId, conceptId, conceptEvidence);
     }

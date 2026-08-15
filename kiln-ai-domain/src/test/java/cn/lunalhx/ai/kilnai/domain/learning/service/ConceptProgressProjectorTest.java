@@ -53,18 +53,39 @@ class ConceptProgressProjectorTest {
     @Test
     void highestMilestoneNeverDecreasesWhenCurrentFalls() {
         ConceptProgress progress = projector.project(LEARNER, CONCEPT, List.of(
-                evidence(AttemptPurpose.INDEPENDENT_TEST, LearningResult.PASS, 0),
-                evidence(AttemptPurpose.INDEPENDENT_TEST, LearningResult.FAIL, 0)
+                evidence(AttemptPurpose.INDEPENDENT_TEST, LearningResult.PASS, 0, NOW),
+                evidence(AttemptPurpose.INDEPENDENT_TEST, LearningResult.FAIL, 0, NOW.plusSeconds(60))
         ));
 
         assertEquals(MasteryMilestone.LEARNING, progress.currentMilestone());
         assertEquals(MasteryMilestone.INDEPENDENT, progress.highestMilestoneReached());
     }
 
+    @Test
+    void theFoldOrderIsDeterministicByAcceptedAtThenEvidenceId() {
+        Instant sameInstant = Instant.parse("2026-08-13T00:00:00Z");
+        AcceptedLearningEvidence pass = evidence(AttemptPurpose.INDEPENDENT_TEST, LearningResult.PASS, 0, sameInstant);
+        AcceptedLearningEvidence fail = evidence(AttemptPurpose.INDEPENDENT_TEST, LearningResult.FAIL, 0, sameInstant);
+
+        ConceptProgress passFirst = projector.project(LEARNER, CONCEPT, List.of(pass, fail));
+        ConceptProgress failFirst = projector.project(LEARNER, CONCEPT, List.of(fail, pass));
+
+        assertEquals(passFirst, failFirst,
+                "input order must never change the projected result");
+        assertEquals(ConceptProgressProjector.EVIDENCE_ORDER.compare(pass, fail),
+                -ConceptProgressProjector.EVIDENCE_ORDER.compare(fail, pass));
+    }
+
     private AcceptedLearningEvidence evidence(AttemptPurpose purpose, LearningResult result, int hintLevel) {
+        return evidence(purpose, result, hintLevel, NOW);
+    }
+
+    private AcceptedLearningEvidence evidence(
+            AttemptPurpose purpose, LearningResult result, int hintLevel, Instant acceptedAt
+    ) {
         return new AcceptedLearningEvidence(
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), CONCEPT, LEARNER,
-                result, purpose, hintLevel, List.of(), NOW
+                result, purpose, hintLevel, List.of(), acceptedAt
         );
     }
 }

@@ -9,6 +9,9 @@
     pre { background: #f4f4f4; padding: 1rem; white-space: pre-wrap; }
     #task { font-size: 1.1rem; margin: 0.75rem 0; }
     #error { color: #b00020; white-space: pre-wrap; }
+    .reviews { margin-top: 1rem; }
+    .review { border: 1px solid #ddd; padding: 0.5rem 0.75rem; margin: 0.4rem 0; }
+    .review .upcoming { color: #555; }
   </style>
 </head>
 <body>
@@ -21,8 +24,10 @@
   <button id="submit" disabled>提交答案</button>
   <pre id="error"></pre>
   <pre id="view"></pre>
+  <div id="reviews" class="reviews"></div>
   <script>
-    const learnerId = crypto.randomUUID();
+    const learnerId = localStorage.getItem('kiln.learnerId') || crypto.randomUUID();
+    localStorage.setItem('kiln.learnerId', learnerId);
     let flow = null;
     const view = document.getElementById('view');
     const error = document.getElementById('error');
@@ -32,6 +37,7 @@
     const start = document.getElementById('start');
     const submit = document.getElementById('submit');
     const refresh = document.getElementById('refresh');
+    const reviews = document.getElementById('reviews');
     const key = () => crypto.randomUUID();
     const headers = () => ({ 'Content-Type': 'application/json', 'Idempotency-Key': key() });
     const show = (data) => {
@@ -48,11 +54,37 @@
         rationale.disabled = true;
         submit.disabled = true;
       }
+      if (data.status === 'TERMINAL') {
+        loadReviews();
+      }
     };
     const showError = async (response) => {
       const body = await response.json();
       error.textContent = response.status + ' ' + JSON.stringify(body);
       view.textContent = JSON.stringify(flow, null, 2);
+    };
+    const loadReviews = async () => {
+      const response = await fetch('/api/apply/reviews?learnerId=' + encodeURIComponent(learnerId));
+      if (!response.ok) { return; }
+      const items = await response.json();
+      reviews.textContent = '';
+      if (items.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'review';
+        empty.textContent = '暂无即将到来的复习。';
+        reviews.appendChild(empty);
+        return;
+      }
+      items.forEach((item) => {
+        const entry = document.createElement('div');
+        entry.className = 'review';
+        const upcoming = document.createElement('div');
+        upcoming.className = 'upcoming';
+        upcoming.textContent = 'Review ' + item.reviewNumber + ' · ' + item.status
+          + ' · 到期时间 ' + new Date(item.dueAt).toLocaleString() + '（即将到来，暂不可操作）';
+        entry.appendChild(upcoming);
+        reviews.appendChild(entry);
+      });
     };
     start.onclick = async () => {
       const response = await fetch('/api/apply/flows', {

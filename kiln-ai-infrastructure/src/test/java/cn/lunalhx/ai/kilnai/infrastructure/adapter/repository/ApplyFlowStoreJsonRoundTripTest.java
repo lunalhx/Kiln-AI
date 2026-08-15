@@ -20,11 +20,13 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
+import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -121,6 +123,12 @@ class ApplyFlowStoreJsonRoundTripTest {
         LearningFlowStore.ProcessedCommand command = new LearningFlowStore.ProcessedCommand(
                 UUID.randomUUID(), "hash", flowId, interaction, Instant.parse("2026-08-15T00:00:04Z"));
         assertEquals(command, roundTrip(command));
+
+        ReviewTask review = new ReviewTask(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), flowId, 1,
+                ReviewTaskStatus.SCHEDULED, Instant.parse("2026-08-16T00:00:00Z"),
+                Instant.parse("2026-08-15T00:00:00Z"), null, null, null);
+        assertEquals(review, roundTrip(review));
     }
 
     @SuppressWarnings("unchecked")

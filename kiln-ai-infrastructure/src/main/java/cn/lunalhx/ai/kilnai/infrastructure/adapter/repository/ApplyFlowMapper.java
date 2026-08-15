@@ -229,9 +229,41 @@ public interface ApplyFlowMapper {
                    attempt_purpose, highest_hint_level, assistance_trace::text AS assistance_trace_json,
                    accepted_at
             FROM apply_evidence
-            ORDER BY accepted_at ASC
+            ORDER BY accepted_at ASC, id ASC
             """)
     List<EvidenceRow> listEvidence();
+
+    @Insert("""
+            INSERT INTO review_tasks (
+                id, learner_id, concept_id, flow_id, review_number, status, due_at,
+                created_at, started_at, completed_at, cancelled_at
+            ) VALUES (
+                #{id}, #{learnerId}, #{conceptId}, #{flowId}, #{reviewNumber}, #{status}, #{dueAt},
+                #{createdAt}, #{startedAt}, #{completedAt}, #{cancelledAt}
+            )
+            """)
+    void insertReviewTask(ReviewTaskRow row);
+
+    @Update("""
+            UPDATE review_tasks
+            SET status = 'CANCELLED', cancelled_at = #{cancelledAt}
+            WHERE learner_id = #{learnerId} AND concept_id = #{conceptId}
+              AND status IN ('SCHEDULED', 'DUE', 'STARTED')
+            """)
+    int cancelUnfinishedReviews(
+            @Param("learnerId") UUID learnerId,
+            @Param("conceptId") UUID conceptId,
+            @Param("cancelledAt") Instant cancelledAt
+    );
+
+    @Select("""
+            SELECT id, learner_id, concept_id, flow_id, review_number, status, due_at,
+                   created_at, started_at, completed_at, cancelled_at
+            FROM review_tasks
+            WHERE learner_id = #{learnerId} AND status IN ('SCHEDULED', 'DUE', 'STARTED')
+            ORDER BY due_at ASC
+            """)
+    List<ReviewTaskRow> listUnfinishedReviews(UUID learnerId);
 
     record ApplyFlowRow(
             UUID id,
@@ -302,6 +334,21 @@ public interface ApplyFlowMapper {
             int highestHintLevel,
             String assistanceTraceJson,
             Instant acceptedAt
+    ) {
+    }
+
+    record ReviewTaskRow(
+            UUID id,
+            UUID learnerId,
+            UUID conceptId,
+            UUID flowId,
+            int reviewNumber,
+            String status,
+            Instant dueAt,
+            Instant createdAt,
+            Instant startedAt,
+            Instant completedAt,
+            Instant cancelledAt
     ) {
     }
 }

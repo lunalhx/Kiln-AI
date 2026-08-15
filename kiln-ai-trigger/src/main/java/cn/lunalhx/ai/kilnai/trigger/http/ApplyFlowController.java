@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.trigger.http;
 
 import cn.lunalhx.ai.kilnai.api.dto.ApplyFlowResponse;
 import cn.lunalhx.ai.kilnai.api.dto.ApplyFlowResponse.ApplyTaskView;
+import cn.lunalhx.ai.kilnai.api.dto.ApplyFlowResponse.ProgressView;
 import cn.lunalhx.ai.kilnai.api.dto.StartApplyFlowRequest;
 import cn.lunalhx.ai.kilnai.api.dto.SubmitApplyFlowRequest;
 import cn.lunalhx.ai.kilnai.api.response.ApiErrorResponse;
@@ -9,6 +10,10 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
+import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ConceptProgress;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ConceptProgressProjector;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -24,22 +29,27 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
  * The learner-facing Apply flow API: start, query, and one formal submission
  * per displayed task. It is idempotent per {@code Idempotency-Key} and
  * rejects stale interaction versions with 409; a rejected submission returns
- * 422. Public responses never carry private assessor projections.
+ * 422. Public responses carry only the safe Concept Progress projection and
+ * never private assessor projections.
  */
 @RestController
 @RequestMapping("/api/apply/flows")
 public class ApplyFlowController {
 
     private final ApplyFlowUseCase useCase;
+    private final LearningFlowStore flowStore;
+    private final ConceptProgressProjector progressProjector = new ConceptProgressProjector();
 
-    public ApplyFlowController(ApplyFlowUseCase useCase) {
-        this.useCase = useCase;
+    public ApplyFlowController(ApplyFlowUseCase useCase, LearningFlowStore flowStore) {
+        this.useCase = Objects.requireNonNull(useCase, "useCase must not be null");
+        this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
     }
 
     @PostMapping
@@ -100,6 +110,24 @@ public class ApplyFlowController {
                 interaction.attemptPurpose() == null ? null : interaction.attemptPurpose().name(),
                 task,
                 interaction.learnerMessage(),
-                projection == null ? List.of() : projection.allowedEvents().stream().map(Enum::name).toList());
+                projection == null ? List.of() : projection.allowedEvents().stream().map(Enum::name).toList(),
+                progressOf(interaction.flowId()));
+    }
+
+    private ProgressView progressOf(UUID flowId) {
+        return flowStore.findFlow(flowId)
+                .map(flow -> {
+                    List<AcceptedLearningEvidence> evidence = flowStore.allEvidence().stream()
+                            .filter(item -> item.learnerId().equals(flow.learnerId())
+                                    && item.conceptId().equals(flow.conceptId()))
+                            .toList();
+                    ConceptProgress progress = progressProjector.project(
+                            flow.learnerId(), flow.conceptId(), evidence);
+                    return new ProgressView(
+                            progress.currentMilestone().name(),
+                            progress.highestMilestoneReached().name(),
+                            progress.currentStage().name());
+                })
+                .orElse(null);
     }
 }

@@ -4,9 +4,16 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
+import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
+import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
+import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -17,7 +24,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-public final class InMemoryLearningFlowStore implements LearningFlowStore {
+public final class InMemoryLearningFlowStore implements LearningFlowStore, ReviewTaskStore {
 
     private final Map<UUID, FlowRecord> flows = new HashMap<>();
     private final Map<UUID, List<ApplyFlowInteraction>> interactions = new HashMap<>();
@@ -26,6 +33,16 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore {
     private final Map<UUID, Set<String>> solutionFingerprints = new HashMap<>();
     private final Map<UUID, AcceptedLearningEvidence> evidence = new HashMap<>();
     private final Map<UUID, ProcessedCommand> commands = new LinkedHashMap<>();
+    private final Map<UUID, ReviewTask> reviews = new LinkedHashMap<>();
+    private final java.time.Clock clock;
+
+    public InMemoryLearningFlowStore() {
+        this(java.time.Clock.systemUTC());
+    }
+
+    public InMemoryLearningFlowStore(java.time.Clock clock) {
+        this.clock = Objects.requireNonNull(clock, "clock must not be null");
+    }
 
     @Override
     public synchronized void insertFlow(FlowRecord flow) {
@@ -99,6 +116,51 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore {
     public synchronized void acceptEvidence(AcceptedLearningEvidence evidence) {
         Objects.requireNonNull(evidence, "evidence must not be null");
         this.evidence.putIfAbsent(evidence.taskAttemptId(), evidence);
+    }
+
+    @Override
+    public synchronized ReviewTask acceptEvidenceAndScheduleFirstReview(AcceptedLearningEvidence evidence, Instant dueAt) {
+        Objects.requireNonNull(evidence, "evidence must not be null");
+        Objects.requireNonNull(dueAt, "dueAt must not be null");
+        for (Map.Entry<UUID, ReviewTask> entry : reviews.entrySet()) {
+            ReviewTask review = entry.getValue();
+            if (review.learnerId().equals(evidence.learnerId())
+                    && review.conceptId().equals(evidence.conceptId())
+                    && review.isUnfinished()) {
+                entry.setValue(cancelled(review));
+            }
+        }
+        this.evidence.putIfAbsent(evidence.taskAttemptId(), evidence);
+        ReviewTask review = new ReviewTask(
+                UUID.randomUUID(), evidence.learnerId(), evidence.conceptId(), evidence.flowId(),
+                1, ReviewTaskStatus.SCHEDULED, dueAt, clock.instant(), null, null, null);
+        reviews.put(review.reviewId(), review);
+        return review;
+    }
+
+    public synchronized Optional<ReviewTask> findReview(UUID reviewId) {
+        return Optional.ofNullable(reviews.get(reviewId));
+    }
+
+    @Override
+    public synchronized List<ReviewTask> unfinishedReviewsFor(UUID learnerId) {
+        return unfinishedReviewsFor(learnerId, null);
+    }
+
+    private List<ReviewTask> unfinishedReviewsFor(UUID learnerId, UUID conceptId) {
+        return reviews.values().stream()
+                .filter(review -> review.learnerId().equals(learnerId))
+                .filter(review -> conceptId == null || review.conceptId().equals(conceptId))
+                .filter(ReviewTask::isUnfinished)
+                .sorted(Comparator.comparing(ReviewTask::dueAt))
+                .toList();
+    }
+
+    private ReviewTask cancelled(ReviewTask review) {
+        return new ReviewTask(
+                review.reviewId(), review.learnerId(), review.conceptId(), review.flowId(),
+                review.reviewNumber(), ReviewTaskStatus.CANCELLED, review.dueAt(), review.createdAt(),
+                review.startedAt(), review.completedAt(), clock.instant());
     }
 
     @Override

@@ -1,6 +1,7 @@
 package cn.lunalhx.ai.kilnai;
 
 import cn.lunalhx.ai.kilnai.api.dto.ApplyFlowResponse;
+import cn.lunalhx.ai.kilnai.api.dto.ReviewTaskView;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -100,6 +101,67 @@ class ApplyLearnerHttpTest {
         assertFalse(completed.learnerMessage().contains("15*x^2 - 2"), "no answer facts in terminal message");
         assertFalse(completed.learnerMessage().contains("fingerprint"));
         assertFalse(completed.learnerMessage().contains("assessment"));
+        assertEquals("INDEPENDENT", completed.progress().currentMilestone());
+        assertEquals("INDEPENDENT", completed.progress().highestMilestoneReached());
+        assertEquals("DELAYED_REVIEW", completed.progress().stage());
+    }
+
+    @Test
+    void theReviewCollectionExposesOnlyTheScheduledUpcomingReviewAndSafeProgress() {
+        UUID learnerId = UUID.randomUUID();
+        ApplyFlowResponse started = start(learnerId, UUID.randomUUID());
+        ApplyFlowResponse transitioned = submit(
+                started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        submit(
+                started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
+                transitioned.attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+
+        ResponseEntity<ReviewTaskView[]> response = http.getForEntity(
+                "/api/apply/reviews?learnerId=" + learnerId, ReviewTaskView[].class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        ReviewTaskView[] reviews = response.getBody();
+        assertNotNull(reviews);
+        assertEquals(1, reviews.length, "exactly one scheduled Review must exist");
+        ReviewTaskView review = reviews[0];
+        assertEquals("SCHEDULED", review.status());
+        assertEquals(1, review.reviewNumber());
+        assertFalse(review.startable(), "Scheduled work is upcoming, never startable");
+        assertNotNull(review.reviewId());
+        assertNotNull(review.conceptId());
+        assertNotNull(review.dueAt());
+        assertEquals("INDEPENDENT", review.progress().currentMilestone());
+        assertEquals("INDEPENDENT", review.progress().highestMilestoneReached());
+        assertEquals("DELAYED_REVIEW", review.progress().stage());
+    }
+
+    @Test
+    void theReviewCollectionNeverLeaksPrivateFacts() {
+        UUID learnerId = UUID.randomUUID();
+        ApplyFlowResponse started = start(learnerId, UUID.randomUUID());
+        ApplyFlowResponse transitioned = submit(
+                started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        submit(
+                started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
+                transitioned.attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+
+        ResponseEntity<String> raw = http.getForEntity(
+                "/api/apply/reviews?learnerId=" + learnerId, String.class);
+
+        assertEquals(HttpStatus.OK, raw.getStatusCode());
+        assertFalse(raw.getBody().contains(learnerId.toString()),
+                "the learner UUID must never appear in the collection");
+        assertFalse(raw.getBody().contains("15*x^2 - 2"), "expected answers must never leak");
+        assertFalse(raw.getBody().contains("fingerprint"));
+        assertFalse(raw.getBody().contains("openstax"));
+        assertFalse(raw.getBody().contains("assessment"));
+        assertFalse(raw.getBody().contains("evidence"));
     }
 
     @Test

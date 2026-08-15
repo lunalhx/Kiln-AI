@@ -10,10 +10,12 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.BundleLoader;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.SkillBundleSource;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.model.ApplyModelAdapter;
@@ -70,7 +72,8 @@ class ApplyProfileLiveSmokeTest {
                 IndependentApplyFixture.independentContext(),
                 Clock.systemUTC());
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
-                artifacts, flowStore, model, model, Clock.systemUTC());
+                artifacts, flowStore, model, model,
+                new ReviewTaskScheduler((ReviewTaskStore) flowStore), Clock.systemUTC());
         ApplyFlowUseCase useCase = new ApplyFlowUseCase(
                 artifacts, flowStore, diagnosticFlow, independentFlow,
                 DiagnosticApplyFixture.diagnosticContext(), Clock.systemUTC());

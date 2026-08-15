@@ -48,9 +48,18 @@ class ApplyLearnerUiTest {
             page.waitForFunction("() => document.getElementById('task').textContent.includes('已完成')");
             String terminal = page.innerText("#view");
             assertTrue(terminal.contains("TERMINAL"));
+            assertTrue(terminal.contains("INDEPENDENT"), "the safe milestone must be visible");
             assertFalse(terminal.contains("15*x^2 - 2"), "no answer facts in the terminal message");
             assertFalse(terminal.contains("fingerprint"));
             assertFalse(terminal.contains("assessment"));
+
+            page.waitForFunction("() => document.getElementById('reviews').textContent.includes('Review 1')");
+            String upcoming = page.innerText("#reviews");
+            assertTrue(upcoming.contains("SCHEDULED"), "the upcoming Review must be visible");
+            assertTrue(upcoming.contains("即将到来，暂不可操作"),
+                    "Scheduled Review work is upcoming and never actionable");
+            assertFalse(upcoming.contains("15*x^2 - 2"), "no answer facts in the Review collection");
+            assertFalse(upcoming.contains("fingerprint"));
 
             page.click("#refresh");
             page.waitForFunction("() => document.getElementById('view').textContent.includes('TERMINAL')");

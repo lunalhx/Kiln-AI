@@ -8,17 +8,27 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.MasteryMilestone;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
 public final class ConceptProgressProjector {
 
+    /**
+     * The deterministic Evidence fold order: acceptance time first, then the
+     * Evidence id, so ties never depend on storage or stream order.
+     */
+    public static final Comparator<AcceptedLearningEvidence> EVIDENCE_ORDER =
+            Comparator.comparing(AcceptedLearningEvidence::acceptedAt)
+                    .thenComparing(AcceptedLearningEvidence::id);
+
     public ConceptProgress project(UUID learnerId, UUID conceptId, List<AcceptedLearningEvidence> evidence) {
         Objects.requireNonNull(learnerId, "learnerId must not be null");
         Objects.requireNonNull(conceptId, "conceptId must not be null");
         Objects.requireNonNull(evidence, "evidence must not be null");
-        if (evidence.isEmpty()) {
+        List<AcceptedLearningEvidence> ordered = evidence.stream().sorted(EVIDENCE_ORDER).toList();
+        if (ordered.isEmpty()) {
             return new ConceptProgress(
                     learnerId, conceptId, MasteryMilestone.UNASSESSED, MasteryMilestone.UNASSESSED,
                     LearningStage.LEARNING_AND_PRACTICE, Instant.EPOCH
@@ -27,7 +37,7 @@ public final class ConceptProgressProjector {
         MasteryMilestone current = MasteryMilestone.UNASSESSED;
         MasteryMilestone highest = MasteryMilestone.UNASSESSED;
         Instant updatedAt = Instant.EPOCH;
-        for (AcceptedLearningEvidence item : evidence) {
+        for (AcceptedLearningEvidence item : ordered) {
             current = nextCurrent(current, item);
             highest = max(highest, current);
             updatedAt = item.acceptedAt();

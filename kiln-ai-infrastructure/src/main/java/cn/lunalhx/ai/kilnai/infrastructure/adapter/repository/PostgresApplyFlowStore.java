@@ -11,12 +11,15 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
+import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -25,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -38,7 +42,7 @@ import java.util.UUID;
  */
 @Repository
 @ConditionalOnBean(DataSource.class)
-public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore {
+public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore, ReviewTaskStore {
 
     private final ApplyFlowMapper mapper;
     private final ObjectMapper json;
@@ -123,6 +127,51 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore 
     @Override
     public List<String> exposedSolutionFingerprints(UUID flowId) {
         return mapper.exposedSolutionFingerprints(flowId);
+    }
+
+    @Override
+    @Transactional
+    public ReviewTask acceptEvidenceAndScheduleFirstReview(AcceptedLearningEvidence evidence, Instant dueAt) {
+        mapper.cancelUnfinishedReviews(evidence.learnerId(), evidence.conceptId(), clock.instant());
+        mapper.insertEvidence(new ApplyFlowMapper.EvidenceRow(
+                evidence.id(),
+                evidence.taskAttemptId(),
+                evidence.flowId(),
+                evidence.conceptId(),
+                evidence.learnerId(),
+                evidence.result().name(),
+                evidence.attemptPurpose().name(),
+                evidence.highestHintLevel(),
+                writeJson(evidence.assistanceTrace()),
+                evidence.acceptedAt()));
+        ReviewTask review = new ReviewTask(
+                UUID.randomUUID(), evidence.learnerId(), evidence.conceptId(), evidence.flowId(),
+                1, ReviewTaskStatus.SCHEDULED, dueAt, clock.instant(), null, null, null);
+        mapper.insertReviewTask(new ApplyFlowMapper.ReviewTaskRow(
+                review.reviewId(),
+                review.learnerId(),
+                review.conceptId(),
+                review.flowId(),
+                review.reviewNumber(),
+                review.status().name(),
+                review.dueAt(),
+                review.createdAt(),
+                review.startedAt(),
+                review.completedAt(),
+                review.cancelledAt()));
+        return review;
+    }
+
+    @Override
+    public List<ReviewTask> unfinishedReviewsFor(UUID learnerId) {
+        return mapper.listUnfinishedReviews(learnerId).stream().map(this::toReviewTask).toList();
+    }
+
+    private ReviewTask toReviewTask(ApplyFlowMapper.ReviewTaskRow row) {
+        return new ReviewTask(
+                row.id(), row.learnerId(), row.conceptId(), row.flowId(), row.reviewNumber(),
+                ReviewTaskStatus.valueOf(row.status()), row.dueAt(), row.createdAt(),
+                row.startedAt(), row.completedAt(), row.cancelledAt());
     }
 
     @Override

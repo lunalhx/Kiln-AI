@@ -32,6 +32,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskUnavailableReason;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
@@ -42,6 +43,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.MasteryMilestone;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -1066,7 +1068,8 @@ class ApplyProfileContractTest {
             ScriptedResponseVerificationModel verification
     ) {
         return new IndependentSubmissionFlow(
-                harness.artifacts(), harness.flowStore(), assessment, verification, CLOCK);
+                harness.artifacts(), harness.flowStore(), assessment, verification,
+                new ReviewTaskScheduler((ReviewTaskStore) harness.flowStore()), CLOCK);
     }
 
     private Harness flow(
@@ -1076,7 +1079,7 @@ class ApplyProfileContractTest {
             ScriptedResponseVerificationModel verification
     ) {
         ArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
-        LearningFlowStore flowStore = new InMemoryLearningFlowStore();
+        InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK);
         ApplyProfileExecutor executor = new ApplyProfileExecutor(stack, generation, verifier, artifacts);
         DiagnosticFlow flow = new DiagnosticFlow(executor, artifacts, flowStore, assessment, verification,
                 DiagnosticApplyFixture.diagnosticContext(),

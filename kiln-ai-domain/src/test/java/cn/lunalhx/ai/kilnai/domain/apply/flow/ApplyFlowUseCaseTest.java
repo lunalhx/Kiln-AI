@@ -25,6 +25,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import org.junit.jupiter.api.Test;
@@ -322,13 +323,15 @@ class ApplyFlowUseCaseTest {
             ScriptedAssessmentModel assessment
     ) {
         InMemoryArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
-        InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore();
+        InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK);
+        ReviewTaskScheduler reviewScheduler = new ReviewTaskScheduler(flowStore);
         ApplyProfileExecutor executor = new ApplyProfileExecutor(ReferenceBundles.stack(), generation, verifier, artifacts);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
                 DiagnosticApplyFixture.diagnosticContext(), IndependentApplyFixture.independentContext(), CLOCK);
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
-                artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()), CLOCK);
+                artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
+                reviewScheduler, CLOCK);
         return new Harness(
                 artifacts, flowStore, generation, diagnosticFlow, independentFlow,
                 new ApplyFlowUseCase(artifacts, flowStore, diagnosticFlow, independentFlow,

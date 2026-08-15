@@ -11,11 +11,14 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewCollectionUseCase;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.BundleLoader;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.SkillBundleSource;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
@@ -115,14 +118,26 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
+    ReviewTaskScheduler reviewTaskScheduler(LearningFlowStore flowStore) {
+        return new ReviewTaskScheduler((ReviewTaskStore) flowStore);
+    }
+
+    @Bean
+    ReviewCollectionUseCase reviewCollectionUseCase(LearningFlowStore flowStore) {
+        return new ReviewCollectionUseCase((ReviewTaskStore) flowStore, flowStore);
+    }
+
+    @Bean
     IndependentSubmissionFlow independentSubmissionFlow(
             ArtifactStore artifactStore,
             LearningFlowStore flowStore,
             AssessmentPort assessmentPort,
             ResponseVerificationPort verificationPort,
+            ReviewTaskScheduler reviewScheduler,
             Clock clock
     ) {
-        return new IndependentSubmissionFlow(artifactStore, flowStore, assessmentPort, verificationPort, clock);
+        return new IndependentSubmissionFlow(
+                artifactStore, flowStore, assessmentPort, verificationPort, reviewScheduler, clock);
     }
 
     @Bean

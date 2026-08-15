@@ -5,8 +5,10 @@ import java.util.UUID;
 
 /**
  * The learner-safe response of one Apply flow command or query. It carries
- * only the learner projection of the current task and flow status; expected
- * answers, source traces, Fingerprints, and assessment facts never appear.
+ * only the learner projection of the current task, flow status, and the safe
+ * Concept Progress projection (Current Milestone, Highest Milestone Reached,
+ * Stage); expected answers, source traces, Fingerprints, and assessment
+ * facts never appear.
  */
 public record ApplyFlowResponse(
         UUID flowId,
@@ -17,7 +19,8 @@ public record ApplyFlowResponse(
         String attemptPurpose,
         ApplyTaskView task,
         String learnerMessage,
-        List<String> allowedEvents
+        List<String> allowedEvents,
+        ProgressView progress
 ) {
 
     public record ApplyTaskView(
@@ -36,5 +39,12 @@ public record ApplyFlowResponse(
                 boolean required
         ) {
         }
+    }
+
+    public record ProgressView(
+            String currentMilestone,
+            String highestMilestoneReached,
+            String stage
+    ) {
     }
 }
