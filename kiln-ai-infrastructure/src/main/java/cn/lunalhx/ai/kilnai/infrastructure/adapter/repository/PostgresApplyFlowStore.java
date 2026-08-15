@@ -230,6 +230,35 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
 
     @Override
     @Transactional
+    public Optional<ReviewTaskStore.ReviewStop> acceptEvidenceAndFailReview(
+            AcceptedLearningEvidence evidence,
+            UUID completedReviewId
+    ) {
+        if (mapper.evidenceExists(evidence.taskAttemptId()).isPresent()) {
+            return Optional.empty();
+        }
+        int completed = mapper.completeStartedReview(completedReviewId, evidence.acceptedAt());
+        if (completed == 0) {
+            return Optional.empty();
+        }
+        mapper.cancelUnfinishedReviews(evidence.learnerId(), evidence.conceptId(), evidence.acceptedAt());
+        mapper.insertEvidence(new ApplyFlowMapper.EvidenceRow(
+                evidence.id(),
+                evidence.taskAttemptId(),
+                evidence.flowId(),
+                evidence.conceptId(),
+                evidence.learnerId(),
+                evidence.result().name(),
+                evidence.attemptPurpose().name(),
+                evidence.highestHintLevel(),
+                writeJson(evidence.assistanceTrace()),
+                evidence.acceptedAt()));
+        ReviewTask completedReview = toReviewTask(mapper.findReviewTask(completedReviewId).orElseThrow());
+        return Optional.of(new ReviewTaskStore.ReviewStop(evidence, completedReview));
+    }
+
+    @Override
+    @Transactional
     public Optional<ApplyFlowInteraction> bindStartedReview(ReviewTaskStore.ReviewStartBind bind) {
         int claimed = mapper.claimReviewStarted(bind.reviewId(), bind.startedAt());
         if (claimed == 0) {

@@ -228,6 +228,9 @@ public final class ApplyFlowUseCase {
             case ReviewSubmissionResult.EvidenceAccepted accepted -> boundary(
                     latest, LearningStage.DELAYED_REVIEW, null, null, null,
                     accepted.learnerMessage(), idempotencyKey, hash);
+            case ReviewSubmissionResult.FailureEvidenceAccepted failed -> boundary(
+                    latest, LearningStage.DELAYED_REVIEW, null, null, null,
+                    failed.learnerMessage(), idempotencyKey, hash);
             case ReviewSubmissionResult.NoEvidence noEvidence -> boundary(
                     latest, LearningStage.DELAYED_REVIEW, null, null, null,
                     noEvidence.learnerMessage(), idempotencyKey, hash);

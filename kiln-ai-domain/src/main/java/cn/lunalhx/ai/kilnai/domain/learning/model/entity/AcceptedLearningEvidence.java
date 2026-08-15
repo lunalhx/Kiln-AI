@@ -45,6 +45,17 @@ public record AcceptedLearningEvidence(
     }
 
     /**
+     * A qualifying no-hint Independent failure, which is conclusive evidence
+     * that Current Milestone should fall back to Learning.
+     */
+    @JsonIgnore
+    public boolean isIndependentFailure() {
+        return result == LearningResult.FAIL
+                && highestHintLevel == 0
+                && attemptPurpose == AttemptPurpose.INDEPENDENT_TEST;
+    }
+
+    /**
      * A qualifying Review success: a conclusive no-hint pass on a Review
      * Attempt, which advances the consecutive Review-success count toward
      * Durable exactly like the Delayed Review policy describes.
@@ -52,6 +63,17 @@ public record AcceptedLearningEvidence(
     @JsonIgnore
     public boolean isReviewSuccess() {
         return result == LearningResult.PASS
+                && highestHintLevel == 0
+                && attemptPurpose == AttemptPurpose.REVIEW;
+    }
+
+    /**
+     * A qualifying no-hint Review failure, which is conclusive evidence that
+     * the cadence stops and Current Milestone falls back to Learning.
+     */
+    @JsonIgnore
+    public boolean isReviewFailure() {
+        return result == LearningResult.FAIL
                 && highestHintLevel == 0
                 && attemptPurpose == AttemptPurpose.REVIEW;
     }

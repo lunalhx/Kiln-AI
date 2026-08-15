@@ -34,6 +34,9 @@ public class ScriptedApplyPortsConfiguration {
     public static final String REVIEW_TASK_4 = "设 r(x) = 7x³ − 2x + 9，求 r'(x)。";
     public static final String REVIEW_EXPECTED_4 = "21*x^2 - 2";
 
+    /** The rationale value that scripts the assessment to judge a clear contradiction. */
+    public static final String CONTRADICTORY_RATIONALE_MARKER = "我用了乘积法则，但答案是错误的规则推导";
+
     @Bean
     @Primary
     ApplyGenerationPort scriptedApplyGeneration() {
@@ -87,11 +90,21 @@ public class ScriptedApplyPortsConfiguration {
     @Bean
     @Primary
     AssessmentPort scriptedApplyAssessment() {
-        return context -> new ResponseAssessment(
-                ResponseAssessment.SCHEMA,
-                FinalExpressionJudgment.NOT_REQUESTED,
-                RationaleJudgment.NOT_PROVIDED,
-                List.of());
+        return context -> {
+            if (context.purpose() == cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose.REVIEW
+                    && CONTRADICTORY_RATIONALE_MARKER.equals(context.rationale())) {
+                return new ResponseAssessment(
+                        ResponseAssessment.SCHEMA,
+                        FinalExpressionJudgment.NOT_REQUESTED,
+                        RationaleJudgment.CLEARLY_CONTRADICTORY,
+                        List.of());
+            }
+            return new ResponseAssessment(
+                    ResponseAssessment.SCHEMA,
+                    FinalExpressionJudgment.NOT_REQUESTED,
+                    RationaleJudgment.NOT_PROVIDED,
+                    List.of());
+        };
     }
 
     @Bean

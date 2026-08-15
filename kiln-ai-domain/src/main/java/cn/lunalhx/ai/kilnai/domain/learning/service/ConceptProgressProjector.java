@@ -2,8 +2,6 @@ package cn.lunalhx.ai.kilnai.domain.learning.service;
 
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ConceptProgress;
-import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
-import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.MasteryMilestone;
 
@@ -80,9 +78,7 @@ public final class ConceptProgressProjector {
         if (item.isIndependentSuccess()) {
             return MasteryMilestone.INDEPENDENT;
         }
-        if (item.attemptPurpose() == AttemptPurpose.INDEPENDENT_TEST
-                && item.result() == LearningResult.FAIL
-                && item.highestHintLevel() == 0
+        if ((item.isIndependentFailure() || item.isReviewFailure())
                 && (current == MasteryMilestone.INDEPENDENT || current == MasteryMilestone.DURABLE)) {
             return MasteryMilestone.LEARNING;
         }

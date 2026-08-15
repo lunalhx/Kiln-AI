@@ -14,6 +14,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
@@ -239,8 +240,196 @@ class DelayedReviewCadenceContractTest {
         assertEquals(ReviewTaskStatus.COMPLETED, harness.review(review1.reviewId()).status());
     }
 
-    private static final class MutableClock extends Clock {
+    @Test
+    void aConclusiveNoHintReviewFailAcceptsOneFailEvidenceCompletesTheReviewAndStopsTheCadence() {
+        Harness harness = harness(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED)));
+        UUID flowId = harness.completeIndependentPass();
+        ReviewTask review1 = harness.onlyUnfinishedReview();
+        Instant failureAt = review1.dueAt().plus(Duration.ofHours(1));
+        harness.clock().set(failureAt);
+        harness.dueTransition().markDueReviewsDue();
 
+        ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
+                review1.reviewId(), UUID.randomUUID());
+        ApplyFlowResult.Boundary failed = (ApplyFlowResult.Boundary) harness.useCase().submit(
+                flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
+                started.interaction().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
+
+        assertEquals(FlowStatus.TERMINAL, failed.interaction().status());
+        assertTrue(failed.interaction().learnerMessage().contains("复习已结束"),
+                "a conclusive Review failure must end with the safe learner outcome");
+        assertFalse(failed.interaction().learnerMessage().contains(ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
+                "a Review failure must never leak the expected answer");
+        assertFalse(failed.interaction().learnerMessage().contains("assessment"));
+        assertFalse(failed.interaction().learnerMessage().contains("fingerprint"));
+
+        List<AcceptedLearningEvidence> reviewEvidence = harness.reviewEvidence();
+        assertEquals(1, reviewEvidence.size(), "a conclusive Review failure must accept exactly one FAIL evidence");
+        AcceptedLearningEvidence evidence = reviewEvidence.get(0);
+        assertEquals(LearningResult.FAIL, evidence.result());
+        assertEquals(AttemptPurpose.REVIEW, evidence.attemptPurpose());
+        assertEquals(0, evidence.highestHintLevel());
+        assertTrue(evidence.assistanceTrace().isEmpty());
+        assertEquals(failureAt, evidence.acceptedAt());
+
+        ReviewTask completed = harness.review(review1.reviewId());
+        assertEquals(ReviewTaskStatus.COMPLETED, completed.status());
+        assertEquals(failureAt, completed.completedAt(), "the Review must complete at the actual failure acceptance");
+
+        assertTrue(harness.unfinishedReviews().isEmpty(),
+                "a Review failure must leave no actionable Review behind");
+        assertNull(harness.collection().unfinishedFor(LEARNER_ID).stream()
+                .findAny().map(view -> view.reviewId()).orElse(null),
+                "a Review failure must not schedule any successor");
+
+        ConceptProgress progress = harness.progress();
+        assertEquals(MasteryMilestone.LEARNING, progress.currentMilestone(),
+                "a conclusive Review failure must drop Current Milestone to Learning");
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.highestMilestoneReached(),
+                "a Review failure must preserve Highest Milestone Reached");
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, progress.currentStage());
+    }
+
+    @Test
+    void aRationaleContradictionOnReviewIsAConclusiveNoHintFailWithTheInconsistencyMessage() {
+        Harness harness = harness(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED,
+                        RationaleJudgment.CLEARLY_CONTRADICTORY)));
+        UUID flowId = harness.completeIndependentPass();
+        ReviewTask review1 = harness.onlyUnfinishedReview();
+        Instant failureAt = review1.dueAt().plus(Duration.ofHours(1));
+        harness.clock().set(failureAt);
+        harness.dueTransition().markDueReviewsDue();
+
+        ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
+                review1.reviewId(), UUID.randomUUID());
+        ApplyFlowResult.Boundary failed = (ApplyFlowResult.Boundary) harness.useCase().submit(
+                flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
+                started.interaction().attemptId(),
+                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION,
+                ApplyScriptData.CONTRADICTORY_RATIONALE);
+
+        assertEquals(FlowStatus.TERMINAL, failed.interaction().status());
+        assertTrue(failed.interaction().learnerMessage().contains("最终答案与给出的理由不一致"),
+                "a rationale contradiction must clearly tell the learner that the final answer contradicts their rationale");
+        assertFalse(failed.interaction().learnerMessage().contains(ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
+                "the contradiction message must never leak the expected answer");
+        assertFalse(failed.interaction().learnerMessage().contains("assessment"));
+        assertFalse(failed.interaction().learnerMessage().contains("fingerprint"));
+
+        List<AcceptedLearningEvidence> reviewEvidence = harness.reviewEvidence();
+        assertEquals(1, reviewEvidence.size(),
+                "a Review Blocked by a clearly contradictory rationale must accept exactly one FAIL evidence");
+        assertEquals(LearningResult.FAIL, reviewEvidence.get(0).result());
+        assertEquals(0, reviewEvidence.get(0).highestHintLevel());
+
+        assertEquals(ReviewTaskStatus.COMPLETED, harness.review(review1.reviewId()).status());
+        assertTrue(harness.unfinishedReviews().isEmpty(), "a Blocked Review must stop the cadence like a FAIL");
+        ConceptProgress progress = harness.progress();
+        assertEquals(MasteryMilestone.LEARNING, progress.currentMilestone());
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.highestMilestoneReached());
+    }
+
+    @Test
+    void afterAReviewFailureAFreshIndependentPassRestartsTheCadenceFromReviewOne() {
+        Harness harness = harness(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED)),
+                List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
+        UUID flowId = harness.completeIndependentPass();
+        ReviewTask review1 = harness.onlyUnfinishedReview();
+        harness.clock().set(review1.dueAt().plus(Duration.ofHours(1)));
+        harness.dueTransition().markDueReviewsDue();
+        ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
+                review1.reviewId(), UUID.randomUUID());
+        harness.useCase().submit(flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
+                started.interaction().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
+        assertEquals(MasteryMilestone.LEARNING, harness.progress().currentMilestone());
+        assertTrue(harness.unfinishedReviews().isEmpty());
+
+        Instant restartAt = review1.dueAt().plus(Duration.ofDays(2));
+        harness.clock().set(restartAt);
+        harness.completeIndependentPass();
+
+        List<ReviewTask> unfinished = harness.unfinishedReviews();
+        assertEquals(1, unfinished.size(), "a fresh Independent pass must restart exactly one Review cadence");
+        ReviewTask restarted = unfinished.get(0);
+        assertEquals(1, restarted.reviewNumber(), "the restarted cadence must begin again at Review 1");
+        assertEquals(ReviewTaskStatus.SCHEDULED, restarted.status());
+        assertEquals(restartAt.plus(Duration.ofHours(24)), restarted.dueAt(),
+                "the restarted Review 1 must be due 24 hours after the fresh Independent acceptance");
+        assertFalse(restarted.reviewId().equals(review1.reviewId()),
+                "a restart must create a new Review Task rather than resurrect the failed one");
+        assertEquals(ReviewTaskStatus.COMPLETED, harness.review(review1.reviewId()).status(),
+                "the failed Review must remain completed and never become actionable again");
+
+        ConceptProgress progress = harness.progress();
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.currentMilestone());
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.highestMilestoneReached());
+        assertEquals(LearningStage.DELAYED_REVIEW, progress.currentStage());
+    }
+
+    @Test
+    void submittingTheOpenAttemptOfACancelledReviewAfterARestartCreatesNoEvidenceAndNoError() {
+        Harness harness = harness(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED)),
+                List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
+        UUID flowId = harness.completeIndependentPass();
+        ReviewTask review1 = harness.onlyUnfinishedReview();
+        harness.clock().set(review1.dueAt().plus(Duration.ofHours(1)));
+        harness.dueTransition().markDueReviewsDue();
+        ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
+                review1.reviewId(), UUID.randomUUID());
+
+        Instant restartAt = review1.dueAt().plus(Duration.ofDays(2));
+        harness.clock().set(restartAt);
+        harness.completeIndependentPass();
+        assertEquals(ReviewTaskStatus.CANCELLED, harness.review(review1.reviewId()).status(),
+                "a fresh Independent pass must cancel the STARTED Review and restart the cadence");
+        assertEquals(1, harness.unfinishedReviews().size());
+
+        ApplyFlowResult.Boundary outcome = (ApplyFlowResult.Boundary) harness.useCase().submit(
+                flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
+                started.interaction().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
+
+        assertEquals(FlowStatus.TERMINAL, outcome.interaction().status(),
+                "a submission on a cancelled Review must end safely instead of erroring");
+        assertTrue(outcome.interaction().learnerMessage().contains("复习已结束"));
+        assertTrue(harness.reviewEvidence().isEmpty(),
+                "a cancelled Review must never accept Review Evidence, PASS or FAIL");
+        assertEquals(MasteryMilestone.INDEPENDENT, harness.progress().currentMilestone(),
+                "a cancelled Review submission must not change the restarted milestone");
+        assertEquals(1, harness.unfinishedReviews().size(),
+                "a cancelled Review submission must not disturb the restarted cadence");
+        assertEquals(ReviewTaskStatus.CANCELLED, harness.review(review1.reviewId()).status());
+    }
+
+    private static final class MutableClock extends Clock {
         private Instant now;
 
         private MutableClock(Instant now) {
@@ -268,35 +457,38 @@ class DelayedReviewCadenceContractTest {
     }
 
     private Harness harness() {
+        return harness(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED)));
+    }
+
+    private Harness harness(List<ResponseAssessment> assessmentJudgments) {
+        return harness(assessmentJudgments, List.of(
+                ApplyScriptData.taskReadyJson(),
+                ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                        ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
+                ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                        ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
+                ApplyScriptData.taskReadyJson(REVIEW_TASK_2, REVIEW_EXPECTED_2),
+                ApplyScriptData.taskReadyJson(REVIEW_TASK_3, REVIEW_EXPECTED_3),
+                ApplyScriptData.taskReadyJson(REVIEW_TASK_4, REVIEW_EXPECTED_4)));
+    }
+
+    private Harness harness(List<ResponseAssessment> assessmentJudgments, List<String> generationScripts) {
         MutableClock clock = new MutableClock(START);
         InMemoryArtifactStore artifacts = new InMemoryArtifactStore(clock);
         InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(clock, artifacts);
         ReviewTaskScheduler reviewScheduler = new ReviewTaskScheduler(flowStore);
         ApplyProfileExecutor executor = new ApplyProfileExecutor(
                 ReferenceBundles.stack(),
-                new ScriptedApplyGenerationModel(List.of(
-                        ApplyScriptData.taskReadyJson(),
-                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
-                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
-                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
-                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
-                        ApplyScriptData.taskReadyJson(REVIEW_TASK_2, REVIEW_EXPECTED_2),
-                        ApplyScriptData.taskReadyJson(REVIEW_TASK_3, REVIEW_EXPECTED_3),
-                        ApplyScriptData.taskReadyJson(REVIEW_TASK_4, REVIEW_EXPECTED_4))),
-                new ScriptedTaskVerifier(List.of(
-                        ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict())),
+                new ScriptedApplyGenerationModel(generationScripts),
+                new ScriptedTaskVerifier(
+                        generationScripts.stream().map(script -> ApplyScriptData.passVerdict()).toList()),
                 artifacts);
-        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
-                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
-                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
-                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
-                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
-                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED)));
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(assessmentJudgments);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
                 DiagnosticApplyFixture.diagnosticContext(), IndependentApplyFixture.independentContext(), clock);

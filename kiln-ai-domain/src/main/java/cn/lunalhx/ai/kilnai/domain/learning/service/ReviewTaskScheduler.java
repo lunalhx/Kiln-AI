@@ -15,10 +15,13 @@ import java.util.Optional;
  * The domain policy for the Review cadence: a fresh accepted Independent pass
  * cancels any stale unfinished Review of the same learner and Concept and
  * atomically schedules the unique Review 1 due 24 hours after the acceptance
- * time, and an accepted qualifying Review pass completes its started Review
+ * time, an accepted qualifying Review pass completes its started Review
  * and schedules the successor 3, 7, and then 21 days after the actual
- * acceptance time — Review 4 schedules nothing. The scheduler owns the fixed
- * Phase 0 cadence, never a model; the store guarantees the atomic commit.
+ * acceptance time — Review 4 schedules nothing — and an accepted conclusive
+ * no-hint Review failure completes its started Review, cancels any other
+ * unfinished Review defensively, and schedules no successor. The scheduler
+ * owns the fixed Phase 0 cadence, never a model; the store guarantees the
+ * atomic commit.
  */
 public final class ReviewTaskScheduler {
 
@@ -64,5 +67,22 @@ public final class ReviewTaskScheduler {
                 ? evidence.acceptedAt().plus(SUCCESSOR_DELAYS.get(current.reviewNumber() - 1))
                 : null;
         return reviewStore.acceptEvidenceAndAdvanceReview(evidence, current.reviewId(), nextDueAt);
+    }
+
+    /**
+     * Stops the cadence by one conclusive no-hint Review failure: completes
+     * the STARTED Review of the evidence's learner and Concept at the actual
+     * acceptance time, cancels any other unfinished Review defensively, and
+     * schedules no successor. Returns empty when no Review is STARTED, in
+     * which case nothing at all is written.
+     */
+    public Optional<ReviewTaskStore.ReviewStop> acceptEvidenceAndFailReview(AcceptedLearningEvidence evidence) {
+        Objects.requireNonNull(evidence, "evidence must not be null");
+        Optional<ReviewTask> started = reviewStore.findStartedReview(
+                evidence.learnerId(), evidence.conceptId());
+        if (started.isEmpty()) {
+            return Optional.empty();
+        }
+        return reviewStore.acceptEvidenceAndFailReview(evidence, started.get().reviewId());
     }
 }

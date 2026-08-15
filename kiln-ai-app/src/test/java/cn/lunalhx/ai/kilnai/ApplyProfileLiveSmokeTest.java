@@ -6,6 +6,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
@@ -74,8 +75,11 @@ class ApplyProfileLiveSmokeTest {
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
                 artifacts, flowStore, model, model,
                 new ReviewTaskScheduler((ReviewTaskStore) flowStore), Clock.systemUTC());
+        ReviewSubmissionFlow reviewFlow = new ReviewSubmissionFlow(
+                artifacts, flowStore, model, model,
+                new ReviewTaskScheduler((ReviewTaskStore) flowStore), Clock.systemUTC());
         ApplyFlowUseCase useCase = new ApplyFlowUseCase(
-                artifacts, flowStore, diagnosticFlow, independentFlow,
+                artifacts, flowStore, diagnosticFlow, independentFlow, reviewFlow,
                 DiagnosticApplyFixture.diagnosticContext(), Clock.systemUTC());
 
         ApplyFlowResult result = useCase.start(UUID.randomUUID(), UUID.randomUUID());

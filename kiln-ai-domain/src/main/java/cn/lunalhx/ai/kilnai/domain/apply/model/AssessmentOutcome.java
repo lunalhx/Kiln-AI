@@ -6,8 +6,10 @@ package cn.lunalhx.ai.kilnai.domain.apply.model;
  * modify Flow State or accept Evidence. The carried {@code assessment} and
  * {@code verification} contracts are null exactly when the deterministic
  * Mathematical Equivalence Check alone decided the outcome and no model
- * judgment was invoked. {@link #Blocked} occurs only for an Independent Test
- * whose rationale is clearly contradictory.
+ * judgment was invoked. {@link #Blocked} occurs when the final answer is
+ * correct but the rationale is clearly contradictory; Independent Test
+ * accepts no Evidence from it, while the Review submission flow treats it as
+ * a conclusive no-hint failure (ADR-0061).
  */
 public sealed interface AssessmentOutcome
         permits AssessmentOutcome.Passed,

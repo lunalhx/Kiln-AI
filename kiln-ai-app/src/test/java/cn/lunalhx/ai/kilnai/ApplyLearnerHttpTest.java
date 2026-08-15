@@ -433,6 +433,86 @@ class ApplyLearnerHttpTest {
                 "Durable must end the cadence with no unfinished Review work");
     }
 
+    @Test
+    void aReviewFailOverHttpStopsTheCadenceWithLearningProgressAndNoUnfinishedWork() {
+        UUID learnerId = UUID.randomUUID();
+        ApplyFlowResponse started = start(learnerId, UUID.randomUUID());
+        ApplyFlowResponse transitioned = submit(
+                started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        submit(
+                started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
+                transitioned.attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+
+        ReviewTaskView due = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody()[0];
+        ApplyFlowResponse review = startReview(due.reviewId(), UUID.randomUUID());
+        ApplyFlowResponse failed = submit(
+                review.flowId(), UUID.randomUUID(), review.interactionVersion(), review.attemptId(),
+                "9*x^2", "9*x^2", null);
+
+        assertEquals("TERMINAL", failed.status());
+        assertEquals("DELAYED_REVIEW", failed.stage());
+        assertTrue(failed.learnerMessage().contains("复习已结束"),
+                "a conclusive Review failure must end with the safe learner outcome");
+        assertFalse(failed.learnerMessage().contains(ScriptedApplyPortsConfiguration.REVIEW_EXPECTED),
+                "no answer facts may leak into a Review failure message");
+        assertFalse(failed.learnerMessage().contains("fingerprint"));
+        assertFalse(failed.learnerMessage().contains("assessment"));
+        assertEquals("LEARNING", failed.progress().currentMilestone(),
+                "a conclusive Review failure must drop Current Milestone to Learning");
+        assertEquals("INDEPENDENT", failed.progress().highestMilestoneReached(),
+                "a Review failure must preserve Highest Milestone Reached");
+        assertEquals("LEARNING_AND_PRACTICE", failed.progress().stage());
+
+        ReviewTaskView[] remaining = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody();
+        assertEquals(0, remaining.length,
+                "a Review failure must leave no actionable Review work and schedule no successor");
+    }
+
+    @Test
+    void aRationaleContradictionOverHttpIsAConclusiveReviewFailWithTheInconsistencyMessage() {
+        UUID learnerId = UUID.randomUUID();
+        ApplyFlowResponse started = start(learnerId, UUID.randomUUID());
+        ApplyFlowResponse transitioned = submit(
+                started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        submit(
+                started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
+                transitioned.attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+
+        ReviewTaskView due = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody()[0];
+        ApplyFlowResponse review = startReview(due.reviewId(), UUID.randomUUID());
+        ApplyFlowResponse failed = submit(
+                review.flowId(), UUID.randomUUID(), review.interactionVersion(), review.attemptId(),
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED,
+                ScriptedApplyPortsConfiguration.REVIEW_EXPECTED,
+                ScriptedApplyPortsConfiguration.CONTRADICTORY_RATIONALE_MARKER);
+
+        assertEquals("TERMINAL", failed.status());
+        assertTrue(failed.learnerMessage().contains("最终答案与给出的理由不一致"),
+                "the learner must clearly receive the answer-rationale inconsistency notice");
+        assertFalse(failed.learnerMessage().contains(ScriptedApplyPortsConfiguration.REVIEW_EXPECTED),
+                "the contradiction message must never leak the expected answer");
+        assertFalse(failed.learnerMessage().contains("fingerprint"));
+        assertFalse(failed.learnerMessage().contains("assessment"));
+        assertEquals("LEARNING", failed.progress().currentMilestone());
+        assertEquals("INDEPENDENT", failed.progress().highestMilestoneReached());
+
+        ReviewTaskView[] remaining = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody();
+        assertEquals(0, remaining.length,
+                "a contradiction failure must stop the cadence exactly like a Review FAIL");
+    }
+
     /** Starts the currently Due Review with the given number and submits its passing answer. */
     private ApplyFlowResponse passReview(UUID learnerId, int reviewNumber, String expectedAnswer) {
         ReviewTaskView due = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,

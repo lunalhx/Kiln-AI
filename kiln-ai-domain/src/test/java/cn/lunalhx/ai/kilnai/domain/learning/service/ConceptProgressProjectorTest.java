@@ -152,6 +152,67 @@ class ConceptProgressProjectorTest {
     }
 
     @Test
+    void aNoHintReviewFailDropsCurrentMilestoneToLearningAndPreservesHighest() {
+        ConceptProgress progress = projector.project(LEARNER, CONCEPT, List.of(
+                evidence(AttemptPurpose.INDEPENDENT_TEST, LearningResult.PASS, 0, NOW),
+                evidence(AttemptPurpose.REVIEW, LearningResult.FAIL, 0, NOW.plusSeconds(60))
+        ));
+
+        assertEquals(MasteryMilestone.LEARNING, progress.currentMilestone(),
+                "a qualifying no-hint Review failure must drop Current Milestone to Learning");
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.highestMilestoneReached(),
+                "a Review failure must never erase the highest milestone reached");
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, progress.currentStage());
+    }
+
+    @Test
+    void aReviewFailAfterDurablePreservesHighestDurableWhileCurrentFalls() {
+        ConceptProgress progress = projector.project(LEARNER, CONCEPT, List.of(
+                evidence(AttemptPurpose.INDEPENDENT_TEST, LearningResult.PASS, 0, NOW),
+                reviewPass(NOW.plusSeconds(60)),
+                reviewPass(NOW.plusSeconds(120)),
+                reviewPass(NOW.plusSeconds(180)),
+                reviewPass(NOW.plusSeconds(240)),
+                evidence(AttemptPurpose.REVIEW, LearningResult.FAIL, 0, NOW.plusSeconds(300))
+        ));
+
+        assertEquals(MasteryMilestone.LEARNING, progress.currentMilestone());
+        assertEquals(MasteryMilestone.DURABLE, progress.highestMilestoneReached(),
+                "a failure after a historical Durable milestone must keep Highest at Durable");
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, progress.currentStage());
+    }
+
+    @Test
+    void aReviewFailEndsTheConsecutiveSuccessRunEvenBeforeFourPasses() {
+        ConceptProgress progress = projector.project(LEARNER, CONCEPT, List.of(
+                evidence(AttemptPurpose.INDEPENDENT_TEST, LearningResult.PASS, 0, NOW),
+                reviewPass(NOW.plusSeconds(60)),
+                reviewPass(NOW.plusSeconds(120)),
+                evidence(AttemptPurpose.REVIEW, LearningResult.FAIL, 0, NOW.plusSeconds(180)),
+                reviewPass(NOW.plusSeconds(240)),
+                reviewPass(NOW.plusSeconds(300)),
+                reviewPass(NOW.plusSeconds(360)),
+                reviewPass(NOW.plusSeconds(420))
+        ));
+
+        assertEquals(MasteryMilestone.LEARNING, progress.currentMilestone(),
+                "a qualifying Review failure must end the consecutive run even if four Review passes follow");
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.highestMilestoneReached());
+    }
+
+    @Test
+    void aHintedReviewFailIsNotAQualifyingFailure() {
+        ConceptProgress progress = projector.project(LEARNER, CONCEPT, List.of(
+                evidence(AttemptPurpose.INDEPENDENT_TEST, LearningResult.PASS, 0, NOW),
+                evidence(AttemptPurpose.REVIEW, LearningResult.FAIL, 1, NOW.plusSeconds(60))
+        ));
+
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.currentMilestone(),
+                "an assisted Review failure is not conclusive and must not drop the milestone");
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.highestMilestoneReached());
+    }
+
+    @Test
     void theFoldOrderIsDeterministicByAcceptedAtThenEvidenceId() {
         Instant sameInstant = Instant.parse("2026-08-13T00:00:00Z");
         AcceptedLearningEvidence pass = evidence(AttemptPurpose.INDEPENDENT_TEST, LearningResult.PASS, 0, sameInstant);

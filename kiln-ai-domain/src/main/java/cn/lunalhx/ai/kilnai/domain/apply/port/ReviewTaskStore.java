@@ -84,6 +84,34 @@ public interface ReviewTaskStore {
     }
 
     /**
+     * Atomically accepts one conclusive no-hint Review FAIL evidence,
+     * completes the given started Review at the evidence acceptance time, and
+     * defensively cancels any other unfinished Review of the same learner and
+     * Concept. The transition is exactly once per Task Attempt: repeating it
+     * for an attempt that already has Evidence writes nothing, and it writes
+     * nothing at all when the Review is not STARTED. No successor is ever
+     * scheduled; the cadence stops.
+     */
+    Optional<ReviewStop> acceptEvidenceAndFailReview(
+            AcceptedLearningEvidence evidence,
+            UUID completedReviewId);
+
+    /**
+     * The durable outcome of one accepted Review failure: the accepted
+     * evidence and the Review Task completed by that failure.
+     */
+    record ReviewStop(
+            AcceptedLearningEvidence evidence,
+            ReviewTask completedReview
+    ) {
+
+        public ReviewStop {
+            Objects.requireNonNull(evidence, "evidence must not be null");
+            Objects.requireNonNull(completedReview, "completedReview must not be null");
+        }
+    }
+
+    /**
      * Atomically binds a successful Review start in one commit: it claims the
      * Due Review with the conditional DUE to STARTED transition, opens the
      * Review Attempt from the generated Task Package, records the exposure,

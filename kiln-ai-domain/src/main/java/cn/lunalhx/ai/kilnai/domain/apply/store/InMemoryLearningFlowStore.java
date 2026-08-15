@@ -203,6 +203,38 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
+    public synchronized Optional<ReviewTaskStore.ReviewStop> acceptEvidenceAndFailReview(
+            AcceptedLearningEvidence evidence,
+            UUID completedReviewId
+    ) {
+        Objects.requireNonNull(evidence, "evidence must not be null");
+        Objects.requireNonNull(completedReviewId, "completedReviewId must not be null");
+        if (this.evidence.containsKey(evidence.taskAttemptId())) {
+            return Optional.empty();
+        }
+        ReviewTask current = reviews.get(completedReviewId);
+        if (current == null || current.status() != ReviewTaskStatus.STARTED) {
+            return Optional.empty();
+        }
+        for (Map.Entry<UUID, ReviewTask> entry : reviews.entrySet()) {
+            ReviewTask review = entry.getValue();
+            if (review.learnerId().equals(evidence.learnerId())
+                    && review.conceptId().equals(evidence.conceptId())
+                    && review.isUnfinished()
+                    && !review.reviewId().equals(completedReviewId)) {
+                entry.setValue(cancelled(review));
+            }
+        }
+        this.evidence.putIfAbsent(evidence.taskAttemptId(), evidence);
+        ReviewTask completed = new ReviewTask(
+                current.reviewId(), current.learnerId(), current.conceptId(), current.flowId(),
+                current.reviewNumber(), ReviewTaskStatus.COMPLETED, current.dueAt(), current.createdAt(),
+                current.startedAt(), evidence.acceptedAt(), null);
+        reviews.put(completed.reviewId(), completed);
+        return Optional.of(new ReviewTaskStore.ReviewStop(evidence, completed));
+    }
+
+    @Override
     public synchronized Optional<ApplyFlowInteraction> bindStartedReview(ReviewTaskStore.ReviewStartBind bind) {
         Objects.requireNonNull(bind, "bind must not be null");
         if (artifactStore == null) {

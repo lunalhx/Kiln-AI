@@ -66,6 +66,7 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0058](0058-assemble-versioned-two-projection-apply-task-packages.md): two-projection Apply Task Packages
 - [ADR-0059](0059-separate-profile-contract-tests-from-live-model-smoke-tests.md): deterministic Profile tests versus live smoke tests
 - [ADR-0060](0060-use-one-neutral-message-for-unavailable-apply-tasks.md): neutral unavailable-task message
+- [ADR-0061](0061-review-answer-rationale-contradiction-is-conclusive-fail.md): Review answer-rationale contradiction is a conclusive failure
 
 ## Task generation, validation, and review
 
