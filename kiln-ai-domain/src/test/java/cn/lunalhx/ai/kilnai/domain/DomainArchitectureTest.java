@@ -21,4 +21,16 @@ class DomainArchitectureTest {
                     "com.alibaba.cloud.ai.graph..",
                     "org.springframework.ai.."
             );
+
+    @ArchTest
+    static final ArchRule profilesAssessmentAndPedagogyAgentMustNotWriteLearningState = noClasses()
+            .that().resideInAnyPackage(
+                    "..domain.apply.profile..",
+                    "..domain.learning.pedagogy..")
+            .or().haveSimpleNameContaining("Assessment")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "..domain.learning.graph..",
+                    "..domain.apply.port.LearningFlowStore",
+                    "..domain.apply.port.ReviewTaskStore"
+            );
 }

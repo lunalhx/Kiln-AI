@@ -11,16 +11,18 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * The shared idempotency-replay boundary of the durable Apply commands: a
- * replayed key returns the original committed interaction; a key reused with
- * a different payload conflicts. An unprocessed key runs the fresh action.
+ * The shared idempotency-replay boundary of the durable Learning Flow
+ * commands: a replayed key returns the original committed interaction; a key
+ * reused with a different payload conflicts. An unprocessed key runs the
+ * fresh action. Every command surface reuses this primitive instead of
+ * reimplementing replay.
  */
-final class FlowCommandReplay {
+public final class FlowCommandReplay {
 
     private FlowCommandReplay() {
     }
 
-    static <T> T replayOrRun(
+    public static <T> T replayOrRun(
             LearningFlowStore flowStore,
             UUID key,
             String hash,
