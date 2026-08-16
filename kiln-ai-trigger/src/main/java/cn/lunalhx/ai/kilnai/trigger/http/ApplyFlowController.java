@@ -77,6 +77,14 @@ public class ApplyFlowController {
                     .status(HttpStatus.CONFLICT)
                     .body(new ApiErrorResponse(ErrorCode.CONFLICT.name(),
                             ignored.reason().name(), Instant.now()));
+            case ApplyFlowResult.ClarificationIgnored ignored -> ResponseEntity
+                    .status(HttpStatus.CONFLICT)
+                    .body(new ApiErrorResponse(ErrorCode.CONFLICT.name(),
+                            ignored.reason().name(), Instant.now()));
+            case ApplyFlowResult.AssistanceIgnored ignored -> ResponseEntity
+                    .status(HttpStatus.CONFLICT)
+                    .body(new ApiErrorResponse(ErrorCode.CONFLICT.name(),
+                            ignored.reason().name(), Instant.now()));
         };
     }
 

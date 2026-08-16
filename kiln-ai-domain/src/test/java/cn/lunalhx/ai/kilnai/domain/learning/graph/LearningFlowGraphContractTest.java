@@ -5,6 +5,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.fake.ExplainScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.HintScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedApplyGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedAssessmentModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedClarificationClassifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedExplainGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedHintGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedPedagogyModel;
@@ -25,6 +26,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
@@ -32,6 +34,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
@@ -40,6 +43,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalAnswer;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionRejectionReason;
@@ -2320,10 +2324,501 @@ class LearningFlowGraphContractTest {
                 "the resume must never generate a fresh task");
     }
 
+    @Test
+    void aSubstantiveClarificationOnAnOpenPracticeAttemptRecordsAssistanceAndReturnsToTheSameAttemptAfterContinue() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(
+                        ExplainScriptData.explainReadyJson(), secondExplainReadyJson())));
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(),
+                practiceAttemptId, "为什么可以把系数直接提出来？", UUID.randomUUID());
+        ApplyFlowInteraction interaction = explained.interaction();
+        assertEquals(4, interaction.interactionVersion());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
+        assertNotNull(interaction.teachingProjection(),
+                "the substantive clarification must deliver the temporary Explain teaching boundary");
+        assertEquals(LearningStateGraph.CLARIFICATION_EXPLAIN_MESSAGE, interaction.learnerMessage());
+        assertEquals(AttemptStatus.OPEN,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status(),
+                "the temporary Explain must keep the Practice Attempt open");
+        assertEquals(AttemptPurpose.PRACTICE,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().purpose());
+        assertEquals(List.of("substantive_clarification", "temporary_explain"),
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().assistanceTraceStrings(),
+                "the substantive clarification and the temporary Explain are recorded assistance");
+        assertEquals(2, harness.explainGeneration().calls().size(),
+                "the remediation Explain plus the clarification Explain are the only two artifacts");
+        assertEquals(0, harness.hintGeneration().calls().size(),
+                "a clarification must never generate a hint ladder");
+        assertEquals(2, harness.artifacts().allPackages().size(),
+                "a temporary Explain must never open a Task Package");
+        assertEquals(2, harness.flowStore().exposedExampleFingerprints(interaction.flowId()).size(),
+                "the displayed clarification Explain is exposed for novelty");
+
+        ApplyFlowResult.Boundary resumed = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+                interaction.flowId(), interaction.interactionVersion(), UUID.randomUUID());
+        assertEquals(5, resumed.interaction().interactionVersion());
+        assertEquals(practiceAttemptId, resumed.interaction().attemptId(),
+                "after the temporary Explain the single legal move returns to the SAME open Practice attempt");
+        assertEquals(LearningStateGraph.RESUME_PRACTICE_MESSAGE, resumed.interaction().learnerMessage());
+        assertEquals(ApplyScriptData.PRACTICE_TASK_TEXT, resumed.interaction().learnerProjection().taskText());
+        assertEquals(2, harness.pedagogy().calls().size(),
+                "the clarification path runs no new guarded pedagogy decision");
+    }
+
+    @Test
+    void aProceduralClarificationOnAnOpenPracticeAttemptAnswersDirectlyWithoutLoadingATeachingProfile() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())),
+                new ScriptedTeachBackGenerationModel(List.of(TeachBackScriptData.taskReadyJson())),
+                new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.passAssessment())),
+                new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
+                new ScriptedPedagogyModel(),
+                new ScriptedClarificationClassifier(List.of(ClarificationClassification.PROCEDURAL)));
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        ApplyFlowResult.Boundary answered = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(),
+                practiceAttemptId, "这道题是只填最终导数吗？", UUID.randomUUID());
+        ApplyFlowInteraction interaction = answered.interaction();
+        assertEquals(4, interaction.interactionVersion());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
+        assertEquals(practiceAttemptId, interaction.attemptId(),
+                "a procedural answer returns to the SAME open task boundary");
+        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
+        assertNotNull(interaction.learnerProjection(), "the task projection is re-shown");
+        assertTrue(interaction.learnerMessage().startsWith("答题说明"),
+                "the procedural answer restates the task package's own format contract");
+        assertTrue(interaction.learnerMessage().contains("f'(x)"),
+                "the procedural answer restates the exposed answer field");
+        assertEquals(AttemptStatus.OPEN,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status(),
+                "a procedural answer must never touch the Attempt");
+        assertEquals(List.of("procedural_clarification"),
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().assistanceTraceStrings(),
+                "the procedural clarification is recorded without disqualifying anything");
+        assertEquals(1, harness.explainGeneration().calls().size(),
+                "a procedural clarification must never load a Teaching Node Profile");
+        assertEquals(0, harness.hintGeneration().calls().size());
+        assertEquals(1, harness.classifier().calls().size());
+        assertEquals("这道题是只填最终导数吗？", harness.classifier().calls().get(0).message());
+        assertEquals(ApplyScriptData.PRACTICE_TASK_TEXT, harness.classifier().calls().get(0).taskText(),
+                "the classifier sees the learner-visible task text, never private facts");
+    }
+
+    @Test
+    void aReplayedClarificationReturnsTheOriginalBoundaryWithoutAClassifierOrExplainRepetition() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(
+                        ExplainScriptData.explainReadyJson(), secondExplainReadyJson())));
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        UUID key = UUID.randomUUID();
+        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(),
+                practiceAttemptId, "为什么可以把系数直接提出来？", key);
+        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(),
+                practiceAttemptId, "为什么可以把系数直接提出来？", key);
+        assertEquals(first.interaction(), replay.interaction());
+        assertEquals(1, harness.classifier().calls().size(),
+                "a replayed clarification must never classify again");
+        assertEquals(2, harness.explainGeneration().calls().size(),
+                "a replayed clarification must never regenerate the teaching artifact");
+    }
+
+    @Test
+    void aSubstantiveClarificationOnAnIndependentAttemptProjectsAnAssistanceConsentRequest() {
+        Harness harness = harness();
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        UUID independentAttemptId = transitioned.interaction().attemptId();
+        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+                transitioned.interaction().flowId(), transitioned.interaction().interactionVersion(),
+                independentAttemptId, "为什么幂法则适用？", UUID.randomUUID());
+        ApplyFlowInteraction interaction = consented.interaction();
+        assertEquals(3, interaction.interactionVersion());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
+        assertEquals(LearningStage.INDEPENDENT_TEST, interaction.stage());
+        assertEquals(independentAttemptId, interaction.attemptId());
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST, interaction.attemptPurpose(),
+                "the consent request must not convert the attempt yet");
+        assertNull(interaction.learnerProjection(), "no teaching or task content accompanies the consent request");
+        assertNotNull(interaction.assistanceConsent());
+        assertEquals(LearningStateGraph.CONSENT_WARNING_MESSAGE, interaction.assistanceConsent().warning());
+        assertEquals(independentAttemptId, interaction.assistanceConsent().attemptId());
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST, interaction.assistanceConsent().attemptPurpose());
+        TaskAttempt attempt = harness.artifacts().findAttempt(independentAttemptId).orElseThrow();
+        assertEquals(AttemptStatus.OPEN, attempt.status());
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST, attempt.purpose(),
+                "the consent request must never convert, record, or close the independent attempt");
+        assertTrue(attempt.assistanceTrace().isEmpty());
+        assertEquals(0, harness.explainGeneration().calls().size(),
+                "the consent request must expose no teaching content before consent");
+        assertTrue(harness.flowStore().allEvidence().isEmpty());
+    }
+
+    @Test
+    void anAssistanceRefusalLeavesTheIndependentAttemptUnchanged() {
+        Harness harness = harness();
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        UUID independentAttemptId = transitioned.interaction().attemptId();
+        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+                transitioned.interaction().flowId(), transitioned.interaction().interactionVersion(),
+                independentAttemptId, "为什么幂法则适用？", UUID.randomUUID());
+        ApplyFlowResult.Boundary refused = (ApplyFlowResult.Boundary) harness.useCase().assistanceDecided(
+                consented.interaction().flowId(), consented.interaction().interactionVersion(),
+                independentAttemptId, false, UUID.randomUUID());
+        ApplyFlowInteraction interaction = refused.interaction();
+        assertEquals(4, interaction.interactionVersion());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
+        assertEquals(independentAttemptId, interaction.attemptId());
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST, interaction.attemptPurpose(),
+                "refusal must preserve the independent purpose");
+        assertNotNull(interaction.learnerProjection(), "refusal returns to the unchanged task boundary");
+        assertEquals(LearningStateGraph.ASSISTANCE_REFUSED_MESSAGE, interaction.learnerMessage());
+        TaskAttempt attempt = harness.artifacts().findAttempt(independentAttemptId).orElseThrow();
+        assertEquals(AttemptStatus.OPEN, attempt.status());
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST, attempt.purpose());
+        assertTrue(attempt.assistanceTrace().isEmpty(),
+                "refusal must not record assistance, convert, or close the attempt");
+        assertEquals(0, harness.explainGeneration().calls().size());
+        assertTrue(harness.flowStore().allEvidence().isEmpty());
+    }
+
+    @Test
+    void aRetriedAssistanceAcceptanceAfterACommittedConversionHalfResumesTheHelpExposure() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), independentTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())));
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        UUID independentAttemptId = transitioned.interaction().attemptId();
+        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+                transitioned.interaction().flowId(), transitioned.interaction().interactionVersion(),
+                independentAttemptId, "为什么幂法则适用？", UUID.randomUUID());
+        // The process crashed after the conversion committed but before its
+        // boundary: the attempt is durably Practice with its recorded
+        // assistance and the command is unprocessed.
+        harness.artifacts().convertToPractice(independentAttemptId, List.of(
+                AssistanceTraceEntry.clarification(AssistanceTraceEntry.AssistanceKind.SUBSTANTIVE_CLARIFICATION,
+                        CLOCK.instant()),
+                AssistanceTraceEntry.clarification(AssistanceTraceEntry.AssistanceKind.TEMPORARY_EXPLAIN,
+                        CLOCK.instant())));
+        assertEquals(AttemptPurpose.PRACTICE,
+                harness.artifacts().findAttempt(independentAttemptId).orElseThrow().purpose());
+        ApplyFlowResult.Boundary resumed = (ApplyFlowResult.Boundary) harness.useCase().assistanceDecided(
+                consented.interaction().flowId(), consented.interaction().interactionVersion(),
+                independentAttemptId, true, UUID.randomUUID());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, resumed.interaction().status());
+        assertNotNull(resumed.interaction().teachingProjection(),
+                "the retried acceptance must resume the committed conversion half instead of 409ing");
+        TaskAttempt attempt = harness.artifacts().findAttempt(independentAttemptId).orElseThrow();
+        assertEquals(AttemptPurpose.PRACTICE, attempt.purpose());
+        assertEquals(List.of("substantive_clarification", "temporary_explain"),
+                attempt.assistanceTraceStrings(),
+                "the resumed conversion must never append its trace entries twice");
+        assertEquals(1, harness.explainGeneration().calls().size(),
+                "the resumed acceptance exposes the freshly generated teaching boundary");
+    }
+
+    @Test
+    void anAssistanceAcceptanceConvertsTheIndependentAttemptToPracticeBeforeExposingHelp() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), independentTaskJson(),
+                        ApplyScriptData.taskReadyJson(
+                                "设 w(x) = 3x⁴ − 2x + 1，求 w'(x)。", "12*x^3 - 2"))),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                new ScriptedHintGenerationModel(List.of(independentLadderJson())));
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        UUID independentAttemptId = transitioned.interaction().attemptId();
+        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+                transitioned.interaction().flowId(), transitioned.interaction().interactionVersion(),
+                independentAttemptId, "为什么幂法则适用？", UUID.randomUUID());
+        ApplyFlowResult.Boundary converted = (ApplyFlowResult.Boundary) harness.useCase().assistanceDecided(
+                consented.interaction().flowId(), consented.interaction().interactionVersion(),
+                independentAttemptId, true, UUID.randomUUID());
+        ApplyFlowInteraction interaction = converted.interaction();
+        assertEquals(4, interaction.interactionVersion());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
+        assertNotNull(interaction.teachingProjection(),
+                "the accepted conversion exposes the temporary Explain teaching boundary");
+        assertEquals(LearningStateGraph.ASSISTANCE_CONVERTED_MESSAGE, interaction.learnerMessage());
+        TaskAttempt attempt = harness.artifacts().findAttempt(independentAttemptId).orElseThrow();
+        assertEquals(AttemptPurpose.PRACTICE, attempt.purpose(),
+                "acceptance converts the attempt one-way to Practice before any help is exposed");
+        assertEquals(AttemptStatus.OPEN, attempt.status());
+        assertEquals(List.of("substantive_clarification", "temporary_explain"),
+                attempt.assistanceTraceStrings());
+        assertEquals(1, harness.explainGeneration().calls().size());
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "the conversion itself must never create Evidence");
+        assertEquals(0, harness.flowStore().unfinishedReviewsFor(LEARNER_ID).size(),
+                "an Independent conversion never touches the Review cadence");
+
+        ApplyFlowResult.Boundary resumed = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+                interaction.flowId(), interaction.interactionVersion(), UUID.randomUUID());
+        assertEquals(independentAttemptId, resumed.interaction().attemptId(),
+                "Continue returns to the SAME now-Practice attempt");
+        ApplyFlowResult.Boundary h1 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                resumed.interaction().flowId(), resumed.interaction().interactionVersion(),
+                independentAttemptId, false, UUID.randomUUID());
+        assertEquals(1, h1.interaction().hint().level(),
+                "the converted attempt accepts hints like any open Apply Practice attempt");
+        ApplyFlowResult.Boundary readiness = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                h1.interaction().flowId(), h1.interaction().interactionVersion(), UUID.randomUUID(),
+                independentAttemptId, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+        assertEquals(LearningStage.INDEPENDENT_TEST, readiness.interaction().stage(),
+                "a conclusive Practice pass on the converted attempt satisfies readiness");
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST, readiness.interaction().attemptPurpose());
+        AcceptedLearningEvidence evidence = harness.flowStore().allEvidence().get(0);
+        assertEquals(AttemptPurpose.PRACTICE, evidence.attemptPurpose());
+        assertEquals(LearningResult.PASS, evidence.result());
+        assertEquals(1, evidence.highestHintLevel(),
+                "the converted attempt's evidence records the exposed hint plus the recorded assistance");
+        assertEquals(List.of("substantive_clarification", "temporary_explain", "H1:orient"),
+                evidence.assistanceTrace());
+        assertEquals(1, harness.pedagogy().calls().size(),
+                "only the Practice-pass decision is a guarded pedagogy decision");
+    }
+
+    @Test
+    void anAssistedReviewConversionCancelsTheReviewTaskWithoutEvidenceOrMilestoneChangeAndRestartsReviewOne() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(
+                                "设 z(x) = 2x³ − x + 5，求 z'(x)。", "6*x^2 - 1"))),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment(),
+                        conclusivePracticeJudgment(), conclusivePracticeJudgment())));
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+        ReviewTask review = harness.flowStore().unfinishedReviewsFor(LEARNER_ID).get(0);
+        harness.flowStore().markDueReviewsDue(
+                CLOCK.instant().plus(ReviewTaskScheduler.FIRST_REVIEW_DELAY));
+        ReviewStartResult.Boundary reviewBoundary = (ReviewStartResult.Boundary) harness.reviewStartFlow().start(
+                review.reviewId(), UUID.randomUUID());
+        assertEquals(AttemptPurpose.REVIEW, reviewBoundary.interaction().attemptPurpose());
+        assertEquals(LearningStage.DELAYED_REVIEW, reviewBoundary.interaction().stage());
+        UUID reviewAttemptId = reviewBoundary.interaction().attemptId();
+
+        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+                reviewBoundary.interaction().flowId(), reviewBoundary.interaction().interactionVersion(),
+                reviewAttemptId, "为什么幂法则适用？", UUID.randomUUID());
+        assertNotNull(consented.interaction().assistanceConsent());
+        ApplyFlowResult.Boundary converted = (ApplyFlowResult.Boundary) harness.useCase().assistanceDecided(
+                consented.interaction().flowId(), consented.interaction().interactionVersion(),
+                reviewAttemptId, true, UUID.randomUUID());
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, converted.interaction().stage());
+        assertNotNull(converted.interaction().teachingProjection());
+        TaskAttempt attempt = harness.artifacts().findAttempt(reviewAttemptId).orElseThrow();
+        assertEquals(AttemptPurpose.PRACTICE, attempt.purpose(),
+                "the accepted review conversion converts the attempt one-way to Practice");
+        assertEquals(List.of("substantive_clarification", "temporary_explain"),
+                attempt.assistanceTraceStrings());
+        assertEquals(ReviewTaskStatus.CANCELLED,
+                harness.flowStore().findReview(review.reviewId()).orElseThrow().status(),
+                "the started Review Task is cancelled by the conversion");
+        assertTrue(harness.flowStore().unfinishedReviewsFor(LEARNER_ID).isEmpty(),
+                "the cancelled Review leaves no unfinished Review work");
+        assertEquals(1, harness.flowStore().allEvidence().size(),
+                "the conversion creates no Review Evidence");
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST,
+                harness.flowStore().allEvidence().get(0).attemptPurpose(),
+                "only the earlier Independent pass evidence exists");
+        ConceptProgress progress =
+                new ConceptProgressProjector().projectFor(harness.flowStore(), LEARNER_ID, CONCEPT_ID);
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.currentMilestone(),
+                "the conversion leaves the milestones unchanged");
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.highestMilestoneReached());
+
+        ApplyFlowResult.Boundary resumed = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+                converted.interaction().flowId(), converted.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(reviewAttemptId, resumed.interaction().attemptId(),
+                "Continue returns to the same converted Practice attempt");
+        ApplyFlowResult.Boundary freshIndependent = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                resumed.interaction().flowId(), resumed.interaction().interactionVersion(), UUID.randomUUID(),
+                reviewAttemptId, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION,
+                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
+        assertEquals(LearningStage.INDEPENDENT_TEST, freshIndependent.interaction().stage(),
+                "the converted review attempt's Practice pass satisfies readiness");
+        ApplyFlowResult.Boundary rejoined = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                freshIndependent.interaction().flowId(), freshIndependent.interaction().interactionVersion(),
+                UUID.randomUUID(), freshIndependent.interaction().attemptId(),
+                "6*x^2 - 1", "6*x^2 - 1", null);
+        assertEquals(3, harness.flowStore().allEvidence().size(),
+                "the converted review creates no evidence, and the new Independent pass is the third item");
+        List<ReviewTask> restarted = harness.flowStore().unfinishedReviewsFor(LEARNER_ID);
+        assertEquals(1, restarted.size(),
+                "the later Independent pass restarts the cadence with a single Review");
+        assertEquals(1, restarted.get(0).reviewNumber(),
+                "the restarted cadence begins again at Review 1");
+        assertEquals(ReviewTaskStatus.SCHEDULED, restarted.get(0).status());
+        ConceptProgress rejoinedProgress =
+                new ConceptProgressProjector().projectFor(harness.flowStore(), LEARNER_ID, CONCEPT_ID);
+        assertEquals(MasteryMilestone.INDEPENDENT, rejoinedProgress.currentMilestone());
+    }
+
+    @Test
+    void anAssistanceRefusalLeavesTheStartedReviewTaskUnchanged() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION))),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment())));
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+        ReviewTask review = harness.flowStore().unfinishedReviewsFor(LEARNER_ID).get(0);
+        harness.flowStore().markDueReviewsDue(
+                CLOCK.instant().plus(ReviewTaskScheduler.FIRST_REVIEW_DELAY));
+        ReviewStartResult.Boundary reviewBoundary = (ReviewStartResult.Boundary) harness.reviewStartFlow().start(
+                review.reviewId(), UUID.randomUUID());
+        UUID reviewAttemptId = reviewBoundary.interaction().attemptId();
+        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+                reviewBoundary.interaction().flowId(), reviewBoundary.interaction().interactionVersion(),
+                reviewAttemptId, "为什么幂法则适用？", UUID.randomUUID());
+        ApplyFlowResult.Boundary refused = (ApplyFlowResult.Boundary) harness.useCase().assistanceDecided(
+                consented.interaction().flowId(), consented.interaction().interactionVersion(),
+                reviewAttemptId, false, UUID.randomUUID());
+        assertEquals(AttemptPurpose.REVIEW, refused.interaction().attemptPurpose(),
+                "refusal must preserve the Review purpose");
+        assertEquals(LearningStage.DELAYED_REVIEW, refused.interaction().stage());
+        assertNotNull(refused.interaction().learnerProjection());
+        TaskAttempt attempt = harness.artifacts().findAttempt(reviewAttemptId).orElseThrow();
+        assertEquals(AttemptStatus.OPEN, attempt.status());
+        assertEquals(AttemptPurpose.REVIEW, attempt.purpose());
+        assertTrue(attempt.assistanceTrace().isEmpty());
+        assertEquals(ReviewTaskStatus.STARTED,
+                harness.flowStore().findReview(review.reviewId()).orElseThrow().status(),
+                "refusal must leave the started Review Task untouched");
+        assertEquals(1, harness.flowStore().unfinishedReviewsFor(LEARNER_ID).size());
+        assertEquals(1, harness.flowStore().allEvidence().size());
+        assertEquals(0, harness.explainGeneration().calls().size(),
+                "refusal must expose no teaching content");
+    }
+
+    @Test
+    void clarificationAndAssistanceCommandsAreIgnoredForWrongOrClosedAttempts() {
+        Harness harness = harness();
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        UUID diagnosticAttemptId = started.interaction().attemptId();
+        ApplyFlowResult.ClarificationIgnored diagnostic = (ApplyFlowResult.ClarificationIgnored) harness.useCase()
+                .clarificationAsked(started.interaction().flowId(), 1, diagnosticAttemptId,
+                        "这是什么题？", UUID.randomUUID());
+        assertEquals(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE, diagnostic.reason(),
+                "a Diagnostic attempt never takes the clarification command");
+        ApplyFlowResult.AssistanceIgnored diagnosticAssist = (ApplyFlowResult.AssistanceIgnored) harness.useCase()
+                .assistanceDecided(started.interaction().flowId(), 1, diagnosticAttemptId, true,
+                        UUID.randomUUID());
+        assertEquals(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE, diagnosticAssist.reason());
+        assertEquals(0, harness.classifier().calls().size(),
+                "a wrong-purpose clarification must never classify");
+        ApplyFlowResult.ClarificationIgnored unknown = (ApplyFlowResult.ClarificationIgnored) harness.useCase()
+                .clarificationAsked(started.interaction().flowId(), 1, UUID.randomUUID(),
+                        "这是什么题？", UUID.randomUUID());
+        assertEquals(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND, unknown.reason());
+        ApplyFlowResult.AssistanceIgnored unknownAssist = (ApplyFlowResult.AssistanceIgnored) harness.useCase()
+                .assistanceDecided(started.interaction().flowId(), 1, UUID.randomUUID(), false,
+                        UUID.randomUUID());
+        assertEquals(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND, unknownAssist.reason());
+        harness.useCase().submitAnswer(started.interaction().flowId(), 1, UUID.randomUUID(),
+                diagnosticAttemptId, ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
+                ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        ApplyFlowResult.ClarificationIgnored closed = (ApplyFlowResult.ClarificationIgnored) harness.useCase()
+                .clarificationAsked(started.interaction().flowId(), 2, diagnosticAttemptId,
+                        "这是什么题？", UUID.randomUUID());
+        assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED, closed.reason(),
+                "a closed attempt never takes a clarification");
+        assertEquals(2, harness.flowStore().latestInteraction(started.interaction().flowId())
+                .orElseThrow().interactionVersion(),
+                "the ignored commands never advance the interaction");
+    }
+
     private static String invalidLadderJson() {
         return HintScriptData.ladderReadyJson(
                 HintScriptData.H4_SCAFFOLD, HintScriptData.H5_LEARNER_CONTENT,
                 HintScriptData.H5_STEPS, "6*x^2-4");
+    }
+
+    /**
+     * A ladder whose H5 proposed answer matches the converted Independent
+     * task's expected answer {@code 15*x^2 - 2}, so the deterministic H5
+     * equivalence check passes and the converted attempt accepts hints.
+     */
+    private static String independentLadderJson() {
+        return HintScriptData.ladderReadyJson(
+                "对 5x³ 求导得 15x²，对 −2x 求导得 −2，常数 1 的导数为 0。",
+                "完整解答：g'(x) = 3·5x² − 2 = 15x² − 2。",
+                new String[]{
+                        "使用幂法则：d/dx (5x³) = 15x²",
+                        "使用常数倍法则：d/dx (−2x) = −2",
+                        "常数法则：d/dx (1) = 0",
+                        "合并各项：g'(x) = 15x² − 2"
+                },
+                "15*x^2-2");
     }
 
     /**
@@ -2545,6 +3040,24 @@ class LearningFlowGraphContractTest {
     }
 
     private Harness harness(
+            ScriptedApplyGenerationModel generation,
+            ScriptedTaskVerifier verifier,
+            ScriptedAssessmentModel assessment,
+            ScriptedResponseVerificationModel verification,
+            ScriptedExplainGenerationModel explainGeneration,
+            ScriptedHintGenerationModel hintGeneration,
+            ScriptedTeachBackGenerationModel teachBackGeneration,
+            ScriptedTeachBackAssessmentModel teachBackAssessment,
+            ScriptedTeachBackTaskVerifier teachBackVerifier,
+            ScriptedPedagogyModel pedagogy,
+            ScriptedClarificationClassifier classifier
+    ) {
+        return harness(CLOCK, generation, verifier, assessment, verification, explainGeneration,
+                hintGeneration, teachBackGeneration, teachBackAssessment, teachBackVerifier, pedagogy,
+                classifier);
+    }
+
+    private Harness harness(
             Clock clock,
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
@@ -2557,8 +3070,27 @@ class LearningFlowGraphContractTest {
             ScriptedTeachBackTaskVerifier teachBackVerifier,
             ScriptedPedagogyModel pedagogy
     ) {
+        return harness(clock, generation, verifier, assessment, verification, explainGeneration,
+                hintGeneration, teachBackGeneration, teachBackAssessment, teachBackVerifier, pedagogy,
+                new ScriptedClarificationClassifier());
+    }
+
+    private Harness harness(
+            Clock clock,
+            ScriptedApplyGenerationModel generation,
+            ScriptedTaskVerifier verifier,
+            ScriptedAssessmentModel assessment,
+            ScriptedResponseVerificationModel verification,
+            ScriptedExplainGenerationModel explainGeneration,
+            ScriptedHintGenerationModel hintGeneration,
+            ScriptedTeachBackGenerationModel teachBackGeneration,
+            ScriptedTeachBackAssessmentModel teachBackAssessment,
+            ScriptedTeachBackTaskVerifier teachBackVerifier,
+            ScriptedPedagogyModel pedagogy,
+            ScriptedClarificationClassifier classifier
+    ) {
         InMemoryArtifactStore artifacts = new InMemoryArtifactStore(clock);
-        InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(clock);
+        InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(clock, artifacts);
         ReviewTaskScheduler reviewScheduler = new ReviewTaskScheduler(flowStore);
         ApplyProfileExecutor executor = new ApplyProfileExecutor(ReferenceBundles.stack(), generation, verifier, artifacts);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
@@ -2579,13 +3111,16 @@ class LearningFlowGraphContractTest {
                         ReferenceBundles.teachBackStack(), teachBackGeneration, teachBackVerifier, artifacts),
                 artifacts, flowStore, teachBackAssessment,
                 TeachBackApplyFixture.teachBackContext(), clock);
+        ReviewStartFlow reviewStartFlow = new ReviewStartFlow(
+                executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), clock);
         LearningStateGraph graph = new LearningStateGraph(
-                artifacts, flowStore, diagnosticFlow, independentFlow, practiceFlow,
-                explainFlow, hintFlow, teachBackFlow, pedagogy, clock);
+                artifacts, flowStore, flowStore, diagnosticFlow, independentFlow, practiceFlow,
+                explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
                 artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), clock);
         return new Harness(artifacts, flowStore, generation, hintGeneration, useCase, graph,
-                explainGeneration, teachBackGeneration, teachBackAssessment, teachBackFlow, pedagogy);
+                explainGeneration, teachBackGeneration, teachBackAssessment, teachBackFlow, pedagogy,
+                reviewStartFlow, classifier);
     }
 
     private record Harness(
@@ -2599,7 +3134,9 @@ class LearningFlowGraphContractTest {
             ScriptedTeachBackGenerationModel teachBackGeneration,
             ScriptedTeachBackAssessmentModel teachBackAssessment,
             TeachBackFlow teachBackFlow,
-            ScriptedPedagogyModel pedagogy
+            ScriptedPedagogyModel pedagogy,
+            ReviewStartFlow reviewStartFlow,
+            ScriptedClarificationClassifier classifier
     ) {
         LearningFlowCommandUseCase newUseCase() {
             return new LearningFlowCommandUseCase(

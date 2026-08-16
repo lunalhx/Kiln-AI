@@ -1,6 +1,8 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptConversionOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
@@ -82,6 +84,26 @@ public interface ArtifactStore {
     HintExposureOutcome exposeHint(UUID attemptId, HintLadder ladder, int requestedLevel, UUID commandKey);
 
     Optional<HintRequestRecord> findHintRequest(UUID attemptId, UUID commandKey);
+
+    /**
+     * Appends recorded assistance — a procedural or substantive clarification
+     * or a temporary Explain shown inside the open Attempt — to the Attempt's
+     * Assistance Trace. Only an OPEN attempt may be extended; a closed or
+     * unknown attempt returns empty and nothing is written, so a stale
+     * clarification can never touch a committed Attempt.
+     */
+    Optional<TaskAttempt> appendAssistance(UUID attemptId, List<AssistanceTraceEntry> entries);
+
+    /**
+     * Atomically converts one open Independent Test or Review Attempt to
+     * Practice (one-way, before any assistance content is exposed) and
+     * appends the recorded assistance to its Trace. An already-Practice open
+     * attempt returns {@link AttemptConversionOutcome.AlreadyPractice}
+     * without appending again, so a replayed conversion never duplicates its
+     * trace; a closed or unknown attempt returns
+     * {@link AttemptConversionOutcome.Ignored} and nothing is written.
+     */
+    AttemptConversionOutcome convertToPractice(UUID attemptId, List<AssistanceTraceEntry> entries);
 
     void recordTaskVerification(UUID taskPackageId, TaskVerificationVerdict verdict);
 

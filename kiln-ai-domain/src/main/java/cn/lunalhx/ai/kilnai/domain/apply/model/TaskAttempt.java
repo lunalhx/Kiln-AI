@@ -114,9 +114,17 @@ public record TaskAttempt(
         return new TaskAttempt(attemptId, taskPackageId, purpose, status, openedAt, closedAt, submission, extended);
     }
 
+    /**
+     * The highest actually exposed Hint Level of the attempt. Only HINT
+     * entries of the Assistance Trace count: a procedural or substantive
+     * clarification or a temporary Explain is recorded assistance but never
+     * raises the hint level, so the no-hint qualifiers and the ladder's next
+     * legal level stay driven by real hints only.
+     */
     @JsonIgnore
     public int highestHintLevel() {
         return assistanceTrace.stream()
+                .filter(entry -> entry.kind() == AssistanceTraceEntry.AssistanceKind.HINT)
                 .mapToInt(entry -> entry.level().level())
                 .max()
                 .orElse(0);

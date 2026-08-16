@@ -94,8 +94,8 @@ class ApplyFlowStoreJsonRoundTripTest {
         TaskAttempt closedAttempt = new TaskAttempt(
                 openAttempt.attemptId(), taskPackage.taskPackageId(), AttemptPurpose.DIAGNOSTIC,
                 AttemptStatus.SUBMITTED, openAttempt.openedAt(), submission.submittedAt(), submission,
-                List.of(new AssistanceTraceEntry(HintLevel.H1, Instant.parse("2026-08-15T00:00:00Z")),
-                        new AssistanceTraceEntry(HintLevel.H3, Instant.parse("2026-08-15T00:00:05Z"))));
+                List.of(AssistanceTraceEntry.hint(HintLevel.H1, Instant.parse("2026-08-15T00:00:00Z")),
+                        AssistanceTraceEntry.hint(HintLevel.H3, Instant.parse("2026-08-15T00:00:05Z"))));
         assertEquals(closedAttempt, roundTrip(closedAttempt));
         assertEquals(new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, closedAttempt),
                 roundTrip(new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, closedAttempt)));
@@ -124,7 +124,7 @@ class ApplyFlowStoreJsonRoundTripTest {
         UUID flowId = UUID.randomUUID();
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
-                openAttempt.attemptId(), AttemptPurpose.DIAGNOSTIC, projection, null, null, null);
+                openAttempt.attemptId(), AttemptPurpose.DIAGNOSTIC, projection, null, null, null, null);
         assertEquals(interaction, roundTrip(interaction));
 
         TeachingProjection teaching = new TeachingProjection(
@@ -138,7 +138,7 @@ class ApplyFlowStoreJsonRoundTripTest {
                         ApplyLearnerEvent.FLOW_CONTROL));
         ApplyFlowInteraction teachingInteraction = new ApplyFlowInteraction(
                 flowId, 2, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.LEARNING_AND_PRACTICE,
-                null, null, null, null, teaching, null);
+                null, null, null, null, teaching, null, null);
         assertEquals(teachingInteraction, roundTrip(teachingInteraction));
 
         HintView hint = new HintView(3, "strategy", "先对每一项分别求导。",

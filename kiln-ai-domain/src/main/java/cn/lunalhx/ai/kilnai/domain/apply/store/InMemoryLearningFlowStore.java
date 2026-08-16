@@ -238,6 +238,24 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
+    public synchronized Optional<ReviewTask> cancelStartedReview(UUID learnerId, UUID conceptId, Instant cancelledAt) {
+        Objects.requireNonNull(learnerId, "learnerId must not be null");
+        Objects.requireNonNull(conceptId, "conceptId must not be null");
+        Objects.requireNonNull(cancelledAt, "cancelledAt must not be null");
+        Optional<ReviewTask> started = findStartedReview(learnerId, conceptId);
+        if (started.isEmpty()) {
+            return Optional.empty();
+        }
+        ReviewTask current = started.get();
+        ReviewTask cancelled = new ReviewTask(
+                current.reviewId(), current.learnerId(), current.conceptId(), current.flowId(),
+                current.reviewNumber(), ReviewTaskStatus.CANCELLED, current.dueAt(), current.createdAt(),
+                current.startedAt(), null, current.completedAt(), cancelledAt);
+        reviews.put(cancelled.reviewId(), cancelled);
+        return Optional.of(cancelled);
+    }
+
+    @Override
     public synchronized Optional<ReviewTaskStore.ReviewAdvance> acceptEvidenceAndAdvanceReview(
             AcceptedLearningEvidence evidence,
             UUID completedReviewId,
@@ -325,7 +343,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
-                bind.taskPackage().learnerProjection(), null, null, null);
+                bind.taskPackage().learnerProjection(), null, null, null, null);
         commitBoundary(interaction,
                 new ApplyCheckpoint(UUID.randomUUID(), bind.flowId(), bind.interactionVersion(), clock.instant()),
                 new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
@@ -360,11 +378,11 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         ApplyFlowInteraction interaction = replacement == null
                 ? new ApplyFlowInteraction(
                         review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
-                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null, null)
+                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null, null, null)
                 : new ApplyFlowInteraction(
                         review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                         LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
-                        replacementProjection, bind.learnerMessage(), null, null);
+                        replacementProjection, bind.learnerMessage(), null, null, null);
         commitBoundary(interaction,
                 new ApplyCheckpoint(UUID.randomUUID(), review.flowId(), bind.interactionVersion(), clock.instant()),
                 new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), review.flowId(),

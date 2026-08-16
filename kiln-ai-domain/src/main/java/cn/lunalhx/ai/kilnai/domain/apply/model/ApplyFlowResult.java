@@ -10,7 +10,9 @@ public sealed interface ApplyFlowResult
         permits ApplyFlowResult.Boundary,
         ApplyFlowResult.SubmissionRejected,
         ApplyFlowResult.SubmissionIgnored,
-        ApplyFlowResult.HintIgnored {
+        ApplyFlowResult.HintIgnored,
+        ApplyFlowResult.ClarificationIgnored,
+        ApplyFlowResult.AssistanceIgnored {
 
     record Boundary(ApplyFlowInteraction interaction) implements ApplyFlowResult {
     }
@@ -28,5 +30,23 @@ public sealed interface ApplyFlowResult
      * and the interaction never advances.
      */
     record HintIgnored(SubmissionIgnoreReason reason) implements ApplyFlowResult {
+    }
+
+    /**
+     * A clarification request that was never legal for the addressed attempt
+     * — an unknown attempt, a wrong purpose (Diagnostic or Teach-back), or an
+     * already-closed attempt. Nothing is classified, answered, or recorded,
+     * and the interaction never advances.
+     */
+    record ClarificationIgnored(SubmissionIgnoreReason reason) implements ApplyFlowResult {
+    }
+
+    /**
+     * An assistance decision that was never legal for the addressed attempt —
+     * an unknown attempt, an attempt that is no longer open, or an attempt
+     * that is already Practice. Nothing is converted, recorded, or cancelled,
+     * and the interaction never advances.
+     */
+    record AssistanceIgnored(SubmissionIgnoreReason reason) implements ApplyFlowResult {
     }
 }

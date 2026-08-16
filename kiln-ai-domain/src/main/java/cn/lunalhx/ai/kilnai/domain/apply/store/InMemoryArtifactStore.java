@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.store;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptConversionOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
@@ -9,6 +10,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintLevel;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
@@ -146,7 +148,7 @@ public final class InMemoryArtifactStore implements ArtifactStore {
         HintRequestRecord request = new HintRequestRecord(
                 attemptId, commandKey, requestedLevel, requestedLevel, clock.instant());
         TaskAttempt extended = current.appendAssistance(
-                new AssistanceTraceEntry(HintLevel.of(requestedLevel), clock.instant()));
+                AssistanceTraceEntry.hint(HintLevel.of(requestedLevel), clock.instant()));
         AttemptCloseOutcome closed = requestedLevel == 5
                 ? extended.closeAsSolutionRevealed(clock.instant())
                 : new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, extended);
@@ -164,6 +166,57 @@ public final class InMemoryArtifactStore implements ArtifactStore {
         return hintRequests.getOrDefault(attemptId, List.of()).stream()
                 .filter(request -> request.commandKey().equals(commandKey))
                 .findFirst();
+    }
+
+    @Override
+    public synchronized Optional<TaskAttempt> appendAssistance(
+            UUID attemptId,
+            List<AssistanceTraceEntry> entries
+    ) {
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        Objects.requireNonNull(entries, "entries must not be null");
+        TaskAttempt current = attempts.get(attemptId);
+        if (current == null || !current.isOpen()) {
+            return Optional.empty();
+        }
+        TaskAttempt extended = current;
+        for (AssistanceTraceEntry entry : entries) {
+            extended = extended.appendAssistance(entry);
+        }
+        attempts.put(attemptId, extended);
+        return Optional.of(extended);
+    }
+
+    @Override
+    public synchronized AttemptConversionOutcome convertToPractice(
+            UUID attemptId,
+            List<AssistanceTraceEntry> entries
+    ) {
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        Objects.requireNonNull(entries, "entries must not be null");
+        TaskAttempt current = attempts.get(attemptId);
+        if (current == null) {
+            return new AttemptConversionOutcome.Ignored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+        }
+        if (!current.isOpen()) {
+            return new AttemptConversionOutcome.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+        }
+        if (current.purpose() == AttemptPurpose.PRACTICE) {
+            return new AttemptConversionOutcome.AlreadyPractice(current);
+        }
+        if (current.purpose() != AttemptPurpose.INDEPENDENT_TEST
+                && current.purpose() != AttemptPurpose.REVIEW) {
+            return new AttemptConversionOutcome.Ignored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+        }
+        TaskAttempt converted = new TaskAttempt(
+                current.attemptId(), current.taskPackageId(), AttemptPurpose.PRACTICE,
+                current.status(), current.openedAt(), current.closedAt(),
+                current.submission(), current.assistanceTrace());
+        for (AssistanceTraceEntry entry : entries) {
+            converted = converted.appendAssistance(entry);
+        }
+        attempts.put(attemptId, converted);
+        return new AttemptConversionOutcome.Converted(converted);
     }
 
     @Override

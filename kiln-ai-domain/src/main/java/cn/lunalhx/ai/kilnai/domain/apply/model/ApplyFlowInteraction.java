@@ -11,8 +11,9 @@ import java.util.UUID;
  * The durable learner-visible interaction of one Apply Learning Flow at one
  * Learner Interaction Boundary. It carries the open Task Attempt awaiting a
  * submission, a teaching interaction with its learner-visible teaching
- * projection, the learner-visible view of the last exposed hint level, or a
- * terminal message; it never carries private assessor projections, expected
+ * projection, the learner-visible view of the last exposed hint level, an
+ * assistance-consent request over an open Independent or Review attempt, or
+ * a terminal message; it never carries private assessor projections, expected
  * answers, unexposed hint levels, source traces, or Fingerprints.
  */
 public record ApplyFlowInteraction(
@@ -25,7 +26,8 @@ public record ApplyFlowInteraction(
         LearnerProjection learnerProjection,
         String learnerMessage,
         TeachingProjection teachingProjection,
-        HintView hint
+        HintView hint,
+        AssistanceConsentView assistanceConsent
 ) {
 
     public ApplyFlowInteraction {

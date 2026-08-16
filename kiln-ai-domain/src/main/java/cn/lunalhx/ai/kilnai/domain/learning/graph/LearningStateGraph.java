@@ -11,6 +11,9 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceConsentView;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptConversionOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.DiagnosticSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintResult;
@@ -28,6 +31,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.ProcessedCommand;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
@@ -74,8 +78,33 @@ public final class LearningStateGraph {
 
     public static final String RESUME_PRACTICE_MESSAGE = "请继续完成当前练习题。";
 
+    /**
+     * The teaching intent of every clarification-driven temporary Explain: a
+     * pure teaching action answering the learner's substantive question, never
+     * an assessment or a new task.
+     */
+    public static final String CLARIFICATION_INTENT = "clarification_assistance";
+
+    /**
+     * The learner-visible consequence of accepting help on an open
+     * Independent Test or Review Attempt: the attempt will be converted
+     * one-way to Practice before any assistance content is exposed
+     * (ADR-0014).
+     */
+    public static final String CONSENT_WARNING_MESSAGE =
+            "请求帮助将不再计入独立成绩：本次尝试将不可逆地转为练习。是否继续？";
+
+    public static final String ASSISTANCE_REFUSED_MESSAGE = "已放弃帮助，本次尝试保持不变，请继续作答。";
+
+    public static final String ASSISTANCE_CONVERTED_MESSAGE =
+            "本次尝试已转为练习，请先阅读下面的讲解，之后可继续作答或请求提示。";
+
+    public static final String CLARIFICATION_EXPLAIN_MESSAGE =
+            "以下是针对您疑问的讲解，之后请继续完成当前题目。";
+
     private final ArtifactStore artifactStore;
     private final LearningFlowStore flowStore;
+    private final ReviewTaskStore reviewStore;
     private final DiagnosticFlow diagnosticFlow;
     private final IndependentSubmissionFlow independentFlow;
     private final PracticeSubmissionFlow practiceFlow;
@@ -84,11 +113,13 @@ public final class LearningStateGraph {
     private final TeachBackFlow teachBackFlow;
     private final WorkflowGuard guard;
     private final PedagogyPlanner planner;
+    private final ClarificationGate clarificationGate;
     private final Clock clock;
 
     public LearningStateGraph(
             ArtifactStore artifactStore,
             LearningFlowStore flowStore,
+            ReviewTaskStore reviewStore,
             DiagnosticFlow diagnosticFlow,
             IndependentSubmissionFlow independentFlow,
             PracticeSubmissionFlow practiceFlow,
@@ -96,10 +127,12 @@ public final class LearningStateGraph {
             HintFlow hintFlow,
             TeachBackFlow teachBackFlow,
             PedagogyPort pedagogyPort,
+            ClarificationClassifierPort clarificationClassifier,
             Clock clock
     ) {
         this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
         this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
+        this.reviewStore = Objects.requireNonNull(reviewStore, "reviewStore must not be null");
         this.diagnosticFlow = Objects.requireNonNull(diagnosticFlow, "diagnosticFlow must not be null");
         this.independentFlow = Objects.requireNonNull(independentFlow, "independentFlow must not be null");
         this.practiceFlow = Objects.requireNonNull(practiceFlow, "practiceFlow must not be null");
@@ -108,6 +141,8 @@ public final class LearningStateGraph {
         this.teachBackFlow = Objects.requireNonNull(teachBackFlow, "teachBackFlow must not be null");
         this.guard = new WorkflowGuard();
         this.planner = new PedagogyPlanner(Objects.requireNonNull(pedagogyPort, "pedagogyPort must not be null"));
+        this.clarificationGate = new ClarificationGate(
+                Objects.requireNonNull(clarificationClassifier, "clarificationClassifier must not be null"));
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -123,10 +158,10 @@ public final class LearningStateGraph {
             case ApplyDeliveryResult.Delivered delivered -> new ApplyFlowInteraction(
                     flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
                     delivered.attempt().attemptId(), delivered.attempt().purpose(),
-                    delivered.learnerProjection(), null, null, null);
+                    delivered.learnerProjection(), null, null, null, null);
             case ApplyDeliveryResult.Unavailable unavailable -> new ApplyFlowInteraction(
                     flowId, 1, FlowStatus.TERMINAL, LearningStage.DIAGNOSTIC,
-                    null, null, null, unavailable.learnerMessage(), null, null);
+                    null, null, null, unavailable.learnerMessage(), null, null, null);
         };
         return commitBoundary(interaction, idempotencyKey, requestHash);
     }
@@ -255,6 +290,265 @@ public final class LearningStateGraph {
                     idempotencyKey, requestHash);
             case HintResult.Ignored ignored -> new ApplyFlowResult.HintIgnored(ignored.reason());
         };
+    }
+
+    /**
+     * The Graph Run of a clarification-asked command: the Clarification Gate
+     * classifies the free-form message and routes by the open Attempt's
+     * purpose. A procedural request is answered directly by the gate with a
+     * deterministic restatement of the Task Package's own format contract and
+     * recorded as procedural assistance — it never disqualifies an
+     * Independent attempt. A substantive or uncertain request on an open
+     * Apply Practice Attempt records the assistance and delivers a temporary
+     * Explain teaching boundary; on an open Independent Test or Review
+     * Attempt it first projects an assistance-consent request with no
+     * conversion, recording, or teaching content. Diagnostic and Teach-back
+     * attempts never take the clarification command.
+     */
+    public ApplyFlowResult clarificationAsked(
+            UUID flowId,
+            int interactionVersion,
+            UUID attemptId,
+            String message,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        Objects.requireNonNull(message, "message must not be null");
+        LearningState state = LearningState.rehydrate(flowStore, flowId);
+        if (state.latestInteraction().interactionVersion() != interactionVersion) {
+            throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+        }
+        Optional<TaskAttempt> maybeAttempt = artifactStore.findAttempt(attemptId);
+        if (maybeAttempt.isEmpty()) {
+            return new ApplyFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+        }
+        TaskAttempt attempt = maybeAttempt.get();
+        if (!attempt.isOpen()) {
+            return new ApplyFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+        }
+        if (isTeachBackAttempt(attemptId) || attempt.purpose() == AttemptPurpose.DIAGNOSTIC) {
+            return new ApplyFlowResult.ClarificationIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+        }
+        ClarificationClassification classification = clarificationGate.classify(message, taskTextOf(attempt));
+        return switch (classification) {
+            case PROCEDURAL -> answerProcedurally(state, attempt, idempotencyKey, requestHash);
+            case SUBSTANTIVE, UNCERTAIN -> switch (attempt.purpose()) {
+                case PRACTICE -> deliverClarificationExplain(state, attempt, idempotencyKey, requestHash);
+                case INDEPENDENT_TEST, REVIEW ->
+                        consentBoundary(state, attempt, idempotencyKey, requestHash);
+                default -> new ApplyFlowResult.ClarificationIgnored(
+                        SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+            };
+        };
+    }
+
+    /**
+     * The Graph Run of an assistance-decided command over an open Independent
+     * Test or Review Attempt. A refusal preserves the attempt completely
+     * unchanged and returns to the same task boundary. An acceptance
+     * generates the temporary Explain first, then atomically converts the
+     * Attempt one-way to Practice (recording the substantive clarification
+     * and the temporary Explain), cancels the STARTED Review Task when the
+     * Attempt was a Review — with no Review Evidence and no milestone change
+     * (ADR-0062) — and exposes the teaching boundary. A failed generation
+     * converts nothing and returns to the unchanged task; the learner can
+     * retry or refuse. A retry of an acceptance whose conversion already
+     * committed (the process crashed between the conversion and its boundary)
+     * resumes the same teaching boundary through the Already-Practice path:
+     * the trace is never appended twice and the command never 409s a
+     * committed half.
+     */
+    public ApplyFlowResult assistanceDecided(
+            UUID flowId,
+            int interactionVersion,
+            UUID attemptId,
+            boolean accept,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        LearningState state = LearningState.rehydrate(flowStore, flowId);
+        if (state.latestInteraction().interactionVersion() != interactionVersion) {
+            throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+        }
+        Optional<TaskAttempt> maybeAttempt = artifactStore.findAttempt(attemptId);
+        if (maybeAttempt.isEmpty()) {
+            return new ApplyFlowResult.AssistanceIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+        }
+        TaskAttempt attempt = maybeAttempt.get();
+        if (!attempt.isOpen()) {
+            return new ApplyFlowResult.AssistanceIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+        }
+        if (isTeachBackAttempt(attemptId) || attempt.purpose() == AttemptPurpose.DIAGNOSTIC) {
+            return new ApplyFlowResult.AssistanceIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+        }
+        if (attempt.purpose() == AttemptPurpose.PRACTICE) {
+            // An open Practice attempt is either the retried half of a
+            // committed conversion or a wrong-purpose client request; an
+            // accepted retry resumes the assistance exposure, a refusal can
+            // never undo a committed one-way conversion.
+            return accept
+                    ? acceptAssistance(state, attempt, idempotencyKey, requestHash)
+                    : new ApplyFlowResult.AssistanceIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+        }
+        if (!accept) {
+            return taskBoundary(state, attempt, ASSISTANCE_REFUSED_MESSAGE, idempotencyKey, requestHash);
+        }
+        return acceptAssistance(state, attempt, idempotencyKey, requestHash);
+    }
+
+    /**
+     * The accepted assistance conversion: the temporary Explain teaching
+     * content is generated, gated, and persisted before any durable mutation,
+     * and only a delivered artifact converts the Attempt and cancels the
+     * Review Task. An unavailable generation keeps the independent attempt
+     * untouched at a safe retry boundary. An Already-Practice conversion — a
+     * retried acceptance whose conversion already committed — resumes the
+     * same teaching boundary without appending the trace again.
+     */
+    private ApplyFlowResult acceptAssistance(
+            LearningState state,
+            TaskAttempt attempt,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        ExplainDeliveryResult delivery = explainFlow.deliverExplain(
+                state.flow().flowId(), CLARIFICATION_INTENT, continueFacts(state));
+        if (delivery instanceof ExplainDeliveryResult.Unavailable unavailable) {
+            return taskBoundary(state, attempt, unavailable.learnerMessage(), idempotencyKey, requestHash);
+        }
+        ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered) delivery;
+        AttemptConversionOutcome conversion = artifactStore.convertToPractice(attempt.attemptId(), recordedClarification());
+        if (conversion instanceof AttemptConversionOutcome.Ignored ignored) {
+            return new ApplyFlowResult.AssistanceIgnored(ignored.reason());
+        }
+        if (attempt.purpose() == AttemptPurpose.REVIEW) {
+            reviewStore.cancelStartedReview(
+                    state.flow().learnerId(), state.flow().conceptId(), clock.instant());
+        }
+        flowStore.recordAnchor(state.flow().flowId(),
+                new TeachBackAnchor(
+                        TeachBackAnchor.TeachBackAnchorKind.EXPLAIN_WORKED_EXAMPLE,
+                        delivered.artifact().artifactId(),
+                        clock.instant()));
+        return teachingBoundary(
+                state, delivered.artifact().learnerProjection(), ASSISTANCE_CONVERTED_MESSAGE,
+                idempotencyKey, requestHash);
+    }
+
+    /**
+     * The substantive-clarification path of an open Apply Practice Attempt:
+     * the temporary Explain is generated and persisted first, the recorded
+     * assistance (the substantive clarification and the temporary Explain)
+     * is appended to the open Attempt's Trace, and the teaching boundary is
+     * committed. The Workflow Guard's single legal next move — resuming the
+     * SAME open Practice interaction — is then reached through the existing
+     * Continue command. A failed generation appends nothing and keeps the
+     * open Attempt at a safe retry boundary.
+     */
+    private ApplyFlowResult deliverClarificationExplain(
+            LearningState state,
+            TaskAttempt attempt,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        ExplainDeliveryResult delivery = explainFlow.deliverExplain(
+                state.flow().flowId(), CLARIFICATION_INTENT, continueFacts(state));
+        if (delivery instanceof ExplainDeliveryResult.Unavailable unavailable) {
+            return boundary(
+                    state, LearningStage.LEARNING_AND_PRACTICE, attempt.attemptId(), attempt.purpose(),
+                    projectionOf(attempt), unavailable.learnerMessage(), null,
+                    idempotencyKey, requestHash);
+        }
+        ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered) delivery;
+        Optional<TaskAttempt> extended = artifactStore.appendAssistance(attempt.attemptId(), recordedClarification());
+        if (extended.isEmpty()) {
+            return new ApplyFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+        }
+        flowStore.recordAnchor(state.flow().flowId(),
+                new TeachBackAnchor(
+                        TeachBackAnchor.TeachBackAnchorKind.EXPLAIN_WORKED_EXAMPLE,
+                        delivered.artifact().artifactId(),
+                        clock.instant()));
+        return teachingBoundary(
+                state, delivered.artifact().learnerProjection(), CLARIFICATION_EXPLAIN_MESSAGE,
+                idempotencyKey, requestHash);
+    }
+
+    /**
+     * The assistance entries recorded whenever substantive clarification
+     * content and its temporary Explain are shown inside an open Attempt:
+     * one entry per actually delivered assistance, so the later Practice
+     * assessment honestly carries both.
+     */
+    private List<AssistanceTraceEntry> recordedClarification() {
+        return List.of(
+                AssistanceTraceEntry.clarification(AssistanceTraceEntry.AssistanceKind.SUBSTANTIVE_CLARIFICATION,
+                        clock.instant()),
+                AssistanceTraceEntry.clarification(AssistanceTraceEntry.AssistanceKind.TEMPORARY_EXPLAIN,
+                        clock.instant()));
+    }
+
+    /**
+     * The procedural-clarification path: the gate answers directly with a
+     * deterministic restatement of the Task Package's own exposed format
+     * contract, the answer is recorded as procedural assistance on the open
+     * Attempt, and the run stops at the same task boundary. No Teaching Node
+     * Profile is loaded and the Attempt's purpose is untouched.
+     */
+    private ApplyFlowResult answerProcedurally(
+            LearningState state,
+            TaskAttempt attempt,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        String answer = clarificationGate.proceduralAnswer(projectionOf(attempt));
+        Optional<TaskAttempt> extended = artifactStore.appendAssistance(attempt.attemptId(), List.of(
+                AssistanceTraceEntry.clarification(AssistanceTraceEntry.AssistanceKind.PROCEDURAL_CLARIFICATION,
+                        clock.instant())));
+        if (extended.isEmpty()) {
+            return new ApplyFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+        }
+        return taskBoundary(state, attempt, answer, idempotencyKey, requestHash);
+    }
+
+    private String taskTextOf(TaskAttempt attempt) {
+        return projectionOf(attempt).taskText();
+    }
+
+    private ApplyFlowResult taskBoundary(
+            LearningState state,
+            TaskAttempt attempt,
+            String learnerMessage,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        return boundary(
+                state, state.latestInteraction().stage(), attempt.attemptId(), attempt.purpose(),
+                projectionOf(attempt), learnerMessage, null, idempotencyKey, requestHash);
+    }
+
+    /**
+     * The assistance-consent Learner Interaction Boundary: the open attempt
+     * stays untouched and the learner-visible consent projection states the
+     * one-way conversion consequence. No teaching content, trace entry, or
+     * conversion ever precedes this boundary (ADR-0014).
+     */
+    private ApplyFlowResult consentBoundary(
+            LearningState state,
+            TaskAttempt attempt,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        ApplyFlowInteraction interaction = new ApplyFlowInteraction(
+                state.flow().flowId(), state.latestInteraction().interactionVersion() + 1,
+                FlowStatus.AWAITING_LEARNER_INPUT, state.latestInteraction().stage(),
+                attempt.attemptId(), attempt.purpose(), null, null, null, null,
+                new AssistanceConsentView(CONSENT_WARNING_MESSAGE, attempt.attemptId(), attempt.purpose()));
+        return commitBoundary(interaction, idempotencyKey, requestHash);
     }
 
     private ApplyFlowResult revealBoundary(
@@ -856,7 +1150,7 @@ public final class LearningStateGraph {
         FlowStatus status = learnerProjection == null ? FlowStatus.TERMINAL : FlowStatus.AWAITING_LEARNER_INPUT;
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 state.flow().flowId(), state.latestInteraction().interactionVersion() + 1, status, stage,
-                attemptId, purpose, learnerProjection, learnerMessage, null, hint);
+                attemptId, purpose, learnerProjection, learnerMessage, null, hint, null);
         return commitBoundary(interaction, idempotencyKey, requestHash);
     }
 
@@ -875,7 +1169,7 @@ public final class LearningStateGraph {
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 state.flow().flowId(), state.latestInteraction().interactionVersion() + 1,
                 FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.LEARNING_AND_PRACTICE,
-                null, null, null, learnerMessage, teachingProjection, null);
+                null, null, null, learnerMessage, teachingProjection, null, null);
         return commitBoundary(interaction, idempotencyKey, requestHash);
     }
 

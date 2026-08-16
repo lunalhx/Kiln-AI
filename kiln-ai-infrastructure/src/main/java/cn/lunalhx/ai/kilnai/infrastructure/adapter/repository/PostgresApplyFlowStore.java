@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptConversionOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
@@ -12,6 +13,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
@@ -89,6 +91,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 interaction.learnerMessage(),
                 interaction.teachingProjection() == null ? null : writeJson(interaction.teachingProjection()),
                 interaction.hint() == null ? null : writeJson(interaction.hint()),
+                interaction.assistanceConsent() == null ? null : writeJson(interaction.assistanceConsent()),
                 checkpoint.createdAt()));
         mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
                 checkpoint.checkpointId(), checkpoint.flowId(), checkpoint.interactionVersion(),
@@ -125,7 +128,9 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 row.teachingProjectionJson() == null ? null : readJson(row.teachingProjectionJson(),
                         cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection.class),
                 row.hintJson() == null ? null : readJson(row.hintJson(),
-                        cn.lunalhx.ai.kilnai.domain.apply.model.HintView.class)));
+                        cn.lunalhx.ai.kilnai.domain.apply.model.HintView.class),
+                row.assistanceConsentJson() == null ? null : readJson(row.assistanceConsentJson(),
+                        cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceConsentView.class)));
     }
 
     @Override
@@ -268,6 +273,26 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
 
     @Override
     @Transactional
+    public Optional<ReviewTask> cancelStartedReview(UUID learnerId, UUID conceptId, Instant cancelledAt) {
+        Objects.requireNonNull(learnerId, "learnerId must not be null");
+        Objects.requireNonNull(conceptId, "conceptId must not be null");
+        Objects.requireNonNull(cancelledAt, "cancelledAt must not be null");
+        ReviewTask started = toReviewTask(mapper.findStartedReview(learnerId, conceptId).orElse(null));
+        if (started == null) {
+            return Optional.empty();
+        }
+        int cancelled = mapper.cancelStartedReview(learnerId, conceptId, cancelledAt);
+        if (cancelled == 0) {
+            return Optional.empty();
+        }
+        return Optional.of(new ReviewTask(
+                started.reviewId(), started.learnerId(), started.conceptId(), started.flowId(),
+                started.reviewNumber(), ReviewTaskStatus.CANCELLED, started.dueAt(), started.createdAt(),
+                started.startedAt(), null, started.completedAt(), cancelledAt));
+    }
+
+    @Override
+    @Transactional
     public Optional<ReviewTaskStore.ReviewAdvance> acceptEvidenceAndAdvanceReview(
             AcceptedLearningEvidence evidence,
             UUID completedReviewId,
@@ -376,7 +401,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
-                bind.taskPackage().learnerProjection(), null, null, null);
+                bind.taskPackage().learnerProjection(), null, null, null, null);
         insertBoundary(bind.flowId(), bind.interactionVersion(), interaction,
                 bind.idempotencyKey(), bind.requestHash(), bind.startedAt());
         return Optional.of(interaction);
@@ -430,11 +455,11 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         ApplyFlowInteraction interaction = replacement == null
                 ? new ApplyFlowInteraction(
                         review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
-                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null, null)
+                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null, null, null)
                 : new ApplyFlowInteraction(
                         review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                         LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
-                        replacementProjection, bind.learnerMessage(), null, null);
+                        replacementProjection, bind.learnerMessage(), null, null, null);
         insertBoundary(review.flowId(), bind.interactionVersion(), interaction,
                 bind.idempotencyKey(), bind.requestHash(), clock.instant());
         return Optional.of(interaction);
@@ -460,6 +485,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 interaction.learnerMessage(),
                 interaction.teachingProjection() == null ? null : writeJson(interaction.teachingProjection()),
                 interaction.hint() == null ? null : writeJson(interaction.hint()),
+                interaction.assistanceConsent() == null ? null : writeJson(interaction.assistanceConsent()),
                 createdAt));
         mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
                 UUID.randomUUID(), flowId, interactionVersion, createdAt));
@@ -665,7 +691,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
             return new HintExposureOutcome.NotOpen(current);
         }
         TaskAttempt extended = current.appendAssistance(
-                new AssistanceTraceEntry(HintLevel.of(requestedLevel), clock.instant()));
+                AssistanceTraceEntry.hint(HintLevel.of(requestedLevel), clock.instant()));
         AttemptCloseOutcome closed = requestedLevel == 5
                 ? extended.closeAsSolutionRevealed(clock.instant())
                 : new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, extended);
@@ -716,6 +742,62 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                     .orElseGet(() -> new AttemptCloseOutcome(AttemptCloseOutcome.Result.NOT_FOUND, null));
         }
         return new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, closed);
+    }
+
+    @Override
+    @Transactional
+    public Optional<TaskAttempt> appendAssistance(UUID attemptId, List<AssistanceTraceEntry> entries) {
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        Objects.requireNonNull(entries, "entries must not be null");
+        TaskAttempt current = findAttempt(attemptId).orElse(null);
+        if (current == null || !current.isOpen()) {
+            return Optional.empty();
+        }
+        TaskAttempt extended = current;
+        for (AssistanceTraceEntry entry : entries) {
+            extended = extended.appendAssistance(entry);
+        }
+        int updated = mapper.appendAttemptAssistance(attemptId, writeJson(extended.assistanceTrace()));
+        if (updated == 0) {
+            return Optional.empty();
+        }
+        return Optional.of(extended);
+    }
+
+    @Override
+    @Transactional
+    public AttemptConversionOutcome convertToPractice(UUID attemptId, List<AssistanceTraceEntry> entries) {
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        Objects.requireNonNull(entries, "entries must not be null");
+        TaskAttempt current = findAttempt(attemptId).orElse(null);
+        if (current == null) {
+            return new AttemptConversionOutcome.Ignored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+        }
+        if (!current.isOpen()) {
+            return new AttemptConversionOutcome.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+        }
+        if (current.purpose() == AttemptPurpose.PRACTICE) {
+            return new AttemptConversionOutcome.AlreadyPractice(current);
+        }
+        if (current.purpose() != AttemptPurpose.INDEPENDENT_TEST
+                && current.purpose() != AttemptPurpose.REVIEW) {
+            return new AttemptConversionOutcome.Ignored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+        }
+        TaskAttempt converted = new TaskAttempt(
+                current.attemptId(), current.taskPackageId(), AttemptPurpose.PRACTICE,
+                current.status(), current.openedAt(), current.closedAt(),
+                current.submission(), current.assistanceTrace());
+        for (AssistanceTraceEntry entry : entries) {
+            converted = converted.appendAssistance(entry);
+        }
+        int updated = mapper.convertAttemptToPractice(attemptId, writeJson(converted.assistanceTrace()));
+        if (updated == 0) {
+            return findAttempt(attemptId)
+                    .<AttemptConversionOutcome>map(AttemptConversionOutcome.AlreadyPractice::new)
+                    .orElseGet(() -> new AttemptConversionOutcome.Ignored(
+                            SubmissionIgnoreReason.ALREADY_SUBMITTED));
+        }
+        return new AttemptConversionOutcome.Converted(converted);
     }
 
     @Override

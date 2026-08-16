@@ -54,6 +54,17 @@ public interface ReviewTaskStore {
     Optional<ReviewTask> findStartedReview(UUID learnerId, UUID conceptId);
 
     /**
+     * Atomically cancels the STARTED Review of one learner and Concept —
+     * the Review whose open Attempt was just converted to Practice after an
+     * accepted assistance decision. It writes nothing when no Review is
+     * STARTED, so a replayed or racing conversion can never double-cancel,
+     * and it never accepts Evidence or changes any milestone: the cadence
+     * position is simply abandoned and a later Independent pass restarts it
+     * at Review 1 (ADR-0062).
+     */
+    Optional<ReviewTask> cancelStartedReview(UUID learnerId, UUID conceptId, Instant cancelledAt);
+
+    /**
      * Atomically accepts one qualifying Review PASS evidence, completes the
      * given started Review at the evidence acceptance time, and schedules the
      * successor Review Task due at {@code nextDueAt} — or schedules nothing

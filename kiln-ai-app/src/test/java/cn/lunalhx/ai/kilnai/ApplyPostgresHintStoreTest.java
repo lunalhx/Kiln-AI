@@ -140,7 +140,8 @@ class ApplyPostgresHintStoreTest {
                 practicePackage.learnerProjection(),
                 null,
                 null,
-                new HintView(1, "orient", "先明确目标。", null, null));
+                new HintView(1, "orient", "先明确目标。", null, null),
+                null);
         UUID key = UUID.randomUUID();
         flowStore.commitBoundary(interaction,
                 new ApplyCheckpoint(UUID.randomUUID(), flowId, 3, Instant.parse("2026-08-15T00:00:01Z")),

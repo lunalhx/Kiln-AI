@@ -131,6 +131,58 @@ public final class LearningFlowCommandUseCase {
                         idempotencyKey, hash));
     }
 
+    /**
+     * The clarification-asked command of the closed learning command surface:
+     * the Clarification Gate classifies the free-form message and the graph
+     * routes the answer — a direct procedural restatement, a temporary
+     * Explain inside the open Practice Attempt, or an assistance-consent
+     * request over an open Independent or Review Attempt.
+     */
+    public ApplyFlowResult clarificationAsked(
+            UUID flowId,
+            int interactionVersion,
+            UUID attemptId,
+            String message,
+            UUID idempotencyKey
+    ) {
+        requireUuidKey(idempotencyKey);
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        Objects.requireNonNull(message, "message must not be null");
+        String hash = ApplyHash.sha256HexDelimited(
+                "clarify", flowId, interactionVersion, attemptId, message);
+        return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
+                interaction -> new ApplyFlowResult.Boundary(interaction),
+                () -> graph.clarificationAsked(flowId, interactionVersion, attemptId, message,
+                        idempotencyKey, hash));
+    }
+
+    /**
+     * The assistance-decided command of the closed learning command surface:
+     * the learner's explicit accept or refuse of an assistance-consent
+     * request over an open Independent or Review Attempt. Refusal preserves
+     * the attempt unchanged; acceptance converts it one-way to Practice
+     * before any assistance content is exposed, cancelling the started
+     * Review Task when the attempt was a Review.
+     */
+    public ApplyFlowResult assistanceDecided(
+            UUID flowId,
+            int interactionVersion,
+            UUID attemptId,
+            boolean accept,
+            UUID idempotencyKey
+    ) {
+        requireUuidKey(idempotencyKey);
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        String hash = ApplyHash.sha256HexDelimited(
+                "assist", flowId, interactionVersion, attemptId, accept);
+        return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
+                interaction -> new ApplyFlowResult.Boundary(interaction),
+                () -> graph.assistanceDecided(flowId, interactionVersion, attemptId, accept,
+                        idempotencyKey, hash));
+    }
+
     private void saveSourcePack() {
         ApplyExecutionContext.ConceptSourcePack pack = diagnosticContext.conceptSourcePack();
         artifactStore.saveSource(new SourceArtifact(pack.id(), pack.version(), pack.passages()));

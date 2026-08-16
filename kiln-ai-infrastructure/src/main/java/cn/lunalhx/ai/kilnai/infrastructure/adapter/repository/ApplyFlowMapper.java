@@ -37,11 +37,12 @@ public interface ApplyFlowMapper {
     @Insert("""
             INSERT INTO apply_interactions (
                 id, flow_id, interaction_version, status, stage, attempt_id, attempt_purpose,
-                learner_projection, learner_message, teaching_projection, hint, created_at
+                learner_projection, learner_message, teaching_projection, hint, assistance_consent, created_at
             ) VALUES (
                 #{id}, #{flowId}, #{interactionVersion}, #{status}, #{stage}, #{attemptId},
                 #{attemptPurpose}, CAST(#{learnerProjectionJson} AS JSONB), #{learnerMessage},
-                CAST(#{teachingProjectionJson} AS JSONB), CAST(#{hintJson} AS JSONB), #{createdAt}
+                CAST(#{teachingProjectionJson} AS JSONB), CAST(#{hintJson} AS JSONB),
+                CAST(#{assistanceConsentJson} AS JSONB), #{createdAt}
             )
             ON CONFLICT (flow_id, interaction_version) DO NOTHING
             """)
@@ -51,7 +52,8 @@ public interface ApplyFlowMapper {
             SELECT id, flow_id, interaction_version, status, stage, attempt_id, attempt_purpose,
                    learner_projection::text AS learner_projection_json, learner_message,
                    teaching_projection::text AS teaching_projection_json,
-                   hint::text AS hint_json, created_at
+                   hint::text AS hint_json,
+                   assistance_consent::text AS assistance_consent_json, created_at
             FROM apply_interactions
             WHERE flow_id = #{flowId}
             ORDER BY interaction_version DESC
@@ -304,6 +306,38 @@ public interface ApplyFlowMapper {
             @Param("closedAt") Instant closedAt
     );
 
+    /**
+     * Appends recorded clarification or temporary-Explain assistance to an
+     * OPEN attempt; the open-status guard makes a stale or racing append a
+     * no-op.
+     */
+    @Update("""
+            UPDATE apply_attempts
+            SET assistance_trace = CAST(#{assistanceTraceJson} AS JSONB)
+            WHERE id = #{attemptId} AND status = 'OPEN'
+            """)
+    int appendAttemptAssistance(
+            @Param("attemptId") UUID attemptId,
+            @Param("assistanceTraceJson") String assistanceTraceJson
+    );
+
+    /**
+     * One-way conversion of one open Independent or Review attempt to
+     * Practice, appending the recorded assistance: the conditional purpose
+     * and open-status guards make a replay or a racing conversion a no-op, so
+     * the attempt is converted exactly once and its trace never duplicates.
+     */
+    @Update("""
+            UPDATE apply_attempts
+            SET purpose = 'PRACTICE', assistance_trace = CAST(#{assistanceTraceJson} AS JSONB)
+            WHERE id = #{attemptId} AND status = 'OPEN'
+              AND purpose IN ('INDEPENDENT_TEST', 'REVIEW')
+            """)
+    int convertAttemptToPractice(
+            @Param("attemptId") UUID attemptId,
+            @Param("assistanceTraceJson") String assistanceTraceJson
+    );
+
     @Insert("""
             INSERT INTO apply_hint_ladders (attempt_id, ladder, created_at)
             VALUES (#{attemptId}, CAST(#{ladderJson} AS JSONB), #{createdAt})
@@ -461,6 +495,23 @@ public interface ApplyFlowMapper {
             @Param("learnerId") UUID learnerId,
             @Param("conceptId") UUID conceptId);
 
+    /**
+     * Atomically cancels the STARTED Review of one learner and Concept after
+     * an accepted assistance conversion of its open Attempt. The conditional
+     * STARTED guard makes a replay or a racing conversion a no-op; no
+     * Evidence is accepted and no milestone changes.
+     */
+    @Update("""
+            UPDATE review_tasks
+            SET status = 'CANCELLED', cancelled_at = #{cancelledAt}, open_attempt_id = NULL
+            WHERE learner_id = #{learnerId} AND concept_id = #{conceptId} AND status = 'STARTED'
+            """)
+    int cancelStartedReview(
+            @Param("learnerId") UUID learnerId,
+            @Param("conceptId") UUID conceptId,
+            @Param("cancelledAt") Instant cancelledAt
+    );
+
     @Update("""
             UPDATE review_tasks
             SET status = 'COMPLETED', completed_at = #{completedAt}, open_attempt_id = NULL
@@ -584,6 +635,7 @@ public interface ApplyFlowMapper {
             String learnerMessage,
             String teachingProjectionJson,
             String hintJson,
+            String assistanceConsentJson,
             Instant createdAt
     ) {
     }

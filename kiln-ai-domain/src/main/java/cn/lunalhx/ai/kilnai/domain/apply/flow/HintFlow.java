@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.gate.HintGateFacts;
 import cn.lunalhx.ai.kilnai.domain.apply.gate.HintLadderGatePolicy;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDraftException;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintGenerationDraft;
@@ -191,6 +192,7 @@ public final class HintFlow {
                             passage.content())));
         }
         List<Integer> exposedLevels = attempt.assistanceTrace().stream()
+                .filter(entry -> entry.kind() == AssistanceTraceEntry.AssistanceKind.HINT)
                 .map(entry -> entry.level().level())
                 .toList();
         return new HintExecutionContext(
