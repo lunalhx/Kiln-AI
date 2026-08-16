@@ -1,6 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.apply.store;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -25,6 +26,7 @@ public final class InMemoryArtifactStore implements ArtifactStore {
     private final Map<UUID, List<TaskVerificationVerdict>> verifications = new HashMap<>();
     private final Map<UUID, List<ResponseAssessment>> assessments = new HashMap<>();
     private final Map<String, SourceArtifact> sources = new HashMap<>();
+    private final Map<UUID, ExplainTeachingArtifact> explainArtifacts = new HashMap<>();
     private final Clock clock;
 
     public InMemoryArtifactStore(Clock clock) {
@@ -101,5 +103,20 @@ public final class InMemoryArtifactStore implements ArtifactStore {
     @Override
     public synchronized Optional<SourceArtifact> findSource(String sourcePackId) {
         return Optional.ofNullable(sources.get(sourcePackId));
+    }
+
+    @Override
+    public synchronized void saveExplainArtifact(UUID flowId, ExplainTeachingArtifact artifact) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(artifact, "artifact must not be null");
+        if (explainArtifacts.containsKey(artifact.artifactId())) {
+            throw new IllegalStateException("explain artifact already persisted: " + artifact.artifactId());
+        }
+        explainArtifacts.put(artifact.artifactId(), artifact);
+    }
+
+    @Override
+    public synchronized Optional<ExplainTeachingArtifact> findExplainArtifact(UUID artifactId) {
+        return Optional.ofNullable(explainArtifacts.get(artifactId));
     }
 }

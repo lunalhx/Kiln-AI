@@ -37,10 +37,11 @@ public interface ApplyFlowMapper {
     @Insert("""
             INSERT INTO apply_interactions (
                 id, flow_id, interaction_version, status, stage, attempt_id, attempt_purpose,
-                learner_projection, learner_message, created_at
+                learner_projection, learner_message, teaching_projection, created_at
             ) VALUES (
                 #{id}, #{flowId}, #{interactionVersion}, #{status}, #{stage}, #{attemptId},
-                #{attemptPurpose}, CAST(#{learnerProjectionJson} AS JSONB), #{learnerMessage}, #{createdAt}
+                #{attemptPurpose}, CAST(#{learnerProjectionJson} AS JSONB), #{learnerMessage},
+                CAST(#{teachingProjectionJson} AS JSONB), #{createdAt}
             )
             ON CONFLICT (flow_id, interaction_version) DO NOTHING
             """)
@@ -48,7 +49,8 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT id, flow_id, interaction_version, status, stage, attempt_id, attempt_purpose,
-                   learner_projection::text AS learner_projection_json, learner_message, created_at
+                   learner_projection::text AS learner_projection_json, learner_message,
+                   teaching_projection::text AS teaching_projection_json, created_at
             FROM apply_interactions
             WHERE flow_id = #{flowId}
             ORDER BY interaction_version DESC
@@ -89,6 +91,43 @@ public interface ApplyFlowMapper {
 
     @Select("SELECT solution_fingerprint FROM apply_exposures WHERE flow_id = #{flowId} ORDER BY created_at ASC")
     List<String> exposedSolutionFingerprints(UUID flowId);
+
+    @Insert("""
+            INSERT INTO apply_example_exposures (flow_id, example_fingerprint, created_at)
+            VALUES (#{flowId}, #{exampleFingerprint}, #{createdAt})
+            ON CONFLICT (flow_id, example_fingerprint) DO NOTHING
+            """)
+    void recordExampleExposure(
+            @Param("flowId") UUID flowId,
+            @Param("exampleFingerprint") String exampleFingerprint,
+            @Param("createdAt") Instant createdAt
+    );
+
+    @Select("""
+            SELECT example_fingerprint
+            FROM apply_example_exposures
+            WHERE flow_id = #{flowId}
+            ORDER BY created_at ASC
+            """)
+    List<String> exposedExampleFingerprints(UUID flowId);
+
+    @Insert("""
+            INSERT INTO apply_explain_artifacts (id, flow_id, artifact, created_at)
+            VALUES (#{id}, #{flowId}, CAST(#{artifactJson} AS JSONB), #{createdAt})
+            """)
+    void insertExplainArtifact(
+            @Param("id") UUID id,
+            @Param("flowId") UUID flowId,
+            @Param("artifactJson") String artifactJson,
+            @Param("createdAt") Instant createdAt
+    );
+
+    @Select("""
+            SELECT artifact::text AS artifact_json
+            FROM apply_explain_artifacts
+            WHERE id = #{artifactId}
+            """)
+    Optional<ExplainArtifactRow> findExplainArtifact(UUID artifactId);
 
     @Insert("""
             INSERT INTO apply_commands (idempotency_key, request_hash, flow_id, response, created_at)
@@ -355,6 +394,7 @@ public interface ApplyFlowMapper {
             String attemptPurpose,
             String learnerProjectionJson,
             String learnerMessage,
+            String teachingProjectionJson,
             Instant createdAt
     ) {
     }
@@ -422,5 +462,8 @@ public interface ApplyFlowMapper {
             Instant completedAt,
             Instant cancelledAt
     ) {
+    }
+
+    record ExplainArtifactRow(String artifactJson) {
     }
 }

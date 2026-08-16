@@ -18,6 +18,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
@@ -113,8 +114,22 @@ class ApplyFlowStoreJsonRoundTripTest {
         UUID flowId = UUID.randomUUID();
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
-                openAttempt.attemptId(), AttemptPurpose.DIAGNOSTIC, projection, null);
+                openAttempt.attemptId(), AttemptPurpose.DIAGNOSTIC, projection, null, null);
         assertEquals(interaction, roundTrip(interaction));
+
+        TeachingProjection teaching = new TeachingProjection(
+                "多项式求导逐项进行。",
+                new TeachingProjection.WorkedExample(
+                        "设 f(x) = 5x³ − 2x² + 7，求 f'(x)。",
+                        List.of(new TeachingProjection.Step(
+                                "d/dx[5x³] = 5 · d/dx[x³]", "constant-multiple rule", "提出系数 5。")),
+                        "15x² − 4x"),
+                List.of(ApplyLearnerEvent.CONTINUE_REQUESTED, ApplyLearnerEvent.CLARIFICATION_ASKED,
+                        ApplyLearnerEvent.FLOW_CONTROL));
+        ApplyFlowInteraction teachingInteraction = new ApplyFlowInteraction(
+                flowId, 2, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.LEARNING_AND_PRACTICE,
+                null, null, null, null, teaching);
+        assertEquals(teachingInteraction, roundTrip(teachingInteraction));
 
         ApplyCheckpoint checkpoint = new ApplyCheckpoint(
                 UUID.randomUUID(), flowId, 1, Instant.parse("2026-08-15T00:00:03Z"));

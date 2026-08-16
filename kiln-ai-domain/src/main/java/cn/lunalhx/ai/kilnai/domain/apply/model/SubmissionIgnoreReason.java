@@ -6,5 +6,6 @@ package cn.lunalhx.ai.kilnai.domain.apply.model;
 public enum SubmissionIgnoreReason {
     ATTEMPT_NOT_FOUND,
     ALREADY_SUBMITTED,
-    WRONG_ATTEMPT_PURPOSE
+    WRONG_ATTEMPT_PURPOSE,
+    CONTINUE_NOT_LEGAL
 }

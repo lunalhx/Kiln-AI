@@ -48,6 +48,14 @@ public interface LearningFlowStore {
 
     List<String> exposedSolutionFingerprints(UUID flowId);
 
+    /**
+     * Records one exposed Explain worked-example Fingerprint in the Flow's
+     * exposure ledger so later teaching content can be checked for novelty.
+     */
+    void recordExampleExposure(UUID flowId, String exampleFingerprint);
+
+    List<String> exposedExampleFingerprints(UUID flowId);
+
     boolean evidenceExists(UUID attemptId);
 
     List<AcceptedLearningEvidence> allEvidence();

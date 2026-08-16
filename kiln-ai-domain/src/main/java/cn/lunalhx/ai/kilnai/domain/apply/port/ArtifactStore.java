@@ -1,6 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -50,4 +51,15 @@ public interface ArtifactStore {
     void saveSource(SourceArtifact source);
 
     Optional<SourceArtifact> findSource(String sourcePackId);
+
+    /**
+     * Persists one durable Explain teaching artifact bound to its Flow. The
+     * artifact's learner projection is the only learner-visible content; its
+     * source trace, example Fingerprint, and execution trace stay private and
+     * are supplied to later nodes only under an explicit Node Context View
+     * policy.
+     */
+    void saveExplainArtifact(UUID flowId, ExplainTeachingArtifact artifact);
+
+    Optional<ExplainTeachingArtifact> findExplainArtifact(UUID artifactId);
 }

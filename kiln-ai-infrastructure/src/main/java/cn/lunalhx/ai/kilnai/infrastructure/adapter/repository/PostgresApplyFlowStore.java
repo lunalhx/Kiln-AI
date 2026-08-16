@@ -3,6 +3,7 @@ package cn.lunalhx.ai.kilnai.infrastructure.adapter.repository;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
@@ -78,6 +79,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 interaction.attemptPurpose() == null ? null : interaction.attemptPurpose().name(),
                 interaction.learnerProjection() == null ? null : writeJson(interaction.learnerProjection()),
                 interaction.learnerMessage(),
+                interaction.teachingProjection() == null ? null : writeJson(interaction.teachingProjection()),
                 checkpoint.createdAt()));
         mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
                 checkpoint.checkpointId(), checkpoint.flowId(), checkpoint.interactionVersion(),
@@ -85,6 +87,18 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         mapper.insertCommand(new ApplyFlowMapper.CommandRow(
                 command.idempotencyKey(), command.requestHash(), command.flowId(),
                 writeJson(command.response()), command.createdAt()));
+    }
+
+    @Override
+    public void saveExplainArtifact(UUID flowId, ExplainTeachingArtifact artifact) {
+        mapper.insertExplainArtifact(
+                artifact.artifactId(), flowId, writeJson(artifact), clock.instant());
+    }
+
+    @Override
+    public Optional<ExplainTeachingArtifact> findExplainArtifact(UUID artifactId) {
+        return mapper.findExplainArtifact(artifactId)
+                .map(row -> readJson(row.artifactJson(), ExplainTeachingArtifact.class));
     }
 
     @Override
@@ -98,7 +112,9 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 row.attemptPurpose() == null ? null : AttemptPurpose.valueOf(row.attemptPurpose()),
                 row.learnerProjectionJson() == null ? null : readJson(row.learnerProjectionJson(),
                         cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection.class),
-                row.learnerMessage()));
+                row.learnerMessage(),
+                row.teachingProjectionJson() == null ? null : readJson(row.teachingProjectionJson(),
+                        cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection.class)));
     }
 
     @Override
@@ -125,6 +141,16 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     @Override
     public List<String> exposedSolutionFingerprints(UUID flowId) {
         return mapper.exposedSolutionFingerprints(flowId);
+    }
+
+    @Override
+    public void recordExampleExposure(UUID flowId, String exampleFingerprint) {
+        mapper.recordExampleExposure(flowId, exampleFingerprint, clock.instant());
+    }
+
+    @Override
+    public List<String> exposedExampleFingerprints(UUID flowId) {
+        return mapper.exposedExampleFingerprints(flowId);
     }
 
     @Override
@@ -294,7 +320,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
-                bind.taskPackage().learnerProjection(), null);
+                bind.taskPackage().learnerProjection(), null, null);
         insertBoundary(bind.flowId(), bind.interactionVersion(), interaction,
                 bind.idempotencyKey(), bind.requestHash(), bind.startedAt());
         return Optional.of(interaction);
@@ -347,11 +373,11 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         ApplyFlowInteraction interaction = replacement == null
                 ? new ApplyFlowInteraction(
                         review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
-                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage())
+                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null)
                 : new ApplyFlowInteraction(
                         review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                         LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
-                        replacementProjection, bind.learnerMessage());
+                        replacementProjection, bind.learnerMessage(), null);
         insertBoundary(review.flowId(), bind.interactionVersion(), interaction,
                 bind.idempotencyKey(), bind.requestHash(), clock.instant());
         return Optional.of(interaction);
@@ -375,6 +401,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 interaction.attemptPurpose() == null ? null : interaction.attemptPurpose().name(),
                 interaction.learnerProjection() == null ? null : writeJson(interaction.learnerProjection()),
                 interaction.learnerMessage(),
+                interaction.teachingProjection() == null ? null : writeJson(interaction.teachingProjection()),
                 createdAt));
         mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
                 UUID.randomUUID(), flowId, interactionVersion, createdAt));

@@ -88,6 +88,19 @@ public final class LearningFlowCommandUseCase {
                         confirmedCanonical, rationale, idempotencyKey, hash));
     }
 
+    public ApplyFlowResult continueRequested(
+            UUID flowId,
+            int interactionVersion,
+            UUID idempotencyKey
+    ) {
+        requireUuidKey(idempotencyKey);
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        String hash = ApplyHash.sha256HexDelimited("continue", flowId, interactionVersion);
+        return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
+                interaction -> new ApplyFlowResult.Boundary(interaction),
+                () -> graph.continueRequested(flowId, interactionVersion, idempotencyKey, hash));
+    }
+
     public ApplyFlowInteraction query(UUID flowId) {
         Objects.requireNonNull(flowId, "flowId must not be null");
         return flowStore.latestInteraction(flowId)
