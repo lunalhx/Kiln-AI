@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.fake;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
@@ -7,6 +8,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public final class ScriptedTeachBackTaskVerifier implements TeachBackTaskVerifierPort {
 
@@ -18,7 +20,8 @@ public final class ScriptedTeachBackTaskVerifier implements TeachBackTaskVerifie
     }
 
     @Override
-    public TaskVerificationVerdict verify(TeachBackTaskPackage taskPackage, TeachBackExecutionContext context) {
+    public TaskVerificationVerdict verify(ModelProfile profile, TeachBackTaskPackage taskPackage, TeachBackExecutionContext context) {
+        Objects.requireNonNull(profile, "profile must not be null");
         verified.add(taskPackage);
         if (verified.size() > verdicts.size()) {
             throw new IllegalStateException("scripted teach-back verifier exhausted: no more scripted verdicts");

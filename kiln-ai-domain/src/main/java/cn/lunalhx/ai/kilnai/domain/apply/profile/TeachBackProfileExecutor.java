@@ -9,6 +9,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackGenerationDraft;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackUnavailableReason;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
@@ -64,8 +66,8 @@ public final class TeachBackProfileExecutor {
      * persists nothing but the verification audit records of rejected
      * candidates.
      */
-    public TeachBackDeliveryResult deliver(TeachBackExecutionContext context) {
-        PreparedDelivery prepared = prepareTask(context);
+    public TeachBackDeliveryResult deliver(ModelProfile profile, TeachBackExecutionContext context) {
+        PreparedDelivery prepared = prepareTask(profile, context);
         return switch (prepared) {
             case PreparedDelivery.TaskReady ready -> {
                 TaskAttempt attempt = artifactStore.openAttempt(ready.taskPackage());
@@ -85,7 +87,8 @@ public final class TeachBackProfileExecutor {
      * one fresh second candidate after a verifier rejection; either may be
      * used, and exhaustion after both produces Task Generation Exhausted.
      */
-    public PreparedDelivery prepareTask(TeachBackExecutionContext context) {
+    public PreparedDelivery prepareTask(ModelProfile profile, TeachBackExecutionContext context) {
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(context, "context must not be null");
         validateContextCoverage(context, stack);
         String systemPrompt = compiler.compile(stack);
@@ -93,8 +96,9 @@ public final class TeachBackProfileExecutor {
         boolean repairUsed = false;
         boolean freshCandidateUsed = false;
         while (true) {
-            String raw = generationPort.generate(systemPrompt, contextJson);
-            Outcome outcome = handleCandidate(context, raw);
+            String raw = generationPort.generate(profile, systemPrompt, contextJson);
+            Outcome outcome = handleCandidate(profile, context, raw,
+                    (repairUsed ? 1 : 0) + (freshCandidateUsed ? 1 : 0));
             if (outcome instanceof Outcome.Ready ready) {
                 return new PreparedDelivery.TaskReady(ready.taskPackage());
             }
@@ -116,7 +120,12 @@ public final class TeachBackProfileExecutor {
         }
     }
 
-    private Outcome handleCandidate(TeachBackExecutionContext context, String raw) {
+    private Outcome handleCandidate(
+            ModelProfile profile,
+            TeachBackExecutionContext context,
+            String raw,
+            int repairCount
+    ) {
         TeachBackGenerationDraft draft;
         try {
             draft = TeachBackGenerationDraft.parse(raw);
@@ -129,15 +138,16 @@ public final class TeachBackProfileExecutor {
                     TeachBackDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE);
         }
         TeachBackGenerationDraft.TaskReady taskReady = (TeachBackGenerationDraft.TaskReady) draft;
-        TeachBackTaskPackage taskPackage = assembler.assemble(taskReady, stack, context.learnerLocale());
+        TeachBackTaskPackage taskPackage = assembler.assemble(taskReady, stack, context.learnerLocale(),
+                ModelExecution.from(profile, TeachBackPromptCompiler.INSTRUCTION_BUDGET, repairCount));
         GateResult<TeachBackTaskPackage> packageGate = gatePipeline.validate(
                 taskPackage,
-                new TeachBackTaskPackageGatePolicy(context, stack.pinnedIds()),
+                new TeachBackTaskPackageGatePolicy(context, stack.pinnedIds(), profile),
                 GateContext.empty());
         if (packageGate.outcome() != GateOutcome.PASSED) {
             return new Outcome.Rejected(false);
         }
-        TaskVerificationVerdict verdict = verifierPort.verify(taskPackage, context);
+        TaskVerificationVerdict verdict = verifierPort.verify(profile, taskPackage, context);
         artifactStore.recordTaskVerification(taskPackage.taskPackageId(), verdict);
         if (!verdict.passed()) {
             return new Outcome.Rejected(true);

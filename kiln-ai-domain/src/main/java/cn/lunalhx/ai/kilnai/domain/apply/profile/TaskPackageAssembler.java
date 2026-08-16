@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.ApplyHash;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyGenerationDraft;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyJson;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExpectedExpressionNormalizer;
@@ -23,11 +24,13 @@ public final class TaskPackageAssembler {
     public Optional<TaskPackage> assemble(
             ApplyExecutionContext context,
             ApplyGenerationDraft.TaskReady draft,
-            BundleStack stack
+            BundleStack stack,
+            ModelExecution model
     ) {
         Objects.requireNonNull(context, "context must not be null");
         Objects.requireNonNull(draft, "draft must not be null");
         Objects.requireNonNull(stack, "stack must not be null");
+        Objects.requireNonNull(model, "model must not be null");
 
         Optional<String> canonical = ExpectedExpressionNormalizer.normalize(
                 draft.privateAssessorFacts().proposedExpectedAnswer().expression(),
@@ -70,7 +73,8 @@ public final class TaskPackageAssembler {
                         new PrivateAssessorProjection.ExecutionTrace(
                                 ApplyProfile.PROFILE_ID,
                                 context.taskBlueprint().pinnedId(),
-                                stack.pinnedIds()))
+                                stack.pinnedIds(),
+                                model))
         );
         return Optional.of(taskPackage);
     }

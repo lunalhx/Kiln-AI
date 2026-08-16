@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.model;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
 
 import java.util.List;
 import java.util.Objects;
@@ -44,11 +45,12 @@ public record ExplainTeachingArtifact(
         }
     }
 
-    public record ExecutionTrace(String profile, List<String> skillStack) {
+    public record ExecutionTrace(String profile, List<String> skillStack, ModelExecution model) {
 
         public ExecutionTrace {
             Objects.requireNonNull(profile, "profile must not be null");
             skillStack = List.copyOf(skillStack);
+            Objects.requireNonNull(model, "model must not be null");
         }
     }
 }

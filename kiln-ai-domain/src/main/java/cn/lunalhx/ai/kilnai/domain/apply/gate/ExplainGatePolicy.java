@@ -2,6 +2,8 @@ package cn.lunalhx.ai.kilnai.domain.apply.gate;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainExecutionContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfile;
@@ -34,10 +36,16 @@ public final class ExplainGatePolicy implements GatePolicy<ExplainTeachingArtifa
 
     private final ExplainExecutionContext context;
     private final List<String> pinnedStack;
+    private final ModelProfile profile;
 
-    public ExplainGatePolicy(ExplainExecutionContext context, List<String> pinnedStack) {
+    public ExplainGatePolicy(
+            ExplainExecutionContext context,
+            List<String> pinnedStack,
+            ModelProfile profile
+    ) {
         this.context = Objects.requireNonNull(context, "context must not be null");
         this.pinnedStack = List.copyOf(pinnedStack);
+        this.profile = Objects.requireNonNull(profile, "profile must not be null");
     }
 
     @Override
@@ -103,11 +111,14 @@ public final class ExplainGatePolicy implements GatePolicy<ExplainTeachingArtifa
                     "candidate re-exposes a previously exposed example fingerprint"));
         }
 
+        ModelExecution model = candidate.executionTrace() == null ? null : candidate.executionTrace().model();
         if (candidate.executionTrace() == null
                 || !ExplainProfile.PROFILE_ID.equals(candidate.executionTrace().profile())
-                || !candidate.executionTrace().skillStack().equals(pinnedStack)) {
+                || !candidate.executionTrace().skillStack().equals(pinnedStack)
+                || model == null
+                || !model.usesFrozenProfile(profile)) {
             violations.add(new GateViolation("explain.execution-trace",
-                    "the execution trace must pin the profile and frozen skill stack"));
+                    "the execution trace must pin the profile, frozen skill stack, and frozen model runtime"));
         }
 
         List<String> privateSecrets = privateSecrets(candidate);

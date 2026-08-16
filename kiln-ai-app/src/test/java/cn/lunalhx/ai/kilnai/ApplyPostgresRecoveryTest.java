@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
@@ -44,6 +45,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Import(ScriptedApplyPortsConfiguration.class)
 @Testcontainers(disabledWithoutDocker = true)
 class ApplyPostgresRecoveryTest {
+    private static final ModelProfile PROFILE = new ModelProfile(
+            new ModelProfile.ModelBinding("openai-compatible", "https://api.test/v1", "acme", "scripted-strong", "TEST_STRONG"),
+            new ModelProfile.ModelBinding("openai-compatible", "https://api.test/v1", "acme", "scripted-small", "TEST_SMALL"),
+            2048);
+
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -153,9 +159,9 @@ class ApplyPostgresRecoveryTest {
         UUID flowDue = UUID.randomUUID();
         UUID flowFuture = UUID.randomUUID();
         flowStore.insertFlow(new LearningFlowStore.FlowRecord(
-                flowDue, learnerId, conceptDue, FlowStatus.READY, LearningStage.DIAGNOSTIC, now));
+                flowDue, learnerId, conceptDue, FlowStatus.READY, LearningStage.DIAGNOSTIC, PROFILE, now));
         flowStore.insertFlow(new LearningFlowStore.FlowRecord(
-                flowFuture, learnerId, conceptFuture, FlowStatus.READY, LearningStage.DIAGNOSTIC, now));
+                flowFuture, learnerId, conceptFuture, FlowStatus.READY, LearningStage.DIAGNOSTIC, PROFILE, now));
         jdbc.update("""
                         INSERT INTO review_tasks (id, learner_id, concept_id, flow_id, review_number,
                                                   status, due_at, created_at)

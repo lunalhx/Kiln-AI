@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainExecutionContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
@@ -49,8 +50,9 @@ public final class ExplainFlow {
      * when the guarded decision selects Explain after an accepted
      * Diagnostic, Practice, or Teach-back failure.
      */
-    public ExplainDeliveryResult deliverExplain(UUID flowId, String intent, FeedbackFacts facts) {
+    public ExplainDeliveryResult deliverExplain(UUID flowId, ModelProfile profile, String intent, FeedbackFacts facts) {
         Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(intent, "intent must not be null");
         Objects.requireNonNull(facts, "facts must not be null");
         ExplainExecutionContext context = contextTemplate
@@ -63,7 +65,7 @@ public final class ExplainFlow {
                         flowStore.exposedExampleFingerprints(flowId),
                         flowStore.exposedHintLadderFingerprints(flowId),
                         flowStore.exposedRevealedSolutionFingerprints(flowId)));
-        ExplainDeliveryResult result = executor.deliver(context);
+        ExplainDeliveryResult result = executor.deliver(profile, context);
         if (result instanceof ExplainDeliveryResult.Delivered delivered) {
             artifactStore.saveExplainArtifact(flowId, delivered.artifact());
             flowStore.recordExampleExposure(flowId, delivered.artifact().exampleFingerprint().value());

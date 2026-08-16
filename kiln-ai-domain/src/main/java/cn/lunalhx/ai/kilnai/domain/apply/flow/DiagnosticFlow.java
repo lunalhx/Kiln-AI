@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.DiagnosticSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
@@ -63,9 +64,10 @@ public final class DiagnosticFlow {
                 independentContextTemplate, "independentContextTemplate must not be null");
     }
 
-    public ApplyDeliveryResult startDiagnostic(UUID flowId) {
+    public ApplyDeliveryResult startDiagnostic(UUID flowId, ModelProfile profile) {
         Objects.requireNonNull(flowId, "flowId must not be null");
-        ApplyDeliveryResult result = executor.deliver(diagnosticContext);
+        Objects.requireNonNull(profile, "profile must not be null");
+        ApplyDeliveryResult result = executor.deliver(profile, diagnosticContext);
         if (result instanceof ApplyDeliveryResult.Delivered delivered) {
             recordExposure(flowId, delivered.attempt().taskPackageId());
         }
@@ -74,12 +76,14 @@ public final class DiagnosticFlow {
 
     public DiagnosticSubmissionResult submitDiagnostic(
             UUID flowId,
+            ModelProfile profile,
             UUID attemptId,
             String rawDerivative,
             String confirmedCanonical,
             String rationale
     ) {
         Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(attemptId, "attemptId must not be null");
         SubmissionCloser.CloseResult closed = submissionCloser.close(
                 attemptId, AttemptPurpose.DIAGNOSTIC, rawDerivative, confirmedCanonical, rationale);
@@ -88,7 +92,7 @@ public final class DiagnosticFlow {
                     new DiagnosticSubmissionResult.Ignored(ignored.reason());
             case SubmissionCloser.CloseResult.NotSubmittable notSubmittable ->
                     new DiagnosticSubmissionResult.NotSubmittable(notSubmittable.reason());
-            case SubmissionCloser.CloseResult.Closed closedAttempt -> assess(flowId, closedAttempt.attempt());
+            case SubmissionCloser.CloseResult.Closed closedAttempt -> assess(flowId, profile, closedAttempt.attempt());
             // A Diagnostic outcome has no Evidence or cadence state to make a
             // resumed evaluation idempotent: re-running it would regenerate a
             // duplicate Independent Attempt. The pre-existing behavior is kept:
@@ -98,12 +102,12 @@ public final class DiagnosticFlow {
         };
     }
 
-    private DiagnosticSubmissionResult assess(UUID flowId, TaskAttempt closedAttempt) {
-        AssessmentOutcome outcome = assessmentRunner.run(closedAttempt, packageOf(closedAttempt));
+    private DiagnosticSubmissionResult assess(UUID flowId, ModelProfile profile, TaskAttempt closedAttempt) {
+        AssessmentOutcome outcome = assessmentRunner.run(profile, closedAttempt, packageOf(closedAttempt));
         AssessmentRunner.recordAssessments(artifactStore, closedAttempt.attemptId(), outcome);
         return switch (outcome) {
-            case AssessmentOutcome.Passed passed -> deliverIndependent(flowId, closedAttempt, outcome);
-            case AssessmentOutcome.Inconclusive inconclusive -> deliverIndependent(flowId, closedAttempt, outcome);
+            case AssessmentOutcome.Passed passed -> deliverIndependent(flowId, profile, closedAttempt, outcome);
+            case AssessmentOutcome.Inconclusive inconclusive -> deliverIndependent(flowId, profile, closedAttempt, outcome);
             // A failed submitted Diagnostic stays closed and is never
             // retroactively converted. The next learner-visible move is not
             // chosen here: the Learning StateGraph derives the legal
@@ -134,12 +138,13 @@ public final class DiagnosticFlow {
 
     private DiagnosticSubmissionResult deliverIndependent(
             UUID flowId,
+            ModelProfile profile,
             TaskAttempt closedDiagnosticAttempt,
             AssessmentOutcome outcome
     ) {
         ApplyExecutionContext independentContext = independentContextTemplate.withNoveltyExclusions(
                 flowStore.noveltyExclusions(flowId));
-        ApplyDeliveryResult result = executor.deliver(independentContext);
+        ApplyDeliveryResult result = executor.deliver(profile, independentContext);
         if (result instanceof ApplyDeliveryResult.Delivered delivered) {
             recordExposure(flowId, delivered.attempt().taskPackageId());
             return switch (outcome) {

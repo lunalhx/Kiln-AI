@@ -1,4 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.flow;
+import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
@@ -45,6 +47,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ApplyFlowUseCaseTest {
+    private static OperatorModelProfilePort profilePort() {
+        return () -> ScriptedModelProfile.PROFILE;
+    }
+
 
     private static final Clock CLOCK =
             Clock.fixed(Instant.parse("2026-08-15T00:00:00Z"), ZoneOffset.UTC);
@@ -339,7 +345,7 @@ class ApplyFlowUseCaseTest {
         return new Harness(
                 artifacts, flowStore, generation, diagnosticFlow, independentFlow, reviewFlow,
                 new ApplyFlowUseCase(artifacts, flowStore, diagnosticFlow, independentFlow, reviewFlow,
-                        DiagnosticApplyFixture.diagnosticContext(), CLOCK));
+                        DiagnosticApplyFixture.diagnosticContext(), profilePort(), CLOCK));
     }
 
     private record Harness(
@@ -355,7 +361,7 @@ class ApplyFlowUseCaseTest {
         ApplyFlowUseCase newUseCase() {
             return new ApplyFlowUseCase(
                     artifacts, flowStore, diagnosticFlow, independentFlow, reviewFlow,
-                    DiagnosticApplyFixture.diagnosticContext(), CLOCK);
+                    DiagnosticApplyFixture.diagnosticContext(), profilePort(), CLOCK);
         }
     }
 

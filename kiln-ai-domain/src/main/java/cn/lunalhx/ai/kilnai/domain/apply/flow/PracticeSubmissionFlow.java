@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.flow;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
@@ -86,9 +87,10 @@ public final class PracticeSubmissionFlow {
      * Apply Practice, and reused for every fresh replacement after a
      * conclusive fail or an Inconclusive judgment.
      */
-    public ApplyDeliveryResult deliverPractice(UUID flowId) {
+    public ApplyDeliveryResult deliverPractice(UUID flowId, ModelProfile profile) {
         Objects.requireNonNull(flowId, "flowId must not be null");
-        return deliverAndRecordExposure(flowId, practiceContextTemplate);
+        Objects.requireNonNull(profile, "profile must not be null");
+        return deliverAndRecordExposure(profile, flowId, practiceContextTemplate);
     }
 
     /**
@@ -98,9 +100,10 @@ public final class PracticeSubmissionFlow {
      * the Independent Test — the sole outcome that makes fresh Independent
      * testing legal in the current remediation cycle.
      */
-    public ApplyDeliveryResult deliverIndependent(UUID flowId) {
+    public ApplyDeliveryResult deliverIndependent(UUID flowId, ModelProfile profile) {
         Objects.requireNonNull(flowId, "flowId must not be null");
-        return deliverAndRecordExposure(flowId, independentContextTemplate);
+        Objects.requireNonNull(profile, "profile must not be null");
+        return deliverAndRecordExposure(profile, flowId, independentContextTemplate);
     }
 
     public PracticeSubmissionResult submitPractice(
@@ -149,7 +152,7 @@ public final class PracticeSubmissionFlow {
             LearningFlowStore.FlowRecord flow,
             TaskAttempt closedAttempt
     ) {
-        AssessmentOutcome outcome = assessmentRunner.run(closedAttempt, packageOf(closedAttempt));
+        AssessmentOutcome outcome = assessmentRunner.run(flow.modelProfile(), closedAttempt, packageOf(closedAttempt));
         AssessmentRunner.recordAssessments(artifactStore, closedAttempt.attemptId(), outcome);
         return new PracticeSubmissionResult.PracticeAssessed(
                 closedAttempt,
@@ -236,12 +239,13 @@ public final class PracticeSubmissionFlow {
     }
 
     private ApplyDeliveryResult deliverAndRecordExposure(
+            ModelProfile profile,
             UUID flowId,
             ApplyExecutionContext contextTemplate
     ) {
         ApplyExecutionContext context = contextTemplate.withNoveltyExclusions(
                 flowStore.noveltyExclusions(flowId));
-        ApplyDeliveryResult result = executor.deliver(context);
+        ApplyDeliveryResult result = executor.deliver(profile, context);
         if (result instanceof ApplyDeliveryResult.Delivered delivered) {
             recordExposure(flowId, delivered.attempt().taskPackageId());
         }

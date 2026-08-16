@@ -547,7 +547,14 @@ class LearningFlowPostgresRecoveryContractTest {
                 flowStore, flowStore, flowStore, diagnosticFlow, independentFlow, practiceFlow,
                 explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
         return new LearningFlowCommandUseCase(
-                flowStore, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), clock);
+                flowStore, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                (cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort) () -> new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile(
+                        new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding(
+                                "openai-compatible", "https://api.test/v1", "acme", "scripted-strong", "TEST_STRONG"),
+                        new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding(
+                                "openai-compatible", "https://api.test/v1", "acme", "scripted-small", "TEST_SMALL"),
+                        2048),
+                clock);
     }
 
     private LearningFlowCommandUseCase freshUseCase() {

@@ -1,6 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.learning.pedagogy;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDraftException;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.gate.GateContext;
 import cn.lunalhx.ai.kilnai.domain.gate.GateOutcome;
 import cn.lunalhx.ai.kilnai.domain.gate.GateResult;
@@ -40,17 +41,19 @@ public final class PedagogyPlanner {
      * initial generation and the same-plan repair.
      */
     public PedagogyDecision plan(
+            ModelProfile profile,
             FeedbackFacts facts,
             List<TeachingAction> legalActions,
             TeachingAction fallback
     ) {
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(facts, "facts must not be null");
         Objects.requireNonNull(legalActions, "legalActions must not be null");
         Objects.requireNonNull(fallback, "fallback must not be null");
         String systemPrompt = compiler.compile();
         String contextJson = compiler.serializeContext(facts, legalActions);
         for (int cycle = 1; cycle <= MAX_GENERATION_CYCLES; cycle++) {
-            String raw = port.generate(systemPrompt, contextJson);
+            String raw = port.generatePlan(profile, systemPrompt, contextJson);
             PedagogyPlan plan;
             try {
                 plan = PedagogyPlan.parse(raw);

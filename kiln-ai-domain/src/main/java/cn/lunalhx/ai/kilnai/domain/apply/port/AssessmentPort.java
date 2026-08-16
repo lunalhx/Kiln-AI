@@ -1,4 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
@@ -10,5 +12,5 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
  */
 public interface AssessmentPort {
 
-    ResponseAssessment assess(ResponseAssessmentContext context);
+    ResponseAssessment assess(ModelProfile profile, ResponseAssessmentContext context);
 }

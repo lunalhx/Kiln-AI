@@ -13,6 +13,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintUnavailableReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -70,7 +71,8 @@ public final class HintFlow {
         this.gatePipeline = new TypedArtifactGatePipeline();
     }
 
-    public HintResult requestHint(TaskAttempt attempt, boolean answerRequested, UUID commandKey) {
+    public HintResult requestHint(ModelProfile profile, TaskAttempt attempt, boolean answerRequested, UUID commandKey) {
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(attempt, "attempt must not be null");
         Objects.requireNonNull(commandKey, "commandKey must not be null");
         // The saved request record is the resume point of a command that
@@ -95,7 +97,7 @@ public final class HintFlow {
         int requestedLevel = answerRequested ? 5 : attempt.highestHintLevel() + 1;
         HintLadder ladder = artifactStore.findLadder(attempt.attemptId()).orElse(null);
         if (ladder == null) {
-            GeneratedLadder generated = generateLadder(attempt);
+            GeneratedLadder generated = generateLadder(profile, attempt);
             if (generated instanceof GeneratedLadder.Unavailable unavailable) {
                 return new HintResult.Unavailable(unavailable.reason(), HINT_UNAVAILABLE_MESSAGE);
             }
@@ -141,12 +143,12 @@ public final class HintFlow {
      * ends generation immediately; a repeated invalid result becomes Node
      * Execution Failed. Nothing is persisted for either failure.
      */
-    private GeneratedLadder generateLadder(TaskAttempt attempt) {
+    private GeneratedLadder generateLadder(ModelProfile profile, TaskAttempt attempt) {
         TaskPackage taskPackage = artifactStore.findPackage(attempt.taskPackageId()).orElseThrow();
         String systemPrompt = compiler.compile();
         String contextJson = compiler.serializeContext(buildContext(attempt, taskPackage));
         for (int cycle = 1; cycle <= MAX_GENERATION_CYCLES; cycle++) {
-            String raw = generationPort.generate(systemPrompt, contextJson);
+            String raw = generationPort.generate(profile, systemPrompt, contextJson);
             HintGenerationDraft draft;
             try {
                 draft = HintGenerationDraft.parse(raw);

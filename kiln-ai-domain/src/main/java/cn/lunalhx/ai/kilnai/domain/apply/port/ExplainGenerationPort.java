@@ -1,4 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+
 
 /**
  * The bounded model port that produces a closed {@code explain_generation/v1}
@@ -9,5 +11,5 @@ package cn.lunalhx.ai.kilnai.domain.apply.port;
 @FunctionalInterface
 public interface ExplainGenerationPort {
 
-    String generate(String compiledSystemPrompt, String executionContextJson);
+    String generate(ModelProfile profile, String compiledSystemPrompt, String executionContextJson);
 }

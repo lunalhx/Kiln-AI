@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.infrastructure.adapter.repository;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
@@ -50,6 +51,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class ApplyFlowStoreJsonRoundTripTest {
 
+    private static final ModelExecution MODEL_EXECUTION = new ModelExecution(
+            "acme/gpt-strong", "acme/gpt-small", 2048, 16_000, 0);
+
     private final ObjectMapper json = JsonMapper.builder().addModule(new JavaTimeModule()).build();
 
     @Test
@@ -76,7 +80,7 @@ class ApplyFlowStoreJsonRoundTripTest {
                         new PrivateAssessorProjection.TaskFingerprint("profile", "fp-task"),
                         new PrivateAssessorProjection.SolutionFingerprint("profile", "fp-solution"),
                         new PrivateAssessorProjection.ExecutionTrace("apply@1.0.0", "bp@1.0.0",
-                                List.of("apply.task-first@0.1.0"))));
+                                List.of("apply.task-first@0.1.0"), MODEL_EXECUTION)));
 
         assertEquals(taskPackage, roundTrip(taskPackage));
         assertEquals(projection, roundTrip(projection));
@@ -192,7 +196,7 @@ class ApplyFlowStoreJsonRoundTripTest {
                         List.of(new TeachBackTaskPackage.SourceTraceEntry("openstax-calculus-v1", "sec-3.3")),
                         new TeachBackTaskPackage.AnchorReference(UUID.randomUUID(), "EXPLAIN_WORKED_EXAMPLE"),
                         new TeachBackTaskPackage.ExecutionTrace("teach-back@1.0.0",
-                                List.of("teach-back.anchored-explanation@1.0.0"))));
+                                List.of("teach-back.anchored-explanation@1.0.0"), MODEL_EXECUTION)));
         assertEquals(teachBackPackage, roundTrip(teachBackPackage));
         assertEquals(teachBackPackage.privateProjection(), roundTrip(teachBackPackage.privateProjection()));
 

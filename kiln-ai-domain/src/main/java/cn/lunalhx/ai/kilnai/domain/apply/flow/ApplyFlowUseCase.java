@@ -5,6 +5,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.DiagnosticSubmissionResult;
@@ -13,6 +14,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.ProcessedCommand;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
@@ -49,6 +51,7 @@ public final class ApplyFlowUseCase {
     private final IndependentSubmissionFlow independentFlow;
     private final ReviewSubmissionFlow reviewFlow;
     private final ApplyExecutionContext diagnosticContext;
+    private final OperatorModelProfilePort modelProfilePort;
     private final Clock clock;
 
     public ApplyFlowUseCase(
@@ -58,6 +61,7 @@ public final class ApplyFlowUseCase {
             IndependentSubmissionFlow independentFlow,
             ReviewSubmissionFlow reviewFlow,
             ApplyExecutionContext diagnosticContext,
+            OperatorModelProfilePort modelProfilePort,
             Clock clock
     ) {
         this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
@@ -66,6 +70,7 @@ public final class ApplyFlowUseCase {
         this.independentFlow = Objects.requireNonNull(independentFlow, "independentFlow must not be null");
         this.reviewFlow = Objects.requireNonNull(reviewFlow, "reviewFlow must not be null");
         this.diagnosticContext = Objects.requireNonNull(diagnosticContext, "diagnosticContext must not be null");
+        this.modelProfilePort = Objects.requireNonNull(modelProfilePort, "modelProfilePort must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -77,11 +82,12 @@ public final class ApplyFlowUseCase {
                 interaction -> new ApplyFlowResult.Boundary(interaction),
                 () -> {
                     UUID flowId = UUID.randomUUID();
+                    ModelProfile profile = modelProfilePort.resolve();
                     flowStore.insertFlow(new LearningFlowStore.FlowRecord(
                             flowId, learnerId, DiagnosticApplyFixture.CONCEPT_ID,
-                            FlowStatus.READY, LearningStage.DIAGNOSTIC, clock.instant()));
+                            FlowStatus.READY, LearningStage.DIAGNOSTIC, profile, clock.instant()));
                     saveSourcePack();
-                    ApplyDeliveryResult delivery = diagnosticFlow.startDiagnostic(flowId);
+                    ApplyDeliveryResult delivery = diagnosticFlow.startDiagnostic(flowId, profile);
                     ApplyFlowInteraction interaction = switch (delivery) {
                         case ApplyDeliveryResult.Delivered delivered -> new ApplyFlowInteraction(
                                 flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
@@ -151,7 +157,7 @@ public final class ApplyFlowUseCase {
         switch (purpose) {
             case DIAGNOSTIC -> {
                 DiagnosticSubmissionResult result = diagnosticFlow.submitDiagnostic(
-                        flow.flowId(), attemptId, rawDerivative, confirmedCanonical, rationale);
+                        flow.flowId(), flow.modelProfile(), attemptId, rawDerivative, confirmedCanonical, rationale);
                 return mapDiagnostic(latest, result, idempotencyKey, hash);
             }
             case INDEPENDENT_TEST -> {

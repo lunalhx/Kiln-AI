@@ -1,4 +1,6 @@
 package cn.lunalhx.ai.kilnai;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
@@ -45,6 +47,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Import(ScriptedApplyPortsConfiguration.class)
 @Testcontainers(disabledWithoutDocker = true)
 class ApplyPostgresTeachBackStoreTest {
+    private static final ModelProfile PROFILE = new ModelProfile(
+            new ModelProfile.ModelBinding("openai-compatible", "https://api.test/v1", "acme", "scripted-strong", "TEST_STRONG"),
+            new ModelProfile.ModelBinding("openai-compatible", "https://api.test/v1", "acme", "scripted-small", "TEST_SMALL"),
+            2048);
+
+    private static final ModelExecution MODEL_EXECUTION = new ModelExecution(
+            "acme/scripted-strong", "acme/scripted-small", 2048, 16_000, 0);
+
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -86,7 +96,7 @@ class ApplyPostgresTeachBackStoreTest {
                 flowId, UUID.randomUUID(), UUID.randomUUID(),
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.READY,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.LEARNING_AND_PRACTICE,
-                Instant.parse("2026-08-16T00:00:00Z")));
+                PROFILE, Instant.parse("2026-08-16T00:00:00Z")));
         UUID explainAnchorId = UUID.randomUUID();
         UUID revealAnchorId = UUID.randomUUID();
         flowStore.recordAnchor(flowId, new TeachBackAnchor(
@@ -148,7 +158,7 @@ class ApplyPostgresTeachBackStoreTest {
                 flowId, UUID.randomUUID(), UUID.randomUUID(),
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.READY,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.LEARNING_AND_PRACTICE,
-                Instant.parse("2026-08-16T00:00:00Z")));
+                PROFILE, Instant.parse("2026-08-16T00:00:00Z")));
         UUID anchorId = UUID.randomUUID();
         flowStore.recordAnchor(flowId, new TeachBackAnchor(
                 TeachBackAnchor.TeachBackAnchorKind.EXPLAIN_WORKED_EXAMPLE,
@@ -196,6 +206,7 @@ class ApplyPostgresTeachBackStoreTest {
                         new TeachBackTaskPackage.AnchorReference(UUID.randomUUID(), "EXPLAIN_WORKED_EXAMPLE"),
                         new TeachBackTaskPackage.ExecutionTrace("teach-back@1.0.0",
                                 List.of("teach-back.anchored-explanation@1.0.0",
-                                        "subject.calculus-notation@1.0.0"))));
+                                        "subject.calculus-notation@1.0.0"),
+                                MODEL_EXECUTION)));
     }
 }

@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.fake;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
@@ -18,7 +19,8 @@ public final class ScriptedResponseVerificationModel implements ResponseVerifica
     }
 
     @Override
-    public ResponseAssessment verify(ResponseAssessmentContext context) {
+    public ResponseAssessment verify(ModelProfile profile, ResponseAssessmentContext context) {
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(context, "context must not be null");
         contexts.add(context);
         if (contexts.size() > judgments.size()) {

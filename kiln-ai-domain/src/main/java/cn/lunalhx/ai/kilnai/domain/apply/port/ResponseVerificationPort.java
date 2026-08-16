@@ -1,4 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
@@ -12,5 +14,5 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
  */
 public interface ResponseVerificationPort {
 
-    ResponseAssessment verify(ResponseAssessmentContext context);
+    ResponseAssessment verify(ModelProfile profile, ResponseAssessmentContext context);
 }

@@ -2,6 +2,8 @@ package cn.lunalhx.ai.kilnai.infrastructure.adapter.model;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
@@ -19,6 +21,9 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassification;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
+import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPort;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -37,19 +42,51 @@ import java.util.Map;
 import java.util.function.Function;
 
 /**
- * The real-model adapter for the five Apply-family ports over the operator
- * Provider Catalog and Spring AI ChatClient. It registers no tools: the
- * Apply and Hint stacks are zero-tool by contract, and this adapter must
- * never attach tool callbacks. Apply generation and Hint ladder generation
- * return raw model text for the domain's strict closed contracts; Task
- * Verification and Response Assessment parse their closed JSON contracts back
- * into domain types.
+ * The one real-model adapter for the model ports over the operator Provider
+ * Catalog and Spring AI ChatClient. Every call receives the Flow-frozen
+ * {@link ModelProfile} and uses its Strong or Small slot according to the
+ * port's responsibility: Apply, Explain, Hint, and Teach-back generation,
+ * Task Verification, Assessment, and Response Verification use the Strong
+ * model; the Pedagogy Agent and the Clarification Gate classifier use the
+ * Small model. The operator-owned output-token ceiling of the frozen profile
+ * is enforced on every call. It registers no tools: the Apply and Hint
+ * stacks are zero-tool by contract, and this adapter must never attach tool
+ * callbacks. Apply generation and Hint ladder generation return raw model
+ * text for the domain's strict closed contracts; Task Verification and
+ * Response Assessment parse their closed JSON contracts back into domain
+ * types.
  */
 public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifierPort,
         AssessmentPort, ResponseVerificationPort, HintGenerationPort,
-        TeachBackGenerationPort, TeachBackTaskVerifierPort, TeachBackAssessmentPort {
+        TeachBackGenerationPort, TeachBackTaskVerifierPort, TeachBackAssessmentPort,
+        PedagogyPort, ClarificationClassifierPort {
 
     private static final String JSON_ONLY = "Return JSON only. Do not add commentary, markdown, or fields outside the contract.";
+
+    private static final String CLARIFICATION_CLASSIFIER_SYSTEM = """
+            # Clarification Classifier
+
+            ## Role
+            Classify one learner clarification message against the supplied
+            learner-visible task text as `procedural` or `substantive`.
+
+            `procedural` means the message only restates interface behavior,
+            response format, symbol notation, or conditions already present in
+            the task text, without adding knowledge or narrowing the solution.
+
+            `substantive` means the message explains relevant knowledge,
+            suggests a method, exposes a reasoning step, supplies a new
+            example, or narrows the possible answer.
+
+            ## Non-Negotiables
+            - Never answer the question, teach, or restate task content beyond
+              the supplied text.
+            - Never guess a classification: return `uncertain` when the kind
+              cannot be established.
+            - Return only the `clarification_classification/v1` JSON object:
+              schema and classification
+              (`procedural`/`substantive`/`uncertain`).
+            """ + "\n" + JSON_ONLY;
 
     private static final String TASK_VERIFIER_SYSTEM = """
             # Task Verifier
@@ -248,61 +285,114 @@ public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifie
     }
 
     @Override
-    public String generate(String compiledSystemPrompt, String executionContextJson) {
-        return complete(compiledSystemPrompt, executionContextJson);
+    public String generate(ModelProfile profile, String compiledSystemPrompt, String executionContextJson) {
+        return complete(profile, strong(profile), compiledSystemPrompt, executionContextJson);
     }
 
     @Override
-    public TaskVerificationVerdict verify(TaskPackage taskPackage, ApplyExecutionContext context) {
+    public TaskVerificationVerdict verify(
+            ModelProfile profile,
+            TaskPackage taskPackage,
+            ApplyExecutionContext context
+    ) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("task_package", taskPackage);
         data.put("execution_context", context);
-        String raw = complete(TASK_VERIFIER_SYSTEM, writeJson(data));
+        String raw = complete(profile, strong(profile), TASK_VERIFIER_SYSTEM, writeJson(data));
         return parse(raw, TaskVerificationVerdict.class);
     }
 
     @Override
-    public ResponseAssessment assess(ResponseAssessmentContext context) {
-        return judge(context);
+    public ResponseAssessment assess(ModelProfile profile, ResponseAssessmentContext context) {
+        return judge(profile, context);
     }
 
     @Override
-    public ResponseAssessment verify(ResponseAssessmentContext context) {
-        return judge(context);
+    public ResponseAssessment verify(ModelProfile profile, ResponseAssessmentContext context) {
+        return judge(profile, context);
     }
 
     @Override
-    public TeachBackAssessment assess(TeachBackAssessmentContext context) {
+    public TeachBackAssessment assess(ModelProfile profile, TeachBackAssessmentContext context) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("task_text", context.taskText());
         data.put("anchor_content", context.anchorContent());
         data.put("learner_response", context.learnerResponse());
         data.put("purpose", context.purpose());
-        String raw = complete(TEACH_BACK_ASSESSMENT_SYSTEM, writeJson(data));
+        String raw = complete(profile, strong(profile), TEACH_BACK_ASSESSMENT_SYSTEM, writeJson(data));
         return parse(raw, TeachBackAssessment.class);
     }
 
     @Override
-    public TaskVerificationVerdict verify(TeachBackTaskPackage taskPackage, TeachBackExecutionContext context) {
+    public TaskVerificationVerdict verify(
+            ModelProfile profile,
+            TeachBackTaskPackage taskPackage,
+            TeachBackExecutionContext context
+    ) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("task_package", taskPackage);
         data.put("execution_context", context);
-        String raw = complete(TEACH_BACK_TASK_VERIFIER_SYSTEM, writeJson(data));
+        String raw = complete(profile, strong(profile), TEACH_BACK_TASK_VERIFIER_SYSTEM, writeJson(data));
         return parse(raw, TaskVerificationVerdict.class);
     }
 
-    private ResponseAssessment judge(ResponseAssessmentContext context) {
-        String raw = complete(RESPONSE_ASSESSMENT_SYSTEM, writeJson(context));
+    @Override
+    public String generatePlan(ModelProfile profile, String compiledSystemPrompt, String executionContextJson) {
+        return complete(profile, small(profile), compiledSystemPrompt, executionContextJson);
+    }
+
+    @Override
+    public ClarificationClassification classify(ModelProfile profile, String message, String taskText) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("message", message);
+        data.put("task_text", taskText);
+        String raw = complete(profile, small(profile), CLARIFICATION_CLASSIFIER_SYSTEM, writeJson(data));
+        ClarificationDraft draft = parse(raw, ClarificationDraft.class);
+        return switch (draft.classification()) {
+            case "procedural" -> ClarificationClassification.PROCEDURAL;
+            case "substantive" -> ClarificationClassification.SUBSTANTIVE;
+            case "uncertain" -> ClarificationClassification.UNCERTAIN;
+            default -> throw providerFailure(new IllegalStateException(
+                    "unknown clarification classification: " + draft.classification()));
+        };
+    }
+
+    private ResponseAssessment judge(ModelProfile profile, ResponseAssessmentContext context) {
+        String raw = complete(profile, strong(profile), RESPONSE_ASSESSMENT_SYSTEM, writeJson(context));
         return parse(raw, ResponseAssessment.class);
     }
 
-    private String complete(String systemPrompt, String userJson) {
-        ModelBindingSnapshot binding = catalog.strong(secrets);
+    /**
+     * The Strong slot of the Flow-frozen Model Profile, mapped to the
+     * adapter's binding snapshot.
+     */
+    private static ModelBindingSnapshot strong(ModelProfile profile) {
+        return binding(profile.strong());
+    }
+
+    /**
+     * The Small slot of the Flow-frozen Model Profile, mapped to the
+     * adapter's binding snapshot.
+     */
+    private static ModelBindingSnapshot small(ModelProfile profile) {
+        return binding(profile.small());
+    }
+
+    private static ModelBindingSnapshot binding(ModelBinding source) {
+        return new ModelBindingSnapshot(
+                source.protocol(),
+                source.endpoint(),
+                source.providerId(),
+                source.modelId(),
+                source.secretEnvVar());
+    }
+
+    private String complete(ModelProfile profile, ModelBindingSnapshot binding, String systemPrompt, String userJson) {
         String apiKey = secrets.apply(binding.secretEnvVar());
         if (apiKey == null || apiKey.isBlank()) {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "provider secret is missing");
         }
-        ChatClient client = clients.create(binding, apiKey);
+        ChatClient client = clients.create(binding, apiKey, profile.outputTokenCeiling());
         try {
             ChatResponse response = client.prompt()
                     .system(systemPrompt)
@@ -379,5 +469,12 @@ public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifie
                 .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS)
                 .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .build();
+    }
+
+    /**
+     * The closed {@code clarification_classification/v1} contract returned by
+     * the Small-model classifier.
+     */
+    private record ClarificationDraft(String schema, String classification) {
     }
 }

@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.fake;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessmentContext;
@@ -18,7 +19,8 @@ public final class ScriptedTeachBackAssessmentModel implements TeachBackAssessme
     }
 
     @Override
-    public TeachBackAssessment assess(TeachBackAssessmentContext context) {
+    public TeachBackAssessment assess(ModelProfile profile, TeachBackAssessmentContext context) {
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(context, "context must not be null");
         contexts.add(context);
         if (contexts.size() > judgments.size()) {

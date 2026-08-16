@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.model;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorFacts.EquivalenceDeclaration;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorFacts.RubricMapping;
@@ -59,12 +60,18 @@ public record PrivateAssessorProjection(
         }
     }
 
-    public record ExecutionTrace(String profile, String taskBlueprint, List<String> skillStack) {
+    public record ExecutionTrace(
+            String profile,
+            String taskBlueprint,
+            List<String> skillStack,
+            ModelExecution model
+    ) {
         public ExecutionTrace {
             Objects.requireNonNull(profile, "profile must not be null");
             Objects.requireNonNull(taskBlueprint, "taskBlueprint must not be null");
             Objects.requireNonNull(skillStack, "skillStack must not be null");
             skillStack = List.copyOf(skillStack);
+            Objects.requireNonNull(model, "model must not be null");
         }
     }
 }

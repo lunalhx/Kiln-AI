@@ -1,4 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.flow;
+import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
@@ -64,6 +66,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * never duplicate Evidence, completion, or successor work.
  */
 class DelayedReviewCadenceContractTest {
+    private static OperatorModelProfilePort profilePort() {
+        return () -> ScriptedModelProfile.PROFILE;
+    }
+
 
     private static final UUID LEARNER_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
     private static final Instant START = Instant.parse("2026-08-14T00:00:00Z");
@@ -650,7 +656,7 @@ class DelayedReviewCadenceContractTest {
                 reviewScheduler, executor, flowStore, ReviewApplyFixture.reviewContext(), clock);
         ApplyFlowUseCase useCase = new ApplyFlowUseCase(
                 artifacts, flowStore, diagnosticFlow, independentFlow, reviewSubmissionFlow,
-                DiagnosticApplyFixture.diagnosticContext(), clock);
+                DiagnosticApplyFixture.diagnosticContext(), profilePort(), clock);
         ReviewStartFlow reviewStart = new ReviewStartFlow(
                 executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), clock);
         return new Harness(artifacts, flowStore, clock, reviewScheduler, useCase, reviewStart,
@@ -758,7 +764,7 @@ class DelayedReviewCadenceContractTest {
         ApplyFlowUseCase newUseCase() {
             return new ApplyFlowUseCase(
                     artifacts, flowStore, diagnosticFlow, independentFlow, reviewSubmissionFlow,
-                    DiagnosticApplyFixture.diagnosticContext(), clock);
+                    DiagnosticApplyFixture.diagnosticContext(), profilePort(), clock);
         }
     }
 }

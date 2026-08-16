@@ -3,10 +3,12 @@ package cn.lunalhx.ai.kilnai.domain.apply;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackTaskVerifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.TeachBackScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.TeachBackApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyJson;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -44,6 +46,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class TeachBackProfileContractTest {
 
+    private static final ModelProfile PROFILE = ScriptedModelProfile.PROFILE;
+
     private static final Clock CLOCK =
             Clock.fixed(Instant.parse("2026-08-16T00:00:00Z"), ZoneOffset.UTC);
 
@@ -59,7 +63,7 @@ class TeachBackProfileContractTest {
                 List.of(passVerdict()));
 
         TeachBackDeliveryResult.Delivered delivered =
-                (TeachBackDeliveryResult.Delivered) executor.deliver(context());
+                (TeachBackDeliveryResult.Delivered) executor.deliver(PROFILE, context());
 
         TaskAttempt attempt = delivered.attempt();
         assertEquals(AttemptPurpose.PRACTICE, attempt.purpose());
@@ -97,7 +101,7 @@ class TeachBackProfileContractTest {
         TeachBackProfileExecutor executor = executor(
                 List.of(TeachBackScriptData.taskReadyJson()),
                 List.of(passVerdict()));
-        executor.deliver(context());
+        executor.deliver(PROFILE, context());
 
         String systemPrompt = generation.lastSystemPrompt();
         String contextJson = generation.lastContextJson();
@@ -122,7 +126,7 @@ class TeachBackProfileContractTest {
         TeachBackProfileExecutor executor = executor(
                 List.of(TeachBackScriptData.taskReadyJson()),
                 List.of(passVerdict()));
-        executor.deliver(context());
+        executor.deliver(PROFILE, context());
 
         String contextJson = generation.lastContextJson();
         assertTrue(contextJson.contains("\"intent\":\"remediate_diagnostic_failure\""));
@@ -142,7 +146,7 @@ class TeachBackProfileContractTest {
                 List.of());
 
         TeachBackDeliveryResult.Unavailable unavailable =
-                (TeachBackDeliveryResult.Unavailable) executor.deliver(context());
+                (TeachBackDeliveryResult.Unavailable) executor.deliver(PROFILE, context());
 
         assertEquals(TeachBackUnavailableReason.SOURCE_GAP, unavailable.reason());
         assertEquals(TeachBackDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE, unavailable.learnerMessage());
@@ -160,7 +164,7 @@ class TeachBackProfileContractTest {
                 List.of(passVerdict()));
 
         TeachBackDeliveryResult.Delivered delivered =
-                (TeachBackDeliveryResult.Delivered) executor.deliver(context());
+                (TeachBackDeliveryResult.Delivered) executor.deliver(PROFILE, context());
 
         assertEquals(2, generation.calls().size(),
                 "a rejected candidate must permit one same-plan repair");
@@ -174,7 +178,7 @@ class TeachBackProfileContractTest {
                 List.of(rejectVerdict(), passVerdict()));
 
         TeachBackDeliveryResult.Delivered delivered =
-                (TeachBackDeliveryResult.Delivered) executor.deliver(context());
+                (TeachBackDeliveryResult.Delivered) executor.deliver(PROFILE, context());
 
         assertEquals(2, generation.calls().size(), "a verifier rejection must permit one fresh second candidate");
         assertEquals(2, verifier.verified().size(),
@@ -193,7 +197,7 @@ class TeachBackProfileContractTest {
                 List.of(rejectVerdict(), rejectVerdict()));
 
         TeachBackDeliveryResult.Unavailable unavailable =
-                (TeachBackDeliveryResult.Unavailable) executor.deliver(context());
+                (TeachBackDeliveryResult.Unavailable) executor.deliver(PROFILE, context());
 
         assertEquals(TeachBackUnavailableReason.TASK_GENERATION_EXHAUSTED, unavailable.reason(),
                 "a verifier rejection followed by a rejected fresh candidate is Task Generation Exhausted");
@@ -211,7 +215,7 @@ class TeachBackProfileContractTest {
                 List.of(rejectVerdict(), passVerdict()));
 
         TeachBackDeliveryResult.Delivered delivered =
-                (TeachBackDeliveryResult.Delivered) executor.deliver(context());
+                (TeachBackDeliveryResult.Delivered) executor.deliver(PROFILE, context());
 
         assertEquals(3, generation.calls().size(),
                 "the spec grants one same-plan repair AND one fresh second candidate");
@@ -225,7 +229,7 @@ class TeachBackProfileContractTest {
                 List.of(passVerdict()));
 
         TeachBackDeliveryResult.Delivered delivered =
-                (TeachBackDeliveryResult.Delivered) executor.deliver(context());
+                (TeachBackDeliveryResult.Delivered) executor.deliver(PROFILE, context());
 
         assertEquals(2, generation.calls().size());
         assertEquals(TeachBackScriptData.LEARNER_PROMPT, delivered.learnerProjection().taskText());
@@ -241,7 +245,7 @@ class TeachBackProfileContractTest {
                 List.of(passVerdict()));
 
         TeachBackDeliveryResult.Delivered delivered =
-                (TeachBackDeliveryResult.Delivered) executor.deliver(context());
+                (TeachBackDeliveryResult.Delivered) executor.deliver(PROFILE, context());
 
         assertEquals(2, generation.calls().size(),
                 "a source trace outside the anchor's trace must consume one repair");
@@ -262,7 +266,7 @@ class TeachBackProfileContractTest {
                 List.of(passVerdict()));
 
         TeachBackDeliveryResult.Delivered delivered =
-                (TeachBackDeliveryResult.Delivered) executor.deliver(context());
+                (TeachBackDeliveryResult.Delivered) executor.deliver(PROFILE, context());
 
         assertEquals(2, generation.calls().size(),
                 "a draft anchored to a different anchor must be rejected");
@@ -280,7 +284,7 @@ class TeachBackProfileContractTest {
                 List.of(passVerdict()));
 
         TeachBackDeliveryResult.Delivered delivered =
-                (TeachBackDeliveryResult.Delivered) executor.deliver(context());
+                (TeachBackDeliveryResult.Delivered) executor.deliver(PROFILE, context());
 
         String learnerText = delivered.learnerProjection().taskText();
         assertFalse(learnerText.contains("openstax"), "source identities must not reach the learner");

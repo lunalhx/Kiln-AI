@@ -5,8 +5,10 @@ import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ExplainScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ExplainScriptData.StepJson;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedExplainGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyJson;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainExecutionContext;
@@ -34,6 +36,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ExplainProfileContractTest {
 
+    private static final ModelProfile PROFILE = ScriptedModelProfile.PROFILE;
+
     private final ExplainExecutionContext context = ExplainApplyFixture.explainContext();
     private final BundleStack stack = ReferenceBundles.explainStack();
 
@@ -43,7 +47,7 @@ class ExplainProfileContractTest {
                 new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson()));
 
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered)
-                new ExplainProfileExecutor(stack, generation).deliver(context);
+                new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         ExplainTeachingArtifact artifact = delivered.artifact();
         TeachingProjection projection = artifact.learnerProjection();
@@ -70,7 +74,7 @@ class ExplainProfileContractTest {
     void separatesCompiledSystemInstructionsFromClosedExecutionContextJson() {
         ScriptedExplainGenerationModel generation =
                 new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson()));
-        new ExplainProfileExecutor(stack, generation).deliver(context);
+        new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         String systemPrompt = generation.lastSystemPrompt();
         String contextJson = generation.lastContextJson();
@@ -94,7 +98,7 @@ class ExplainProfileContractTest {
     void theContextCarriesOnlySanitizedPedagogyFactsAndNoLearnerAnswers() {
         ScriptedExplainGenerationModel generation = new ScriptedExplainGenerationModel(
                 List.of(ExplainScriptData.explainReadyJson()));
-        new ExplainProfileExecutor(stack, generation).deliver(context);
+        new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         String contextJson = generation.lastContextJson();
         assertTrue(contextJson.contains("\"satisfied_criteria\":[]"));
@@ -110,7 +114,7 @@ class ExplainProfileContractTest {
                 new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainSourceGapJson()));
 
         ExplainDeliveryResult.Unavailable unavailable = (ExplainDeliveryResult.Unavailable)
-                new ExplainProfileExecutor(stack, generation).deliver(context);
+                new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         assertEquals(ExplainUnavailableReason.SOURCE_GAP, unavailable.reason());
         assertEquals(ExplainDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE, unavailable.learnerMessage());
@@ -128,7 +132,7 @@ class ExplainProfileContractTest {
                 ExplainScriptData.explainReadyJson()));
 
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered)
-                new ExplainProfileExecutor(stack, generation).deliver(context);
+                new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         assertEquals(2, generation.calls().size(), "a rejected candidate must permit one same-plan repair");
         assertEquals(ExplainScriptData.EXPLAIN_FINAL_RESULT,
@@ -148,7 +152,7 @@ class ExplainProfileContractTest {
                         ExplainScriptData.EXPLAIN_FINAL_RESULT, unapprovedRule)));
 
         ExplainDeliveryResult.Unavailable unavailable = (ExplainDeliveryResult.Unavailable)
-                new ExplainProfileExecutor(stack, generation).deliver(context);
+                new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         assertEquals(ExplainUnavailableReason.NODE_EXECUTION_FAILED, unavailable.reason(),
                 "a repeated invalid result must be Node Execution Failed, not a task-exhaustion reason");
@@ -161,7 +165,7 @@ class ExplainProfileContractTest {
                 "{not valid json", ExplainScriptData.explainReadyJson()));
 
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered)
-                new ExplainProfileExecutor(stack, generation).deliver(context);
+                new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         assertEquals(2, generation.calls().size());
         assertEquals(ExplainScriptData.EXPLAIN_FINAL_RESULT,
@@ -176,7 +180,7 @@ class ExplainProfileContractTest {
                 polluted, ExplainScriptData.explainReadyJson()));
 
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered)
-                new ExplainProfileExecutor(stack, generation).deliver(context);
+                new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         assertEquals(2, generation.calls().size());
         assertEquals(ExplainScriptData.EXPLAIN_FINAL_RESULT,
@@ -191,7 +195,7 @@ class ExplainProfileContractTest {
                 ungrounded, ExplainScriptData.explainReadyJson()));
 
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered)
-                new ExplainProfileExecutor(stack, generation).deliver(context);
+                new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         assertEquals(2, generation.calls().size());
         assertEquals("openstax-calculus-v1",
@@ -208,7 +212,7 @@ class ExplainProfileContractTest {
                 ExplainScriptData.explainReadyJson()));
 
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered)
-                new ExplainProfileExecutor(stack, generation).deliver(context);
+                new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         assertEquals(2, generation.calls().size());
         assertEquals(4, delivered.artifact().learnerProjection().workedExample().steps().size());
@@ -218,7 +222,7 @@ class ExplainProfileContractTest {
     void noveltyRejectsACandidateThatReExposesAnExampleFingerprint() {
         ExplainProfileExecutor executor = new ExplainProfileExecutor(stack,
                 new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())));
-        String exposedFingerprint = ((ExplainDeliveryResult.Delivered) executor.deliver(context))
+        String exposedFingerprint = ((ExplainDeliveryResult.Delivered) executor.deliver(PROFILE, context))
                 .artifact().exampleFingerprint().value();
 
         ExplainExecutionContext withExclusions = context.withNoveltyExclusions(
@@ -230,7 +234,7 @@ class ExplainProfileContractTest {
                         "设 g(x) = 4x⁴ − x + 2，求 g'(x)。", "16x³ − 1")));
 
         ExplainDeliveryResult.Delivered fresh = (ExplainDeliveryResult.Delivered)
-                new ExplainProfileExecutor(stack, second).deliver(withExclusions);
+                new ExplainProfileExecutor(stack, second).deliver(PROFILE, withExclusions);
 
         assertEquals(2, second.calls().size(), "a re-exposed example must consume one fresh generation cycle");
         assertNotEquals(exposedFingerprint, fresh.artifact().exampleFingerprint().value(),
@@ -241,7 +245,7 @@ class ExplainProfileContractTest {
     void noveltyRejectsACandidateThatReExposesAHintLadderOrRevealedSolutionFingerprint() {
         ExplainProfileExecutor executor = new ExplainProfileExecutor(stack,
                 new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())));
-        String exposedFingerprint = ((ExplainDeliveryResult.Delivered) executor.deliver(context))
+        String exposedFingerprint = ((ExplainDeliveryResult.Delivered) executor.deliver(PROFILE, context))
                 .artifact().exampleFingerprint().value();
 
         ExplainExecutionContext ladderExcluded = context.withNoveltyExclusions(
@@ -252,7 +256,7 @@ class ExplainProfileContractTest {
                 ExplainScriptData.explainReadyJson(ExplainScriptData.PRINCIPLE_SUMMARY,
                         "设 h(x) = 5x⁴ − 3x + 4，求 h'(x)。", "20x³ − 3")));
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered)
-                new ExplainProfileExecutor(stack, freshLadder).deliver(ladderExcluded);
+                new ExplainProfileExecutor(stack, freshLadder).deliver(PROFILE, ladderExcluded);
         assertNotEquals(exposedFingerprint, delivered.artifact().exampleFingerprint().value(),
                 "an example reusing an exposed ladder fingerprint must be rejected and regenerated");
         assertEquals(2, freshLadder.calls().size());
@@ -265,7 +269,7 @@ class ExplainProfileContractTest {
                 ExplainScriptData.explainReadyJson(ExplainScriptData.PRINCIPLE_SUMMARY,
                         "设 k(x) = 6x³ − x + 7，求 k'(x)。", "18x² − 1")));
         ExplainDeliveryResult.Delivered fresh = (ExplainDeliveryResult.Delivered)
-                new ExplainProfileExecutor(stack, freshReveal).deliver(revealExcluded);
+                new ExplainProfileExecutor(stack, freshReveal).deliver(PROFILE, revealExcluded);
         assertNotEquals(exposedFingerprint, fresh.artifact().exampleFingerprint().value(),
                 "an example reusing an exposed revealed solution must be rejected and regenerated");
         assertEquals(2, freshReveal.calls().size());
@@ -279,7 +283,7 @@ class ExplainProfileContractTest {
                 leaked, ExplainScriptData.explainReadyJson()));
 
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered)
-                new ExplainProfileExecutor(stack, generation).deliver(context);
+                new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         String learnerText = delivered.artifact().learnerProjection().principleSummary()
                 + delivered.artifact().learnerProjection().workedExample();
@@ -295,10 +299,10 @@ class ExplainProfileContractTest {
     void theExampleFingerprintIsDeterministicallyDerived() {
         ExplainDeliveryResult.Delivered first = (ExplainDeliveryResult.Delivered) new ExplainProfileExecutor(
                 stack, new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())))
-                .deliver(context);
+                .deliver(PROFILE, context);
         ExplainDeliveryResult.Delivered second = (ExplainDeliveryResult.Delivered) new ExplainProfileExecutor(
                 stack, new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())))
-                .deliver(context);
+                .deliver(PROFILE, context);
 
         assertEquals(first.artifact().exampleFingerprint().value(),
                 second.artifact().exampleFingerprint().value(),
@@ -311,7 +315,7 @@ class ExplainProfileContractTest {
                 new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson()));
 
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered)
-                new ExplainProfileExecutor(stack, generation).deliver(context);
+                new ExplainProfileExecutor(stack, generation).deliver(PROFILE, context);
 
         String learnerText = delivered.artifact().learnerProjection().principleSummary()
                 + delivered.artifact().learnerProjection().workedExample();

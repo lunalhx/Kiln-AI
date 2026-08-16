@@ -123,7 +123,7 @@ public final class IndependentSubmissionFlow {
             LearningFlowStore.FlowRecord flow,
             TaskAttempt closedAttempt
     ) {
-        AssessmentOutcome outcome = assessmentRunner.run(closedAttempt, packageOf(closedAttempt));
+        AssessmentOutcome outcome = assessmentRunner.run(flow.modelProfile(), closedAttempt, packageOf(closedAttempt));
         AssessmentRunner.recordAssessments(artifactStore, closedAttempt.attemptId(), outcome);
         return switch (outcome) {
             case AssessmentOutcome.Passed passed -> acceptPass(flow, closedAttempt);

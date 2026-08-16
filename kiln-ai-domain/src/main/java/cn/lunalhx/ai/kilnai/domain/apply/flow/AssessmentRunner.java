@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.EquivalenceOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalEquivalenceCheck;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentDecider;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -36,7 +37,8 @@ public final class AssessmentRunner {
         this.verificationPort = Objects.requireNonNull(verificationPort, "verificationPort must not be null");
     }
 
-    public AssessmentOutcome run(TaskAttempt closedAttempt, TaskPackage taskPackage) {
+    public AssessmentOutcome run(ModelProfile profile, TaskAttempt closedAttempt, TaskPackage taskPackage) {
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(closedAttempt, "closedAttempt must not be null");
         Objects.requireNonNull(taskPackage, "taskPackage must not be null");
         TaskSubmission submission = Objects.requireNonNull(closedAttempt.submission(),
@@ -57,10 +59,10 @@ public final class AssessmentRunner {
         if (outcomeIsDeterminedWithoutModel(closedAttempt.purpose(), deterministic)) {
             return ResponseAssessmentDecider.decide(context, null, null);
         }
-        ResponseAssessment assessment = assessmentPort.assess(context);
+        ResponseAssessment assessment = assessmentPort.assess(profile, context);
         ResponseAssessment verification = null;
         if (deterministic == EquivalenceOutcome.CANNOT_DECIDE) {
-            verification = verificationPort.verify(context);
+            verification = verificationPort.verify(profile, context);
         }
         return ResponseAssessmentDecider.decide(context, assessment, verification);
     }

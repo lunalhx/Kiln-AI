@@ -1,4 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
@@ -12,5 +14,5 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
  */
 public interface TeachBackTaskVerifierPort {
 
-    TaskVerificationVerdict verify(TeachBackTaskPackage taskPackage, TeachBackExecutionContext context);
+    TaskVerificationVerdict verify(ModelProfile profile, TeachBackTaskPackage taskPackage, TeachBackExecutionContext context);
 }

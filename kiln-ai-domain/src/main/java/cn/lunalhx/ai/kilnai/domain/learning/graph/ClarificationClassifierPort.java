@@ -1,5 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.learning.graph;
 
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+
 /**
  * The bounded model port of the Clarification Gate's classifier: one stateless
  * Small-model call per free-form clarification that returns the closed
@@ -9,5 +11,5 @@ package cn.lunalhx.ai.kilnai.domain.learning.graph;
  */
 public interface ClarificationClassifierPort {
 
-    ClarificationClassification classify(String message, String taskText);
+    ClarificationClassification classify(ModelProfile profile, String message, String taskText);
 }

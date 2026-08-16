@@ -3,6 +3,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.profile;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackGenerationDraft;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage.AnchorReference;
@@ -31,10 +32,12 @@ public final class TeachBackTaskAssembler {
     public TeachBackTaskPackage assemble(
             TeachBackGenerationDraft.TaskReady draft,
             BundleStack stack,
-            String learnerLocale
+            String learnerLocale,
+            ModelExecution model
     ) {
         Objects.requireNonNull(draft, "draft must not be null");
         Objects.requireNonNull(stack, "stack must not be null");
+        Objects.requireNonNull(model, "model must not be null");
         UUID anchorId = UUID.fromString(draft.anchorReference().anchorId());
         List<RubricDimension> rubricMapping = draft.rubricMapping().stream()
                 .map(entry -> new RubricDimension(entry.dimension(), entry.masteryCriterion()))
@@ -59,6 +62,6 @@ public final class TeachBackTaskAssembler {
                         rubricMapping,
                         sourceTrace,
                         new AnchorReference(anchorId, draft.anchorReference().anchorKind()),
-                        new ExecutionTrace(TeachBackProfile.PROFILE_ID, stack.pinnedIds())));
+                        new ExecutionTrace(TeachBackProfile.PROFILE_ID, stack.pinnedIds(), model)));
     }
 }

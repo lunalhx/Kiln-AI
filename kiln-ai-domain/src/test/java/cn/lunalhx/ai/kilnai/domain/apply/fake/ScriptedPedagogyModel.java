@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.fake;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyJson;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPort;
@@ -49,7 +50,8 @@ public final class ScriptedPedagogyModel implements PedagogyPort {
     }
 
     @Override
-    public String generate(String compiledSystemPrompt, String executionContextJson) {
+    public String generatePlan(ModelProfile profile, String compiledSystemPrompt, String executionContextJson) {
+        Objects.requireNonNull(profile, "profile must not be null");
         calls.add(new Call(compiledSystemPrompt, executionContextJson));
         if (responses.isEmpty()) {
             return autoPlan(executionContextJson);

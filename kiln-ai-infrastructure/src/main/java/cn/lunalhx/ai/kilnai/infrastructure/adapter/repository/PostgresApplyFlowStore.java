@@ -11,6 +11,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLevel;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
@@ -66,14 +67,15 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     @Override
     public void insertFlow(FlowRecord flow) {
         mapper.insertFlow(flow.flowId(), flow.learnerId(), flow.conceptId(),
-                flow.status().name(), flow.stage().name(), flow.createdAt());
+                flow.status().name(), flow.stage().name(), writeJson(flow.modelProfile()), flow.createdAt());
     }
 
     @Override
     public Optional<FlowRecord> findFlow(UUID flowId) {
         return mapper.findFlow(flowId).map(row -> new FlowRecord(
                 row.id(), row.learnerId(), row.conceptId(),
-                FlowStatus.valueOf(row.status()), LearningStage.valueOf(row.stage()), row.createdAt()));
+                FlowStatus.valueOf(row.status()), LearningStage.valueOf(row.stage()),
+                readJson(row.modelProfileJson(), ModelProfile.class), row.createdAt()));
     }
 
     @Override

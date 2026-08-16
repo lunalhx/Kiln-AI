@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.learning.service;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
@@ -301,7 +302,7 @@ class ReviewTaskSchedulerTest {
                             FIRST_INDEPENDENT_AT.plus(Duration.ofHours(24))).orElseThrow()
                     : unfinished.get(0);
             store.markDueReviewsDue(due.dueAt());
-            PreparedDelivery delivery = executor.prepareTask(ReviewApplyFixture.reviewContext());
+            PreparedDelivery delivery = executor.prepareTask(ScriptedModelProfile.PROFILE, ReviewApplyFixture.reviewContext());
             TaskPackage base = ((PreparedDelivery.TaskReady) delivery).taskPackage();
             TaskPackage fresh = new TaskPackage(
                     TaskPackage.SCHEMA, UUID.randomUUID(), AttemptPurpose.REVIEW,

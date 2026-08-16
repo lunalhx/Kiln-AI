@@ -15,8 +15,9 @@ import java.util.UUID;
 public interface ApplyFlowMapper {
 
     @Insert("""
-            INSERT INTO flows (id, learner_id, concept_id, status, stage, created_at)
-            VALUES (#{id}, #{learnerId}, #{conceptId}, #{status}, #{stage}, #{createdAt})
+            INSERT INTO flows (id, learner_id, concept_id, status, stage, model_profile, created_at)
+            VALUES (#{id}, #{learnerId}, #{conceptId}, #{status}, #{stage},
+                    CAST(#{modelProfileJson} AS JSONB), #{createdAt})
             """)
     void insertFlow(
             @Param("id") UUID id,
@@ -24,11 +25,12 @@ public interface ApplyFlowMapper {
             @Param("conceptId") UUID conceptId,
             @Param("status") String status,
             @Param("stage") String stage,
+            @Param("modelProfileJson") String modelProfileJson,
             @Param("createdAt") Instant createdAt
     );
 
     @Select("""
-            SELECT id, learner_id, concept_id, status, stage, created_at
+            SELECT id, learner_id, concept_id, status, stage, model_profile::text AS model_profile_json, created_at
             FROM flows
             WHERE id = #{flowId}
             """)
@@ -619,6 +621,7 @@ public interface ApplyFlowMapper {
             UUID conceptId,
             String status,
             String stage,
+            String modelProfileJson,
             Instant createdAt
     ) {
     }

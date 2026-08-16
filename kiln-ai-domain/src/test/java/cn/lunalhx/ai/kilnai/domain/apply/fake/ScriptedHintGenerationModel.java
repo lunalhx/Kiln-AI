@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.fake;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 
@@ -22,7 +23,8 @@ public final class ScriptedHintGenerationModel implements HintGenerationPort {
     }
 
     @Override
-    public String generate(String compiledSystemPrompt, String executionContextJson) {
+    public String generate(ModelProfile profile, String compiledSystemPrompt, String executionContextJson) {
+        Objects.requireNonNull(profile, "profile must not be null");
         calls.add(new Call(compiledSystemPrompt, executionContextJson));
         if (calls.size() > responses.size()) {
             throw new IllegalStateException("scripted hint generation model exhausted: no more scripted responses");

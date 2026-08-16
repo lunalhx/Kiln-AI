@@ -10,9 +10,12 @@ import org.springframework.ai.openai.api.OpenAiApi;
 public final class OpenAiCompatibleChatClientFactory implements ChatClientFactory {
 
     @Override
-    public ChatClient create(ModelBindingSnapshot binding, String apiKey) {
+    public ChatClient create(ModelBindingSnapshot binding, String apiKey, int maxTokens) {
         if (!OperatorCatalog.OPENAI_COMPATIBLE.equals(binding.protocol())) {
             throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "unsupported protocol: " + binding.protocol());
+        }
+        if (maxTokens <= 0) {
+            throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "output token ceiling is not configured");
         }
         OpenAiApi api = OpenAiApi.builder()
                 .baseUrl(binding.endpoint())
@@ -20,7 +23,10 @@ public final class OpenAiCompatibleChatClientFactory implements ChatClientFactor
                 .build();
         OpenAiChatModel model = OpenAiChatModel.builder()
                 .openAiApi(api)
-                .defaultOptions(OpenAiChatOptions.builder().model(binding.modelId()).build())
+                .defaultOptions(OpenAiChatOptions.builder()
+                        .model(binding.modelId())
+                        .maxTokens(maxTokens)
+                        .build())
                 .build();
         return ChatClient.create(model);
     }

@@ -10,6 +10,7 @@ public class OperatorCatalogProperties {
 
     private String strong;
     private String small;
+    private int outputTokenCeiling;
     private List<ProviderProperties> providers = new ArrayList<>();
 
     public String getStrong() {
@@ -26,6 +27,14 @@ public class OperatorCatalogProperties {
 
     public void setSmall(String small) {
         this.small = small;
+    }
+
+    public int getOutputTokenCeiling() {
+        return outputTokenCeiling;
+    }
+
+    public void setOutputTokenCeiling(int outputTokenCeiling) {
+        this.outputTokenCeiling = outputTokenCeiling;
     }
 
     public List<ProviderProperties> getProviders() {
@@ -46,7 +55,7 @@ public class OperatorCatalogProperties {
                         provider.getModels()
                 ))
                 .toList();
-        return new OperatorCatalog(mapped, strong, small);
+        return new OperatorCatalog(mapped, strong, small, outputTokenCeiling);
     }
 
     public static class ProviderProperties {

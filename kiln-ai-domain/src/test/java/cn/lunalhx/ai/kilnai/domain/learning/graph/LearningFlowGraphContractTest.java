@@ -6,6 +6,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.fake.HintScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedApplyGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedAssessmentModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedClarificationClassifier;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedExplainGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedHintGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedPedagogyModel;
@@ -31,6 +32,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
@@ -57,6 +59,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackUnavailableReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
@@ -1748,7 +1751,7 @@ class LearningFlowGraphContractTest {
         assertEquals(0, harness.flowStore().latestAnchor(started.interaction().flowId()).map(anchor -> 1).orElse(0),
                 "a freshly started Flow carries no eligible anchor yet");
         TeachBackDeliveryResult.Unavailable guarded =
-                (TeachBackDeliveryResult.Unavailable) harness.teachBackFlow().deliverTeachBack(started.interaction().flowId());
+                (TeachBackDeliveryResult.Unavailable) harness.teachBackFlow().deliverTeachBack(started.interaction().flowId(), ScriptedModelProfile.PROFILE);
         assertEquals(TeachBackUnavailableReason.NO_ELIGIBLE_ANCHOR, guarded.reason(),
                 "without an eligible anchor the Guard must not offer Teach-back");
         assertEquals(0, harness.teachBackGeneration().calls().size(),
@@ -2299,7 +2302,7 @@ class LearningFlowGraphContractTest {
         ApplyProfileExecutor executor = new ApplyProfileExecutor(ReferenceBundles.stack(),
                 new ScriptedApplyGenerationModel(List.of(practiceTaskJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())), harness.artifacts());
-        ApplyDeliveryResult injected = executor.deliver(PracticeApplyFixture.practiceContext());
+        ApplyDeliveryResult injected = executor.deliver(ScriptedModelProfile.PROFILE, PracticeApplyFixture.practiceContext());
         assertInstanceOf(ApplyDeliveryResult.Delivered.class, injected);
         UUID openAttemptId = ((ApplyDeliveryResult.Delivered) injected).attempt().attemptId();
         TaskPackage openPackage = harness.artifacts()
@@ -2868,7 +2871,7 @@ class LearningFlowGraphContractTest {
                 new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson(
                         ApplyScriptData.REVIEW_TASK_TEXT, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION))),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())), harness.artifacts());
-        return executor.deliver(ReviewApplyFixture.reviewContext());
+        return executor.deliver(ScriptedModelProfile.PROFILE, ReviewApplyFixture.reviewContext());
     }
     /**
      * Runs the Diagnostic fail through its fresh verified Practice boundary,
@@ -3116,8 +3119,9 @@ class LearningFlowGraphContractTest {
         LearningStateGraph graph = new LearningStateGraph(
                 artifacts, flowStore, flowStore, diagnosticFlow, independentFlow, practiceFlow,
                 explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
+        OperatorModelProfilePort profilePort = () -> ScriptedModelProfile.PROFILE;
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
-                artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), clock);
+                artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort, clock);
         return new Harness(artifacts, flowStore, generation, hintGeneration, useCase, graph,
                 explainGeneration, teachBackGeneration, teachBackAssessment, teachBackFlow, pedagogy,
                 reviewStartFlow, classifier);
@@ -3140,7 +3144,8 @@ class LearningFlowGraphContractTest {
     ) {
         LearningFlowCommandUseCase newUseCase() {
             return new LearningFlowCommandUseCase(
-                    artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), CLOCK);
+                    artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                    () -> ScriptedModelProfile.PROFILE, CLOCK);
         }
     }
 }

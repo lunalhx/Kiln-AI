@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
@@ -8,6 +9,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -37,8 +39,14 @@ public class InconclusiveReviewPortsConfiguration {
 
     @Bean
     @Primary
+    OperatorModelProfilePort scriptedOperatorModelProfile() {
+        return ScriptedApplyPortsConfiguration::scriptedModelProfile;
+    }
+
+    @Bean
+    @Primary
     ApplyGenerationPort scriptedApplyGeneration() {
-        return (compiledSystemPrompt, executionContextJson) -> {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
             if (executionContextJson.contains("\"attempt_purpose\":\"review\"")) {
                 if (failNextReviewGeneration) {
                     failNextReviewGeneration = false;
@@ -86,7 +94,11 @@ public class InconclusiveReviewPortsConfiguration {
     TaskVerifierPort scriptedApplyTaskVerifier() {
         return new TaskVerifierPort() {
             @Override
-            public TaskVerificationVerdict verify(TaskPackage taskPackage, ApplyExecutionContext context) {
+            public TaskVerificationVerdict verify(
+                    ModelProfile profile,
+                    TaskPackage taskPackage,
+                    ApplyExecutionContext context
+            ) {
                 return new TaskVerificationVerdict(
                         TaskVerificationVerdict.SCHEMA,
                         TaskVerificationVerdict.Verdict.PASS,
@@ -104,7 +116,7 @@ public class InconclusiveReviewPortsConfiguration {
     @Bean
     @Primary
     AssessmentPort scriptedApplyAssessment() {
-        return context -> new ResponseAssessment(
+        return (profile, context) -> new ResponseAssessment(
                 ResponseAssessment.SCHEMA,
                 FinalExpressionJudgment.EQUIVALENT,
                 RationaleJudgment.NOT_PROVIDED,
@@ -114,7 +126,7 @@ public class InconclusiveReviewPortsConfiguration {
     @Bean
     @Primary
     ResponseVerificationPort scriptedApplyResponseVerification() {
-        return context -> new ResponseAssessment(
+        return (profile, context) -> new ResponseAssessment(
                 ResponseAssessment.SCHEMA,
                 FinalExpressionJudgment.NOT_EQUIVALENT,
                 RationaleJudgment.NOT_PROVIDED,

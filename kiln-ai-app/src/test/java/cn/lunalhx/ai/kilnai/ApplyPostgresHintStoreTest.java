@@ -1,4 +1,6 @@
 package cn.lunalhx.ai.kilnai;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
@@ -49,6 +51,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Import(ScriptedApplyPortsConfiguration.class)
 @Testcontainers(disabledWithoutDocker = true)
 class ApplyPostgresHintStoreTest {
+    private static final ModelProfile PROFILE = new ModelProfile(
+            new ModelProfile.ModelBinding("openai-compatible", "https://api.test/v1", "acme", "scripted-strong", "TEST_STRONG"),
+            new ModelProfile.ModelBinding("openai-compatible", "https://api.test/v1", "acme", "scripted-small", "TEST_SMALL"),
+            2048);
+
+    private static final ModelExecution MODEL_EXECUTION = new ModelExecution(
+            "acme/scripted-strong", "acme/scripted-small", 2048, 16_000, 0);
+
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -133,7 +143,8 @@ class ApplyPostgresHintStoreTest {
         UUID flowId = UUID.randomUUID();
         flowStore.insertFlow(new LearningFlowStore.FlowRecord(
                 flowId, UUID.randomUUID(), UUID.randomUUID(),
-                FlowStatus.READY, LearningStage.LEARNING_AND_PRACTICE, Instant.parse("2026-08-15T00:00:00Z")));
+                FlowStatus.READY, LearningStage.LEARNING_AND_PRACTICE, PROFILE,
+                Instant.parse("2026-08-15T00:00:00Z")));
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 flowId, 3, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.LEARNING_AND_PRACTICE,
                 attempt.attemptId(), AttemptPurpose.PRACTICE,
@@ -178,7 +189,7 @@ class ApplyPostgresHintStoreTest {
                         new PrivateAssessorProjection.SolutionFingerprint("profile", "fp-solution"),
                         new PrivateAssessorProjection.ExecutionTrace("apply@1.0.0",
                                 "apply.polynomial-differentiation.practice@1.0.0",
-                                List.of("apply.task-first@0.1.0"))));
+                                List.of("apply.task-first@0.1.0"), MODEL_EXECUTION)));
     }
 
     private HintLadder ladder(UUID attemptId) {

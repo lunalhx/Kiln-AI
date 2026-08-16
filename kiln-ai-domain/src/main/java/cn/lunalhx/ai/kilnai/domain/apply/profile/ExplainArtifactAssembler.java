@@ -6,6 +6,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyJson;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainGenerationDraft;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 
@@ -33,11 +34,13 @@ public final class ExplainArtifactAssembler {
     public Optional<ExplainTeachingArtifact> assemble(
             ExplainExecutionContext context,
             ExplainGenerationDraft.TeachingReady draft,
-            BundleStack stack
+            BundleStack stack,
+            ModelExecution model
     ) {
         Objects.requireNonNull(context, "context must not be null");
         Objects.requireNonNull(draft, "draft must not be null");
         Objects.requireNonNull(stack, "stack must not be null");
+        Objects.requireNonNull(model, "model must not be null");
 
         List<ExplainTeachingArtifact.SourceTraceEntry> sourceTrace = new ArrayList<>();
         for (ExplainGenerationDraft.SourceTraceEntry entry : draft.sourceTrace()) {
@@ -72,7 +75,8 @@ public final class ExplainArtifactAssembler {
                         LEGAL_EVENTS),
                 sourceTrace,
                 new ExplainTeachingArtifact.ExampleFingerprint("profile", fingerprintValue),
-                new ExplainTeachingArtifact.ExecutionTrace(ExplainProfile.PROFILE_ID, stack.pinnedIds()));
+                new ExplainTeachingArtifact.ExecutionTrace(
+                        ExplainProfile.PROFILE_ID, stack.pinnedIds(), model));
         return Optional.of(artifact);
     }
 

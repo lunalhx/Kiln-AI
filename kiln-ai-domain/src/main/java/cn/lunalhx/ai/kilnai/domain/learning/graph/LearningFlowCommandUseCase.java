@@ -4,10 +4,12 @@ import cn.lunalhx.ai.kilnai.domain.apply.ApplyHash;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.FlowCommandReplay;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
@@ -35,6 +37,7 @@ public final class LearningFlowCommandUseCase {
     private final LearningFlowStore flowStore;
     private final LearningStateGraph graph;
     private final ApplyExecutionContext diagnosticContext;
+    private final OperatorModelProfilePort modelProfilePort;
     private final Clock clock;
 
     public LearningFlowCommandUseCase(
@@ -42,12 +45,14 @@ public final class LearningFlowCommandUseCase {
             LearningFlowStore flowStore,
             LearningStateGraph graph,
             ApplyExecutionContext diagnosticContext,
+            OperatorModelProfilePort modelProfilePort,
             Clock clock
     ) {
         this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
         this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
         this.graph = Objects.requireNonNull(graph, "graph must not be null");
         this.diagnosticContext = Objects.requireNonNull(diagnosticContext, "diagnosticContext must not be null");
+        this.modelProfilePort = Objects.requireNonNull(modelProfilePort, "modelProfilePort must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -59,11 +64,16 @@ public final class LearningFlowCommandUseCase {
                 interaction -> new ApplyFlowResult.Boundary(interaction),
                 () -> {
                     UUID flowId = UUID.randomUUID();
+                    // Starting a Learning Flow freezes the operator's current
+                    // Model Profile onto the Flow (ADR-0035, ADR-0037): the
+                    // resolved snapshot is recorded with the Flow and every
+                    // later model call uses it, never the current defaults.
+                    ModelProfile profile = modelProfilePort.resolve();
                     flowStore.insertFlow(new LearningFlowStore.FlowRecord(
                             flowId, learnerId, DiagnosticApplyFixture.CONCEPT_ID,
-                            FlowStatus.READY, LearningStage.DIAGNOSTIC, clock.instant()));
+                            FlowStatus.READY, LearningStage.DIAGNOSTIC, profile, clock.instant()));
                     saveSourcePack();
-                    return graph.start(flowId, idempotencyKey, hash);
+                    return graph.start(flowId, profile, idempotencyKey, hash);
                 });
     }
 

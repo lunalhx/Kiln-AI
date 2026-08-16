@@ -1,6 +1,8 @@
 package cn.lunalhx.ai.kilnai.domain.apply.gate;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorProjection;
@@ -28,10 +30,16 @@ public final class ApplyTaskPackageGatePolicy implements GatePolicy<TaskPackage>
 
     private final ApplyExecutionContext context;
     private final List<String> pinnedStack;
+    private final ModelProfile profile;
 
-    public ApplyTaskPackageGatePolicy(ApplyExecutionContext context, List<String> pinnedStack) {
+    public ApplyTaskPackageGatePolicy(
+            ApplyExecutionContext context,
+            List<String> pinnedStack,
+            ModelProfile profile
+    ) {
         this.context = Objects.requireNonNull(context, "context must not be null");
         this.pinnedStack = List.copyOf(pinnedStack);
+        this.profile = Objects.requireNonNull(profile, "profile must not be null");
     }
 
     @Override
@@ -176,12 +184,17 @@ public final class ApplyTaskPackageGatePolicy implements GatePolicy<TaskPackage>
             violations.add(new GateViolation("private.solution-fingerprint",
                     "the profile-derived solution fingerprint is required"));
         }
+        ModelExecution model = privateProjection.executionTrace() == null
+                ? null
+                : privateProjection.executionTrace().model();
         if (privateProjection.executionTrace() == null
                 || !ApplyProfile.PROFILE_ID.equals(privateProjection.executionTrace().profile())
                 || !context.taskBlueprint().pinnedId().equals(privateProjection.executionTrace().taskBlueprint())
-                || !privateProjection.executionTrace().skillStack().equals(pinnedStack)) {
+                || !privateProjection.executionTrace().skillStack().equals(pinnedStack)
+                || model == null
+                || !model.usesFrozenProfile(profile)) {
             violations.add(new GateViolation("private.execution-trace",
-                    "the execution trace must pin the profile, blueprint, and frozen skill stack"));
+                    "the execution trace must pin the profile, blueprint, frozen skill stack, and frozen model runtime"));
         }
     }
 

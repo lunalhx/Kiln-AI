@@ -1,4 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessmentContext;
@@ -10,5 +12,5 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessmentContext;
  */
 public interface TeachBackAssessmentPort {
 
-    TeachBackAssessment assess(TeachBackAssessmentContext context);
+    TeachBackAssessment assess(ModelProfile profile, TeachBackAssessmentContext context);
 }

@@ -20,6 +20,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.IndependentSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PracticeSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -151,9 +152,10 @@ public final class LearningStateGraph {
      * task and the run stops at the first Learner Interaction Boundary — or at
      * a terminal unavailable boundary when no task can be prepared.
      */
-    public ApplyFlowResult start(UUID flowId, UUID idempotencyKey, String requestHash) {
+    public ApplyFlowResult start(UUID flowId, ModelProfile profile, UUID idempotencyKey, String requestHash) {
         Objects.requireNonNull(flowId, "flowId must not be null");
-        ApplyDeliveryResult delivery = diagnosticFlow.startDiagnostic(flowId);
+        Objects.requireNonNull(profile, "profile must not be null");
+        ApplyDeliveryResult delivery = diagnosticFlow.startDiagnostic(flowId, profile);
         ApplyFlowInteraction interaction = switch (delivery) {
             case ApplyDeliveryResult.Delivered delivered -> new ApplyFlowInteraction(
                     flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
@@ -281,7 +283,7 @@ public final class LearningStateGraph {
         if (maybeAttempt.isEmpty()) {
             return new ApplyFlowResult.HintIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
         }
-        HintResult result = hintFlow.requestHint(maybeAttempt.get(), answerRequested, idempotencyKey);
+        HintResult result = hintFlow.requestHint(state.flow().modelProfile(), maybeAttempt.get(), answerRequested, idempotencyKey);
         return switch (result) {
             case HintResult.Revealed revealed -> revealBoundary(state, revealed, idempotencyKey, requestHash);
             case HintResult.Unavailable unavailable -> boundary(
@@ -331,7 +333,8 @@ public final class LearningStateGraph {
         if (isTeachBackAttempt(attemptId) || attempt.purpose() == AttemptPurpose.DIAGNOSTIC) {
             return new ApplyFlowResult.ClarificationIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         }
-        ClarificationClassification classification = clarificationGate.classify(message, taskTextOf(attempt));
+        ClarificationClassification classification =
+                clarificationGate.classify(state.flow().modelProfile(), message, taskTextOf(attempt));
         return switch (classification) {
             case PROCEDURAL -> answerProcedurally(state, attempt, idempotencyKey, requestHash);
             case SUBSTANTIVE, UNCERTAIN -> switch (attempt.purpose()) {
@@ -416,7 +419,7 @@ public final class LearningStateGraph {
             String requestHash
     ) {
         ExplainDeliveryResult delivery = explainFlow.deliverExplain(
-                state.flow().flowId(), CLARIFICATION_INTENT, continueFacts(state));
+                state.flow().flowId(), state.flow().modelProfile(), CLARIFICATION_INTENT, continueFacts(state));
         if (delivery instanceof ExplainDeliveryResult.Unavailable unavailable) {
             return taskBoundary(state, attempt, unavailable.learnerMessage(), idempotencyKey, requestHash);
         }
@@ -456,7 +459,7 @@ public final class LearningStateGraph {
             String requestHash
     ) {
         ExplainDeliveryResult delivery = explainFlow.deliverExplain(
-                state.flow().flowId(), CLARIFICATION_INTENT, continueFacts(state));
+                state.flow().flowId(), state.flow().modelProfile(), CLARIFICATION_INTENT, continueFacts(state));
         if (delivery instanceof ExplainDeliveryResult.Unavailable unavailable) {
             return boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, attempt.attemptId(), attempt.purpose(),
@@ -617,7 +620,8 @@ public final class LearningStateGraph {
             String requestHash
     ) {
         DiagnosticSubmissionResult result = diagnosticFlow.submitDiagnostic(
-                state.flow().flowId(), attemptId, rawDerivative, confirmedCanonical, rationale);
+                state.flow().flowId(), state.flow().modelProfile(),
+                attemptId, rawDerivative, confirmedCanonical, rationale);
         return switch (result) {
             // The Neutral Transition message is learner-visible content
             // (CONTEXT.md) and is projected on the boundary; the legacy Apply
@@ -700,7 +704,7 @@ public final class LearningStateGraph {
             UUID idempotencyKey,
             String requestHash
     ) {
-        ApplyDeliveryResult delivery = practiceFlow.deliverIndependent(state.flow().flowId());
+        ApplyDeliveryResult delivery = practiceFlow.deliverIndependent(state.flow().flowId(), state.flow().modelProfile());
         return switch (delivery) {
             case ApplyDeliveryResult.Delivered delivered -> boundary(
                     state, LearningStage.INDEPENDENT_TEST, delivered.attempt().attemptId(),
@@ -839,7 +843,7 @@ public final class LearningStateGraph {
                     fallbackIntent(context),
                     facts);
         }
-        return switch (planner.plan(facts, moves.legalActions(), moves.fallback())) {
+        return switch (planner.plan(state.flow().modelProfile(), facts, moves.legalActions(), moves.fallback())) {
             case PedagogyPlanner.PedagogyDecision.PlanAccepted accepted ->
                     new Decision(accepted.plan().action(), accepted.plan().feedbackSummary(),
                             accepted.plan().intent(), facts);
@@ -905,7 +909,7 @@ public final class LearningStateGraph {
             String requestHash
     ) {
         ExplainDeliveryResult delivery = explainFlow.deliverExplain(
-                state.flow().flowId(), decision.intent(), decision.facts());
+                state.flow().flowId(), state.flow().modelProfile(), decision.intent(), decision.facts());
         return switch (delivery) {
             case ExplainDeliveryResult.Delivered delivered -> {
                 flowStore.recordAnchor(state.flow().flowId(),
@@ -941,7 +945,7 @@ public final class LearningStateGraph {
             UUID idempotencyKey,
             String requestHash
     ) {
-        ApplyDeliveryResult delivery = practiceFlow.deliverPractice(state.flow().flowId());
+        ApplyDeliveryResult delivery = practiceFlow.deliverPractice(state.flow().flowId(), state.flow().modelProfile());
         return switch (delivery) {
             case ApplyDeliveryResult.Delivered delivered -> {
                 Optional<ApplyFlowResult> rejected = acceptEvidenceOrIgnore(evidence);
@@ -973,7 +977,7 @@ public final class LearningStateGraph {
             UUID idempotencyKey,
             String requestHash
     ) {
-        TeachBackDeliveryResult delivery = teachBackFlow.deliverTeachBack(state.flow().flowId());
+        TeachBackDeliveryResult delivery = teachBackFlow.deliverTeachBack(state.flow().flowId(), state.flow().modelProfile());
         return switch (delivery) {
             case TeachBackDeliveryResult.Delivered delivered -> {
                 Optional<ApplyFlowResult> rejected = acceptEvidenceOrIgnore(evidence);
@@ -1006,7 +1010,7 @@ public final class LearningStateGraph {
             UUID idempotencyKey,
             String requestHash
     ) {
-        ApplyDeliveryResult delivery = practiceFlow.deliverIndependent(state.flow().flowId());
+        ApplyDeliveryResult delivery = practiceFlow.deliverIndependent(state.flow().flowId(), state.flow().modelProfile());
         return switch (delivery) {
             case ApplyDeliveryResult.Delivered delivered -> {
                 Optional<ApplyFlowResult> rejected = acceptEvidenceOrIgnore(evidence);

@@ -8,6 +8,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDraftException;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyGenerationDraft;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskUnavailableReason;
@@ -51,8 +53,8 @@ public final class ApplyProfileExecutor {
         this.gatePipeline = new TypedArtifactGatePipeline();
     }
 
-    public ApplyDeliveryResult deliver(ApplyExecutionContext context) {
-        PreparedDelivery prepared = prepareTask(context);
+    public ApplyDeliveryResult deliver(ModelProfile profile, ApplyExecutionContext context) {
+        PreparedDelivery prepared = prepareTask(profile, context);
         return switch (prepared) {
             case PreparedDelivery.TaskReady ready -> {
                 TaskAttempt attempt = artifactStore.openAttempt(ready.taskPackage());
@@ -71,14 +73,15 @@ public final class ApplyProfileExecutor {
      * generation returns an unavailable outcome and persists nothing but the
      * verification audit records of rejected candidates.
      */
-    public PreparedDelivery prepareTask(ApplyExecutionContext context) {
+    public PreparedDelivery prepareTask(ModelProfile profile, ApplyExecutionContext context) {
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(context, "context must not be null");
         validateContextCoverage(context, stack);
         String systemPrompt = compiler.compile(stack);
         String contextJson = compiler.serializeContext(context);
         for (int cycle = 1; cycle <= MAX_GENERATION_CYCLES; cycle++) {
-            String raw = generationPort.generate(systemPrompt, contextJson);
-            Optional<PreparedDelivery> outcome = handleCandidate(context, stack, raw);
+            String raw = generationPort.generate(profile, systemPrompt, contextJson);
+            Optional<PreparedDelivery> outcome = handleCandidate(profile, context, stack, raw, cycle - 1);
             if (outcome.isPresent()) {
                 return outcome.get();
             }
@@ -88,9 +91,11 @@ public final class ApplyProfileExecutor {
     }
 
     private Optional<PreparedDelivery> handleCandidate(
+            ModelProfile profile,
             ApplyExecutionContext context,
             BundleStack stack,
-            String raw
+            String raw,
+            int repairCount
     ) {
         ApplyGenerationDraft draft;
         try {
@@ -108,19 +113,20 @@ public final class ApplyProfileExecutor {
         if (draftGate.outcome() != GateOutcome.PASSED) {
             return Optional.empty();
         }
-        Optional<TaskPackage> assembled = assembler.assemble(context, taskReady, stack);
+        Optional<TaskPackage> assembled = assembler.assemble(context, taskReady, stack,
+                ModelExecution.from(profile, ApplyPromptCompiler.INSTRUCTION_BUDGET, repairCount));
         if (assembled.isEmpty()) {
             return Optional.empty();
         }
         TaskPackage taskPackage = assembled.get();
         GateResult<TaskPackage> packageGate = gatePipeline.validate(
                 taskPackage,
-                new ApplyTaskPackageGatePolicy(context, stack.pinnedIds()),
+                new ApplyTaskPackageGatePolicy(context, stack.pinnedIds(), profile),
                 GateContext.empty());
         if (packageGate.outcome() != GateOutcome.PASSED) {
             return Optional.empty();
         }
-        TaskVerificationVerdict verdict = verifierPort.verify(taskPackage, context);
+        TaskVerificationVerdict verdict = verifierPort.verify(profile, taskPackage, context);
         artifactStore.recordTaskVerification(taskPackage.taskPackageId(), verdict);
         if (!verdict.passed()) {
             return Optional.empty();

@@ -14,6 +14,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
@@ -44,9 +45,18 @@ import java.time.Clock;
 public class ApplyFlowConfiguration {
 
     @Bean
+    @ConditionalOnMissingBean(OperatorModelProfilePort.class)
+    OperatorModelProfilePort failClosedOperatorModelProfile() {
+        return () -> {
+            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE,
+                    "operator model profile is not configured");
+        };
+    }
+
+    @Bean
     @ConditionalOnMissingBean(ApplyGenerationPort.class)
     ApplyGenerationPort failClosedApplyGeneration() {
-        return (compiledSystemPrompt, executionContextJson) -> {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "apply generation adapter is not configured");
         };
     }
@@ -54,7 +64,7 @@ public class ApplyFlowConfiguration {
     @Bean
     @ConditionalOnMissingBean(HintGenerationPort.class)
     HintGenerationPort failClosedHintGeneration() {
-        return (compiledSystemPrompt, executionContextJson) -> {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "hint generation adapter is not configured");
         };
     }
@@ -62,7 +72,7 @@ public class ApplyFlowConfiguration {
     @Bean
     @ConditionalOnMissingBean(TeachBackGenerationPort.class)
     TeachBackGenerationPort failClosedTeachBackGeneration() {
-        return (compiledSystemPrompt, executionContextJson) -> {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "teach-back generation adapter is not configured");
         };
     }
@@ -70,7 +80,7 @@ public class ApplyFlowConfiguration {
     @Bean
     @ConditionalOnMissingBean(TeachBackTaskVerifierPort.class)
     TeachBackTaskVerifierPort failClosedTeachBackTaskVerifier() {
-        return (taskPackage, context) -> {
+        return (profile, taskPackage, context) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "teach-back task verifier adapter is not configured");
         };
     }
@@ -78,7 +88,7 @@ public class ApplyFlowConfiguration {
     @Bean
     @ConditionalOnMissingBean(TeachBackAssessmentPort.class)
     TeachBackAssessmentPort failClosedTeachBackAssessment() {
-        return context -> {
+        return (profile, context) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "teach-back assessment adapter is not configured");
         };
     }
@@ -86,7 +96,7 @@ public class ApplyFlowConfiguration {
     @Bean
     @ConditionalOnMissingBean(TaskVerifierPort.class)
     TaskVerifierPort failClosedApplyTaskVerifier() {
-        return (taskPackage, context) -> {
+        return (profile, taskPackage, context) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "apply task verifier adapter is not configured");
         };
     }
@@ -94,7 +104,7 @@ public class ApplyFlowConfiguration {
     @Bean
     @ConditionalOnMissingBean(AssessmentPort.class)
     AssessmentPort failClosedApplyAssessment() {
-        return context -> {
+        return (profile, context) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "apply assessment adapter is not configured");
         };
     }
@@ -102,7 +112,7 @@ public class ApplyFlowConfiguration {
     @Bean
     @ConditionalOnMissingBean(ResponseVerificationPort.class)
     ResponseVerificationPort failClosedApplyResponseVerification() {
-        return context -> {
+        return (profile, context) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "apply response verification adapter is not configured");
         };
     }
@@ -204,10 +214,11 @@ public class ApplyFlowConfiguration {
             DiagnosticFlow diagnosticFlow,
             IndependentSubmissionFlow independentFlow,
             ReviewSubmissionFlow reviewFlow,
+            OperatorModelProfilePort modelProfilePort,
             Clock clock
     ) {
         return new ApplyFlowUseCase(
                 artifactStore, flowStore, diagnosticFlow, independentFlow, reviewFlow,
-                DiagnosticApplyFixture.diagnosticContext(), clock);
+                DiagnosticApplyFixture.diagnosticContext(), modelProfilePort, clock);
     }
 }

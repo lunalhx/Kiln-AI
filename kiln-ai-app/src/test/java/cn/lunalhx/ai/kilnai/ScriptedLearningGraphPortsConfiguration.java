@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
@@ -58,7 +59,7 @@ public class ScriptedLearningGraphPortsConfiguration {
     @Bean
     @Primary
     ApplyGenerationPort scriptedApplyGeneration() {
-        return (compiledSystemPrompt, executionContextJson) -> {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
             if (failNextApplyGeneration) {
                 failNextApplyGeneration = false;
                 return sourceGapJson();
@@ -92,7 +93,11 @@ public class ScriptedLearningGraphPortsConfiguration {
     TaskVerifierPort scriptedApplyTaskVerifier() {
         return new TaskVerifierPort() {
             @Override
-            public TaskVerificationVerdict verify(TaskPackage taskPackage, ApplyExecutionContext context) {
+            public TaskVerificationVerdict verify(
+                    ModelProfile profile,
+                    TaskPackage taskPackage,
+                    ApplyExecutionContext context
+            ) {
                 return ScriptedApplyPortsConfiguration.passVerdict();
             }
         };
@@ -105,7 +110,7 @@ public class ScriptedLearningGraphPortsConfiguration {
         // Mathematical Equivalence Check: NOT_REQUESTED/NOT_PROVIDED with a
         // proven-correct expression passes and a proven-wrong expression is a
         // conclusive failure for every Attempt Purpose.
-        return context -> new ResponseAssessment(
+        return (profile, context) -> new ResponseAssessment(
                 ResponseAssessment.SCHEMA,
                 FinalExpressionJudgment.NOT_REQUESTED,
                 RationaleJudgment.NOT_PROVIDED,
@@ -115,7 +120,7 @@ public class ScriptedLearningGraphPortsConfiguration {
     @Bean
     @Primary
     ResponseVerificationPort scriptedApplyResponseVerification() {
-        return context -> {
+        return (profile, context) -> {
             throw new IllegalStateException("scripted response verification must never be invoked");
         };
     }
@@ -123,7 +128,7 @@ public class ScriptedLearningGraphPortsConfiguration {
     @Bean
     @Primary
     ExplainGenerationPort scriptedExplainGeneration() {
-        return (compiledSystemPrompt, executionContextJson) -> {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
             if (failNextExplainGeneration) {
                 failNextExplainGeneration = false;
                 return """
@@ -144,25 +149,25 @@ public class ScriptedLearningGraphPortsConfiguration {
     @Bean
     @Primary
     HintGenerationPort scriptedHintGeneration() {
-        return (compiledSystemPrompt, executionContextJson) -> hintLadderReadyJson();
+        return (profile, compiledSystemPrompt, executionContextJson) -> hintLadderReadyJson();
     }
 
     @Bean
     @Primary
     TeachBackGenerationPort scriptedTeachBackGeneration() {
-        return (compiledSystemPrompt, executionContextJson) -> teachBackTaskReadyJson();
+        return (profile, compiledSystemPrompt, executionContextJson) -> teachBackTaskReadyJson();
     }
 
     @Bean
     @Primary
     TeachBackTaskVerifierPort scriptedTeachBackTaskVerifier() {
-        return (taskPackage, context) -> ScriptedApplyPortsConfiguration.passVerdict();
+        return (profile, taskPackage, context) -> ScriptedApplyPortsConfiguration.passVerdict();
     }
 
     @Bean
     @Primary
     TeachBackAssessmentPort scriptedTeachBackAssessment() {
-        return context -> new TeachBackAssessment(
+        return (profile, context) -> new TeachBackAssessment(
                 TeachBackAssessment.SCHEMA,
                 TeachBackAssessment.DimensionJudgment.PASS,
                 TeachBackAssessment.DimensionJudgment.PASS,
@@ -176,13 +181,13 @@ public class ScriptedLearningGraphPortsConfiguration {
         // An always-invalid plan discards the entire output after one repair
         // and runs the spec's deterministic fallback, so the recovery contract
         // never depends on a scripted action choice.
-        return (compiledSystemPrompt, executionContextJson) -> "{}";
+        return (profile, compiledSystemPrompt, executionContextJson) -> "{}";
     }
 
     @Bean
     @Primary
     ClarificationClassifierPort scriptedClarificationClassifier() {
-        return (message, taskText) -> ClarificationClassification.SUBSTANTIVE;
+        return (profile, message, taskText) -> ClarificationClassification.SUBSTANTIVE;
     }
 
     private static String sourceGapJson() {

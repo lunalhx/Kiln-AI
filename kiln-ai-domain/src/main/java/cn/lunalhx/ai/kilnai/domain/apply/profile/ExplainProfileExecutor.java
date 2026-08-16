@@ -9,6 +9,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainGenerationDraft;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainUnavailableReason;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.gate.GateContext;
@@ -47,8 +49,8 @@ public final class ExplainProfileExecutor {
         this.gatePipeline = new TypedArtifactGatePipeline();
     }
 
-    public ExplainDeliveryResult deliver(ExplainExecutionContext context) {
-        PreparedExplain prepared = prepareTeaching(context);
+    public ExplainDeliveryResult deliver(ModelProfile profile, ExplainExecutionContext context) {
+        PreparedExplain prepared = prepareTeaching(profile, context);
         return switch (prepared) {
             case PreparedExplain.TeachingReady ready ->
                     new ExplainDeliveryResult.Delivered(ready.artifact());
@@ -63,14 +65,15 @@ public final class ExplainProfileExecutor {
      * the caller can durably bind it to its own state transition; Source Gap
      * or exhausted cycles return an unavailable outcome.
      */
-    public PreparedExplain prepareTeaching(ExplainExecutionContext context) {
+    public PreparedExplain prepareTeaching(ModelProfile profile, ExplainExecutionContext context) {
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(context, "context must not be null");
         validateContextCoverage(context, stack);
         String systemPrompt = compiler.compile(stack);
         String contextJson = compiler.serializeContext(context);
         for (int cycle = 1; cycle <= MAX_GENERATION_CYCLES; cycle++) {
-            String raw = generationPort.generate(systemPrompt, contextJson);
-            Optional<PreparedExplain> outcome = handleCandidate(context, stack, raw);
+            String raw = generationPort.generate(profile, systemPrompt, contextJson);
+            Optional<PreparedExplain> outcome = handleCandidate(profile, context, stack, raw, cycle - 1);
             if (outcome.isPresent()) {
                 return outcome.get();
             }
@@ -81,9 +84,11 @@ public final class ExplainProfileExecutor {
     }
 
     private Optional<PreparedExplain> handleCandidate(
+            ModelProfile profile,
             ExplainExecutionContext context,
             BundleStack stack,
-            String raw
+            String raw,
+            int repairCount
     ) {
         ExplainGenerationDraft draft;
         try {
@@ -102,12 +107,13 @@ public final class ExplainProfileExecutor {
         if (draftGate.outcome() != GateOutcome.PASSED) {
             return Optional.empty();
         }
-        Optional<ExplainTeachingArtifact> artifact = assembler.assemble(context, teachingReady, stack);
+        Optional<ExplainTeachingArtifact> artifact = assembler.assemble(context, teachingReady, stack,
+                ModelExecution.from(profile, ExplainPromptCompiler.INSTRUCTION_BUDGET, repairCount));
         if (artifact.isEmpty()) {
             return Optional.empty();
         }
         GateResult<ExplainTeachingArtifact> artifactGate = gatePipeline.validate(
-                artifact.get(), new ExplainGatePolicy(context, stack.pinnedIds()), GateContext.empty());
+                artifact.get(), new ExplainGatePolicy(context, stack.pinnedIds(), profile), GateContext.empty());
         if (artifactGate.outcome() != GateOutcome.PASSED) {
             return Optional.empty();
         }

@@ -4,5 +4,5 @@ import org.springframework.ai.chat.client.ChatClient;
 
 public interface ChatClientFactory {
 
-    ChatClient create(ModelBindingSnapshot binding, String apiKey);
+    ChatClient create(ModelBindingSnapshot binding, String apiKey, int maxTokens);
 }

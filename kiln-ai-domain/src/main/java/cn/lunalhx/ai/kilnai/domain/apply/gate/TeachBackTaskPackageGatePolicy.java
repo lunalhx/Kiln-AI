@@ -2,6 +2,8 @@ package cn.lunalhx.ai.kilnai.domain.apply.gate;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfile;
@@ -38,10 +40,16 @@ public final class TeachBackTaskPackageGatePolicy implements GatePolicy<TeachBac
 
     private final TeachBackExecutionContext context;
     private final List<String> pinnedStack;
+    private final ModelProfile profile;
 
-    public TeachBackTaskPackageGatePolicy(TeachBackExecutionContext context, List<String> pinnedStack) {
+    public TeachBackTaskPackageGatePolicy(
+            TeachBackExecutionContext context,
+            List<String> pinnedStack,
+            ModelProfile profile
+    ) {
         this.context = Objects.requireNonNull(context, "context must not be null");
         this.pinnedStack = List.copyOf(pinnedStack);
+        this.profile = Objects.requireNonNull(profile, "profile must not be null");
     }
 
     @Override
@@ -104,11 +112,16 @@ public final class TeachBackTaskPackageGatePolicy implements GatePolicy<TeachBac
                     "the anchor reference must match the supplied eligible anchor"));
         }
 
+        ModelExecution model = candidate.privateProjection().executionTrace() == null
+                ? null
+                : candidate.privateProjection().executionTrace().model();
         if (candidate.privateProjection().executionTrace() == null
                 || !TeachBackProfile.PROFILE_ID.equals(candidate.privateProjection().executionTrace().profile())
-                || !candidate.privateProjection().executionTrace().skillStack().equals(pinnedStack)) {
+                || !candidate.privateProjection().executionTrace().skillStack().equals(pinnedStack)
+                || model == null
+                || !model.usesFrozenProfile(profile)) {
             violations.add(new GateViolation("teach-back.execution-trace",
-                    "the execution trace must pin the profile and frozen skill stack"));
+                    "the execution trace must pin the profile, frozen skill stack, and frozen model runtime"));
         }
 
         List<String> privateSecrets = privateSecrets(candidate);

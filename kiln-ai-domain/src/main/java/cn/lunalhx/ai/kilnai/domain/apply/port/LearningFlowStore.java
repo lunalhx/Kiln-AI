@@ -3,6 +3,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.port;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
@@ -158,6 +159,7 @@ public interface LearningFlowStore {
             UUID conceptId,
             FlowStatus status,
             LearningStage stage,
+            ModelProfile modelProfile,
             Instant createdAt
     ) {
 
@@ -167,6 +169,7 @@ public interface LearningFlowStore {
             Objects.requireNonNull(conceptId, "conceptId must not be null");
             Objects.requireNonNull(status, "status must not be null");
             Objects.requireNonNull(stage, "stage must not be null");
+            Objects.requireNonNull(modelProfile, "modelProfile must not be null");
             Objects.requireNonNull(createdAt, "createdAt must not be null");
         }
     }

@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.fake;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
@@ -7,6 +8,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public final class ScriptedTaskVerifier implements TaskVerifierPort {
 
@@ -18,7 +20,8 @@ public final class ScriptedTaskVerifier implements TaskVerifierPort {
     }
 
     @Override
-    public TaskVerificationVerdict verify(TaskPackage taskPackage, ApplyExecutionContext context) {
+    public TaskVerificationVerdict verify(ModelProfile profile, TaskPackage taskPackage, ApplyExecutionContext context) {
+        Objects.requireNonNull(profile, "profile must not be null");
         verified.add(taskPackage);
         if (verified.size() > verdicts.size()) {
             throw new IllegalStateException("scripted task verifier exhausted: no more scripted verdicts");

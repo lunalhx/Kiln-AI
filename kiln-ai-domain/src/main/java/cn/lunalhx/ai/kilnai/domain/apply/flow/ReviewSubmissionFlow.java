@@ -3,6 +3,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.flow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -164,7 +165,7 @@ public final class ReviewSubmissionFlow {
             UUID idempotencyKey,
             String requestHash
     ) {
-        AssessmentOutcome outcome = assessmentRunner.run(closedAttempt, packageOf(closedAttempt));
+        AssessmentOutcome outcome = assessmentRunner.run(flow.modelProfile(), closedAttempt, packageOf(closedAttempt));
         AssessmentRunner.recordAssessments(artifactStore, closedAttempt.attemptId(), outcome);
         return switch (outcome) {
             case AssessmentOutcome.Passed passed -> acceptReviewPass(flow, closedAttempt);
@@ -268,7 +269,7 @@ public final class ReviewSubmissionFlow {
         ReviewTask review = started.get();
         ApplyExecutionContext reviewContext = reviewContextTemplate.withNoveltyExclusions(
                 flowStore.noveltyExclusions(flow.flowId()));
-        PreparedDelivery prepared = executor.prepareTask(reviewContext);
+        PreparedDelivery prepared = executor.prepareTask(flow.modelProfile(), reviewContext);
         TaskPackage replacement = prepared instanceof PreparedDelivery.TaskReady ready
                 ? ready.taskPackage()
                 : null;

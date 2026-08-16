@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
@@ -9,6 +10,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -37,10 +39,34 @@ public class ScriptedApplyPortsConfiguration {
     /** The rationale value that scripts the assessment to judge a clear contradiction. */
     public static final String CONTRADICTORY_RATIONALE_MARKER = "我用了乘积法则，但答案是错误的规则推导";
 
+    /** The scripted frozen Model Profile of the app contract tests. */
+    public static ModelProfile scriptedModelProfile() {
+        return new ModelProfile(
+                new ModelProfile.ModelBinding(
+                        "openai-compatible",
+                        "https://api.test/v1",
+                        "acme",
+                        "scripted-strong",
+                        "TEST_STRONG_SECRET"),
+                new ModelProfile.ModelBinding(
+                        "openai-compatible",
+                        "https://api.test/v1",
+                        "acme",
+                        "scripted-small",
+                        "TEST_SMALL_SECRET"),
+                2048);
+    }
+
+    @Bean
+    @Primary
+    OperatorModelProfilePort scriptedOperatorModelProfile() {
+        return ScriptedApplyPortsConfiguration::scriptedModelProfile;
+    }
+
     @Bean
     @Primary
     ApplyGenerationPort scriptedApplyGeneration() {
-        return (compiledSystemPrompt, executionContextJson) -> {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
             if (executionContextJson.contains("\"attempt_purpose\":\"review\"")) {
                 // The novelty exclusions already carry every previously
                 // exposed task fingerprint; their count selects the Review
@@ -86,7 +112,11 @@ public class ScriptedApplyPortsConfiguration {
     TaskVerifierPort scriptedApplyTaskVerifier() {
         return new TaskVerifierPort() {
             @Override
-            public TaskVerificationVerdict verify(TaskPackage taskPackage, ApplyExecutionContext context) {
+            public TaskVerificationVerdict verify(
+                    ModelProfile profile,
+                    TaskPackage taskPackage,
+                    ApplyExecutionContext context
+            ) {
                 return passVerdict();
             }
         };
@@ -95,7 +125,7 @@ public class ScriptedApplyPortsConfiguration {
     @Bean
     @Primary
     AssessmentPort scriptedApplyAssessment() {
-        return context -> {
+        return (profile, context) -> {
             if (context.purpose() == cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose.REVIEW
                     && CONTRADICTORY_RATIONALE_MARKER.equals(context.rationale())) {
                 return new ResponseAssessment(
@@ -115,7 +145,7 @@ public class ScriptedApplyPortsConfiguration {
     @Bean
     @Primary
     ResponseVerificationPort scriptedApplyResponseVerification() {
-        return context -> {
+        return (profile, context) -> {
             throw new IllegalStateException("scripted response verification must never be invoked");
         };
     }

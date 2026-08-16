@@ -1,4 +1,5 @@
 package cn.lunalhx.ai.kilnai.domain.apply.fake;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassification;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
@@ -29,7 +30,8 @@ public final class ScriptedClarificationClassifier implements ClarificationClass
     }
 
     @Override
-    public ClarificationClassification classify(String message, String taskText) {
+    public ClarificationClassification classify(ModelProfile profile, String message, String taskText) {
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(message, "message must not be null");
         Objects.requireNonNull(taskText, "taskText must not be null");
         calls.add(new Call(message, taskText));

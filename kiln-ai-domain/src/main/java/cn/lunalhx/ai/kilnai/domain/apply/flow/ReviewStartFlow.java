@@ -3,6 +3,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.flow;
 import cn.lunalhx.ai.kilnai.domain.apply.ApplyHash;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
@@ -75,9 +76,12 @@ public final class ReviewStartFlow {
             throw new ApplicationException(ErrorCode.CONFLICT, "review task is not startable");
         }
         UUID flowId = review.flowId();
+        ModelProfile profile = flowStore.findFlow(flowId)
+                .map(LearningFlowStore.FlowRecord::modelProfile)
+                .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
         ApplyExecutionContext reviewContext = reviewContextTemplate.withNoveltyExclusions(
                 flowStore.noveltyExclusions(flowId));
-        PreparedDelivery prepared = executor.prepareTask(reviewContext);
+        PreparedDelivery prepared = executor.prepareTask(profile, reviewContext);
         if (prepared instanceof PreparedDelivery.Unavailable unavailable) {
             return new ReviewStartResult.Unavailable(unavailable.reason(), flowId, unavailable.learnerMessage());
         }

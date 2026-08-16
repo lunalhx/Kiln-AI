@@ -1,10 +1,14 @@
 package cn.lunalhx.ai.kilnai.domain.apply.gate;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyPromptCompiler;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ApplyScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyGenerationDraft;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
@@ -25,6 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ApplyTaskPackageGatePolicyTest {
+
+    private static final ModelProfile PROFILE = ScriptedModelProfile.PROFILE;
 
     private static final List<String> PINNED_STACK = List.of(
             "apply.task-first@0.1.0",
@@ -113,7 +119,7 @@ class ApplyTaskPackageGatePolicyTest {
                         List.of(fingerprint), List.of(), List.of(), List.of(), List.of()));
 
         GateResult<TaskPackage> result = pipeline.validate(
-                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
+                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK, PROFILE), GateContext.empty());
 
         assertEquals(GateOutcome.REJECTED, result.outcome());
         assertTrue(result.violations().stream().anyMatch(v -> "novelty.task-fingerprint".equals(v.code())));
@@ -127,7 +133,7 @@ class ApplyTaskPackageGatePolicyTest {
                         List.of(), List.of(fingerprint), List.of(), List.of(), List.of()));
 
         GateResult<TaskPackage> result = pipeline.validate(
-                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
+                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK, PROFILE), GateContext.empty());
 
         assertEquals(GateOutcome.REJECTED, result.outcome());
         assertTrue(result.violations().stream().anyMatch(v -> "novelty.solution-fingerprint".equals(v.code())));
@@ -141,7 +147,7 @@ class ApplyTaskPackageGatePolicyTest {
                         List.of(), List.of(), List.of(), List.of(fingerprint), List.of()));
 
         GateResult<TaskPackage> result = pipeline.validate(
-                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
+                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK, PROFILE), GateContext.empty());
 
         assertEquals(GateOutcome.REJECTED, result.outcome());
         assertTrue(result.violations().stream().anyMatch(v -> "novelty.task-fingerprint".equals(v.code())));
@@ -155,7 +161,7 @@ class ApplyTaskPackageGatePolicyTest {
                         List.of(), List.of(), List.of(), List.of(), List.of(fingerprint)));
 
         GateResult<TaskPackage> result = pipeline.validate(
-                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
+                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK, PROFILE), GateContext.empty());
 
         assertEquals(GateOutcome.REJECTED, result.outcome());
         assertTrue(result.violations().stream().anyMatch(v -> "novelty.solution-fingerprint".equals(v.code())));
@@ -169,7 +175,7 @@ class ApplyTaskPackageGatePolicyTest {
                         List.of(), List.of(), List.of(fingerprint), List.of(), List.of()));
 
         GateResult<TaskPackage> result = pipeline.validate(
-                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
+                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK, PROFILE), GateContext.empty());
 
         assertEquals(GateOutcome.REJECTED, result.outcome());
         assertTrue(result.violations().stream().anyMatch(v -> "novelty.task-fingerprint".equals(v.code())));
@@ -208,13 +214,14 @@ class ApplyTaskPackageGatePolicyTest {
 
     private TaskPackage assemble(ApplyGenerationDraft.TaskReady draft) {
         return new TaskPackageAssembler()
-                .assemble(context, draft, ReferenceBundles.stack())
+                .assemble(context, draft, ReferenceBundles.stack(),
+                        ModelExecution.from(PROFILE, ApplyPromptCompiler.INSTRUCTION_BUDGET, 0))
                 .orElseThrow();
     }
 
     private GateResult<TaskPackage> gate(TaskPackage taskPackage) {
         return pipeline.validate(
-                taskPackage, new ApplyTaskPackageGatePolicy(context, PINNED_STACK), GateContext.empty());
+                taskPackage, new ApplyTaskPackageGatePolicy(context, PINNED_STACK, PROFILE), GateContext.empty());
     }
 
     private void assertRejected(TaskPackage taskPackage) {

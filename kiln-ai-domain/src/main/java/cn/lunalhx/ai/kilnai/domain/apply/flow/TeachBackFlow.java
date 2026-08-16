@@ -10,6 +10,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessmentContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackExecutionContext.AnchorView;
@@ -87,15 +88,16 @@ public final class TeachBackFlow {
      * eligible anchor, or when the anchor content cannot be resolved, nothing
      * is generated and the neutral unavailable outcome is returned.
      */
-    public TeachBackDeliveryResult deliverTeachBack(UUID flowId) {
+    public TeachBackDeliveryResult deliverTeachBack(UUID flowId, ModelProfile profile) {
         Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(profile, "profile must not be null");
         Optional<AnchorView> anchorView = latestAnchorView(flowId);
         if (anchorView.isEmpty()) {
             return new TeachBackDeliveryResult.Unavailable(
                     TeachBackUnavailableReason.NO_ELIGIBLE_ANCHOR,
                     TeachBackDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE);
         }
-        return executor.deliver(contextTemplate.withAnchor(anchorView.get()));
+        return executor.deliver(profile, contextTemplate.withAnchor(anchorView.get()));
     }
 
     /**
@@ -246,7 +248,7 @@ public final class TeachBackFlow {
                 anchorView.get().learnerContent(),
                 learnerResponse,
                 closedAttempt.purpose());
-        TeachBackAssessment assessment = assessmentPort.assess(context);
+        TeachBackAssessment assessment = assessmentPort.assess(flow.modelProfile(), context);
         artifactStore.recordTeachBackAssessment(closedAttempt.attemptId(), assessment);
         return new TeachBackSubmissionResult.TeachBackAssessed(
                 closedAttempt,

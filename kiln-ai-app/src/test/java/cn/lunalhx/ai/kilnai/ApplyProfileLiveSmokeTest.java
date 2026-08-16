@@ -1,4 +1,6 @@
 package cn.lunalhx.ai.kilnai;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
@@ -80,9 +82,15 @@ class ApplyProfileLiveSmokeTest {
                 artifacts, flowStore, model, model,
                 new ReviewTaskScheduler((ReviewTaskStore) flowStore),
                 executor, (ReviewTaskStore) flowStore, ReviewApplyFixture.reviewContext(), Clock.systemUTC());
+        OperatorModelProfilePort profilePort = () -> new ModelProfile(
+                new ModelProfile.ModelBinding("openai-compatible", "https://api.smoke.test/v1",
+                        "smoke", "smoke-strong", "KILN_APPLY_SMOKE_STRONG"),
+                new ModelProfile.ModelBinding("openai-compatible", "https://api.smoke.test/v1",
+                        "smoke", "smoke-small", "KILN_APPLY_SMOKE_SMALL"),
+                2048);
         ApplyFlowUseCase useCase = new ApplyFlowUseCase(
                 artifacts, flowStore, diagnosticFlow, independentFlow, reviewFlow,
-                DiagnosticApplyFixture.diagnosticContext(), Clock.systemUTC());
+                DiagnosticApplyFixture.diagnosticContext(), profilePort, Clock.systemUTC());
 
         ApplyFlowResult result = useCase.start(UUID.randomUUID(), UUID.randomUUID());
 

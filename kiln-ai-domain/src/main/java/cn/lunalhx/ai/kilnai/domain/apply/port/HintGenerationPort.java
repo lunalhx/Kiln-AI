@@ -1,4 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+
 
 /**
  * The model port of the reference Hint Profile: one call generates the raw
@@ -8,5 +10,5 @@ package cn.lunalhx.ai.kilnai.domain.apply.port;
  */
 public interface HintGenerationPort {
 
-    String generate(String compiledSystemPrompt, String executionContextJson);
+    String generate(ModelProfile profile, String compiledSystemPrompt, String executionContextJson);
 }

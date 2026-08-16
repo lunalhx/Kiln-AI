@@ -1,6 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.learning.graph;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -31,10 +32,11 @@ public final class ClarificationGate {
      * unchanged: the graph must treat it like substantive assistance, never
      * guess a procedural answer.
      */
-    public ClarificationClassification classify(String message, String taskText) {
+    public ClarificationClassification classify(ModelProfile profile, String message, String taskText) {
+        Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(message, "message must not be null");
         Objects.requireNonNull(taskText, "taskText must not be null");
-        return classifierPort.classify(message, taskText);
+        return classifierPort.classify(profile, message, taskText);
     }
 
     /**
