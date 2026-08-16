@@ -10,8 +10,9 @@ import java.util.UUID;
 /**
  * The durable learner-visible interaction of one Apply Learning Flow at one
  * Learner Interaction Boundary. It carries the open Task Attempt awaiting a
- * submission, or a terminal message; it never carries private assessor
- * projections, expected answers, source traces, or Fingerprints.
+ * submission, the learner-visible view of the last exposed hint level, or a
+ * terminal message; it never carries private assessor projections, expected
+ * answers, unexposed hint levels, source traces, or Fingerprints.
  */
 public record ApplyFlowInteraction(
         UUID flowId,
@@ -21,7 +22,8 @@ public record ApplyFlowInteraction(
         UUID attemptId,
         AttemptPurpose attemptPurpose,
         LearnerProjection learnerProjection,
-        String learnerMessage
+        String learnerMessage,
+        HintView hint
 ) {
 
     public ApplyFlowInteraction {

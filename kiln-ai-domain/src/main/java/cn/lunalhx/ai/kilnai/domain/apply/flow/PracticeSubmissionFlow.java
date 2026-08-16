@@ -46,6 +46,7 @@ public final class PracticeSubmissionFlow {
     public static final String PRACTICE_START_MESSAGE = "本次诊断已结束，请先完成一道练习题。";
     public static final String PRACTICE_REPLACEMENT_MESSAGE = "请继续完成一道新的练习题。";
     public static final String INDEPENDENT_READY_MESSAGE = "接下来是一道新的独立练习题，请独立完成。";
+    public static final String PRACTICE_AFTER_REVEAL_MESSAGE = "已展示完整解答，请完成一道新的练习题。";
 
     private final ApplyProfileExecutor executor;
     private final ArtifactStore artifactStore;
@@ -221,6 +222,12 @@ public final class PracticeSubmissionFlow {
                 PRACTICE_REPLACEMENT_MESSAGE);
     }
 
+    /**
+     * The assisted Practice Evidence carries the attempt's actual Assistance
+     * Trace: only the hint levels that were actually exposed are recorded, so
+     * the audit trail reflects what the learner saw, and the highest exposed
+     * level feeds the readiness and eligibility rules.
+     */
     private AcceptedLearningEvidence practiceEvidence(
             LearningFlowStore.FlowRecord flow,
             TaskAttempt closedAttempt,
@@ -234,8 +241,8 @@ public final class PracticeSubmissionFlow {
                 flow.learnerId(),
                 result,
                 AttemptPurpose.PRACTICE,
-                0,
-                List.of(),
+                closedAttempt.highestHintLevel(),
+                closedAttempt.assistanceTraceStrings(),
                 clock.instant());
     }
 

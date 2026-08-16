@@ -5,8 +5,12 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintLevel;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalAnswer;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorFacts;
@@ -74,7 +78,7 @@ class ApplyFlowStoreJsonRoundTripTest {
 
         TaskAttempt openAttempt = new TaskAttempt(
                 UUID.randomUUID(), taskPackage.taskPackageId(), AttemptPurpose.DIAGNOSTIC,
-                AttemptStatus.OPEN, Instant.parse("2026-08-15T00:00:00Z"), null, null);
+                AttemptStatus.OPEN, Instant.parse("2026-08-15T00:00:00Z"), null, null, List.of());
         assertEquals(openAttempt, roundTrip(openAttempt));
 
         TaskSubmission submission = new TaskSubmission(
@@ -84,7 +88,9 @@ class ApplyFlowStoreJsonRoundTripTest {
 
         TaskAttempt closedAttempt = new TaskAttempt(
                 openAttempt.attemptId(), taskPackage.taskPackageId(), AttemptPurpose.DIAGNOSTIC,
-                AttemptStatus.SUBMITTED, openAttempt.openedAt(), submission.submittedAt(), submission);
+                AttemptStatus.SUBMITTED, openAttempt.openedAt(), submission.submittedAt(), submission,
+                List.of(new AssistanceTraceEntry(HintLevel.H1, Instant.parse("2026-08-15T00:00:00Z")),
+                        new AssistanceTraceEntry(HintLevel.H3, Instant.parse("2026-08-15T00:00:05Z"))));
         assertEquals(closedAttempt, roundTrip(closedAttempt));
         assertEquals(new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, closedAttempt),
                 roundTrip(new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, closedAttempt)));
@@ -113,8 +119,19 @@ class ApplyFlowStoreJsonRoundTripTest {
         UUID flowId = UUID.randomUUID();
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
-                openAttempt.attemptId(), AttemptPurpose.DIAGNOSTIC, projection, null);
+                openAttempt.attemptId(), AttemptPurpose.DIAGNOSTIC, projection, null, null);
         assertEquals(interaction, roundTrip(interaction));
+
+        HintView hint = new HintView(3, "strategy", "先对每一项分别求导。",
+                null, null);
+        assertEquals(hint, roundTrip(hint));
+        HintView reveal = new HintView(5, "reveal", "完整解答", List.of("步骤一", "步骤二"), "12*x^2-6*x+7");
+        assertEquals(reveal, roundTrip(reveal));
+
+        HintRequestRecord request = new HintRequestRecord(
+                openAttempt.attemptId(), UUID.randomUUID(), 2, 2,
+                Instant.parse("2026-08-15T00:00:05Z"));
+        assertEquals(request, roundTrip(request));
 
         ApplyCheckpoint checkpoint = new ApplyCheckpoint(
                 UUID.randomUUID(), flowId, 1, Instant.parse("2026-08-15T00:00:03Z"));

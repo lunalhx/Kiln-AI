@@ -11,6 +11,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorFacts;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 
 import java.util.List;
 import java.util.Objects;
@@ -78,6 +79,16 @@ public final class TaskPackageAssembler {
             ApplyExecutionContext context,
             ApplyGenerationDraft.TaskReady draft
     ) {
+        List<ApplyLearnerEvent> events = new java.util.ArrayList<>(List.of(
+                ApplyLearnerEvent.ANSWER_SUBMITTED,
+                ApplyLearnerEvent.PROCEDURAL_CLARIFICATION,
+                ApplyLearnerEvent.FLOW_CONTROL));
+        if (context.taskBlueprint().attemptPurpose() == AttemptPurpose.PRACTICE) {
+            // The Practice Blueprint permits Hint interactions before the one
+            // formal submission (ADR-0065); no other purpose ever exposes the
+            // Hint event.
+            events.add(ApplyLearnerEvent.HINT_REQUESTED);
+        }
         return new LearnerProjection(
                 context.learnerLocale(),
                 draft.learnerTaskText(),
@@ -97,10 +108,7 @@ public final class TaskPackageAssembler {
                                 null,
                                 "required".equals(context.taskBlueprint().responseFields().ruleRationale()))
                 ),
-                List.of(
-                        ApplyLearnerEvent.ANSWER_SUBMITTED,
-                        ApplyLearnerEvent.PROCEDURAL_CLARIFICATION,
-                        ApplyLearnerEvent.FLOW_CONTROL),
+                events,
                 new LearnerProjection.SubmissionRule(1)
         );
     }

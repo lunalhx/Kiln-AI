@@ -1,6 +1,11 @@
 package cn.lunalhx.ai.kilnai.domain.apply.store;
 
+import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintLevel;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -8,6 +13,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -22,6 +28,8 @@ public final class InMemoryArtifactStore implements ArtifactStore {
 
     private final Map<UUID, TaskPackage> packages = new HashMap<>();
     private final Map<UUID, TaskAttempt> attempts = new HashMap<>();
+    private final Map<UUID, HintLadder> ladders = new HashMap<>();
+    private final Map<UUID, List<HintRequestRecord>> hintRequests = new HashMap<>();
     private final Map<UUID, List<TaskVerificationVerdict>> verifications = new HashMap<>();
     private final Map<UUID, List<ResponseAssessment>> assessments = new HashMap<>();
     private final Map<String, SourceArtifact> sources = new HashMap<>();
@@ -71,6 +79,57 @@ public final class InMemoryArtifactStore implements ArtifactStore {
             attempts.put(attemptId, outcome.attempt());
         }
         return outcome;
+    }
+
+    @Override
+    public synchronized Optional<HintLadder> findLadder(UUID attemptId) {
+        return Optional.ofNullable(ladders.get(attemptId));
+    }
+
+    @Override
+    public synchronized HintExposureOutcome exposeHint(
+            UUID attemptId,
+            HintLadder ladder,
+            int requestedLevel,
+            UUID commandKey
+    ) {
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        Objects.requireNonNull(ladder, "ladder must not be null");
+        Objects.requireNonNull(commandKey, "commandKey must not be null");
+        TaskAttempt current = attempts.get(attemptId);
+        if (current == null) {
+            return new HintExposureOutcome.NotFound();
+        }
+        // A saved request record resumes a crashed command even when its
+        // exposure already closed the attempt (H5 reveal).
+        HintRequestRecord recorded = findHintRequest(attemptId, commandKey).orElse(null);
+        if (recorded != null) {
+            return new HintExposureOutcome.AlreadyExposed(current, recorded);
+        }
+        if (current.purpose() != AttemptPurpose.PRACTICE || !current.isOpen()) {
+            return new HintExposureOutcome.NotOpen(current);
+        }
+        HintRequestRecord request = new HintRequestRecord(
+                attemptId, commandKey, requestedLevel, requestedLevel, clock.instant());
+        TaskAttempt extended = current.appendAssistance(
+                new AssistanceTraceEntry(HintLevel.of(requestedLevel), clock.instant()));
+        AttemptCloseOutcome closed = requestedLevel == 5
+                ? extended.closeAsSolutionRevealed(clock.instant())
+                : new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, extended);
+        if (closed.result() != AttemptCloseOutcome.Result.CLOSED) {
+            return new HintExposureOutcome.NotOpen(current);
+        }
+        ladders.putIfAbsent(attemptId, ladder);
+        attempts.put(attemptId, closed.attempt());
+        hintRequests.computeIfAbsent(attemptId, key -> new ArrayList<>()).add(request);
+        return new HintExposureOutcome.Exposed(closed.attempt(), request);
+    }
+
+    @Override
+    public synchronized Optional<HintRequestRecord> findHintRequest(UUID attemptId, UUID commandKey) {
+        return hintRequests.getOrDefault(attemptId, List.of()).stream()
+                .filter(request -> request.commandKey().equals(commandKey))
+                .findFirst();
     }
 
     @Override

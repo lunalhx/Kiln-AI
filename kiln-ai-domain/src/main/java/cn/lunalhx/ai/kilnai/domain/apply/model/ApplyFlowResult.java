@@ -9,7 +9,8 @@ package cn.lunalhx.ai.kilnai.domain.apply.model;
 public sealed interface ApplyFlowResult
         permits ApplyFlowResult.Boundary,
         ApplyFlowResult.SubmissionRejected,
-        ApplyFlowResult.SubmissionIgnored {
+        ApplyFlowResult.SubmissionIgnored,
+        ApplyFlowResult.HintIgnored {
 
     record Boundary(ApplyFlowInteraction interaction) implements ApplyFlowResult {
     }
@@ -18,5 +19,14 @@ public sealed interface ApplyFlowResult
     }
 
     record SubmissionIgnored(SubmissionIgnoreReason reason) implements ApplyFlowResult {
+    }
+
+    /**
+     * A hint request that was never legal for the addressed attempt — an
+     * unknown attempt, a wrong purpose (Diagnostic, Independent, Review, or
+     * Teach-back), or an already-closed Practice attempt. Nothing is exposed
+     * and the interaction never advances.
+     */
+    record HintIgnored(SubmissionIgnoreReason reason) implements ApplyFlowResult {
     }
 }

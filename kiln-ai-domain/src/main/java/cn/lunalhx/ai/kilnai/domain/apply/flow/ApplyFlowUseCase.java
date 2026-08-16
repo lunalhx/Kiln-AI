@@ -86,10 +86,10 @@ public final class ApplyFlowUseCase {
                         case ApplyDeliveryResult.Delivered delivered -> new ApplyFlowInteraction(
                                 flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
                                 delivered.attempt().attemptId(), delivered.attempt().purpose(),
-                                delivered.learnerProjection(), null);
+                                delivered.learnerProjection(), null, null);
                         case ApplyDeliveryResult.Unavailable unavailable -> new ApplyFlowInteraction(
                                 flowId, 1, FlowStatus.TERMINAL, LearningStage.DIAGNOSTIC,
-                                null, null, null, unavailable.learnerMessage());
+                                null, null, null, unavailable.learnerMessage(), null);
                     };
                     commitBoundary(interaction, idempotencyKey, hash);
                     return new ApplyFlowResult.Boundary(interaction);
@@ -258,7 +258,7 @@ public final class ApplyFlowUseCase {
         FlowStatus status = learnerProjection == null ? FlowStatus.TERMINAL : FlowStatus.AWAITING_LEARNER_INPUT;
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 latest.flowId(), latest.interactionVersion() + 1, status, stage,
-                attemptId, purpose, learnerProjection, learnerMessage);
+                attemptId, purpose, learnerProjection, learnerMessage, null);
         commitBoundary(interaction, idempotencyKey, hash);
         return new ApplyFlowResult.Boundary(interaction);
     }
