@@ -399,6 +399,27 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
+    @Transactional
+    public boolean acceptEvidence(AcceptedLearningEvidence evidence) {
+        Objects.requireNonNull(evidence, "evidence must not be null");
+        if (mapper.evidenceExists(evidence.taskAttemptId()).isPresent()) {
+            return false;
+        }
+        mapper.insertEvidence(new ApplyFlowMapper.EvidenceRow(
+                evidence.id(),
+                evidence.taskAttemptId(),
+                evidence.flowId(),
+                evidence.conceptId(),
+                evidence.learnerId(),
+                evidence.result().name(),
+                evidence.attemptPurpose().name(),
+                evidence.highestHintLevel(),
+                writeJson(evidence.assistanceTrace()),
+                evidence.acceptedAt()));
+        return true;
+    }
+
+    @Override
     public List<AcceptedLearningEvidence> allEvidence() {
         return mapper.listEvidence().stream().map(row -> new AcceptedLearningEvidence(
                 row.id(),

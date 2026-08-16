@@ -28,12 +28,13 @@ public final class ResponseAssessmentDecider {
         }
         return switch (context.purpose()) {
             case DIAGNOSTIC -> decideDiagnostic(context, assessment, verification);
-            case INDEPENDENT_TEST -> decideIndependent(context, assessment, verification);
-            // Review uses the same final-expression and non-contradictory
-            // optional-rationale policy as Independent Test (spec line 81).
-            case REVIEW -> decideIndependent(context, assessment, verification);
-            case PRACTICE -> throw new IllegalArgumentException(
-                    "unsupported attempt purpose for response assessment: " + context.purpose());
+            // Review and Practice use the same final-expression and
+            // non-contradictory optional-rationale policy as Independent Test
+            // (spec line 81): a clearly contradictory rationale over a correct
+            // final answer is Blocked, which the Review and Practice flows map
+            // to a conclusive failure (ADR-0061, ADR-0067), never evaluative
+            // uncertainty.
+            case INDEPENDENT_TEST, REVIEW, PRACTICE -> decideIndependent(context, assessment, verification);
         };
     }
 
@@ -41,9 +42,8 @@ public final class ResponseAssessmentDecider {
         boolean valid = switch (purpose) {
             case DIAGNOSTIC -> rationale != RationaleJudgment.CLEARLY_CONTRADICTORY
                     && rationale != RationaleJudgment.NOT_CLEARLY_CONTRADICTORY;
-            case INDEPENDENT_TEST, REVIEW -> rationale != RationaleJudgment.APPLICABLE
+            case INDEPENDENT_TEST, REVIEW, PRACTICE -> rationale != RationaleJudgment.APPLICABLE
                     && rationale != RationaleJudgment.NOT_APPLICABLE;
-            case PRACTICE -> false;
         };
         if (!valid) {
             throw new IllegalArgumentException(

@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.learning.graph;
 
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
@@ -9,6 +10,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.DiagnosticSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.IndependentSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.PracticeSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
@@ -43,6 +45,7 @@ public final class LearningStateGraph {
     private final LearningFlowStore flowStore;
     private final DiagnosticFlow diagnosticFlow;
     private final IndependentSubmissionFlow independentFlow;
+    private final PracticeSubmissionFlow practiceFlow;
     private final Clock clock;
 
     public LearningStateGraph(
@@ -50,12 +53,14 @@ public final class LearningStateGraph {
             LearningFlowStore flowStore,
             DiagnosticFlow diagnosticFlow,
             IndependentSubmissionFlow independentFlow,
+            PracticeSubmissionFlow practiceFlow,
             Clock clock
     ) {
         this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
         this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
         this.diagnosticFlow = Objects.requireNonNull(diagnosticFlow, "diagnosticFlow must not be null");
         this.independentFlow = Objects.requireNonNull(independentFlow, "independentFlow must not be null");
+        this.practiceFlow = Objects.requireNonNull(practiceFlow, "practiceFlow must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -112,6 +117,8 @@ public final class LearningStateGraph {
                     idempotencyKey, requestHash);
             case INDEPENDENT_TEST -> submitIndependent(state, attemptId, rawDerivative, confirmedCanonical, rationale,
                     idempotencyKey, requestHash);
+            case PRACTICE -> submitPractice(state, attemptId, rawDerivative, confirmedCanonical, rationale,
+                    idempotencyKey, requestHash);
             default -> new ApplyFlowResult.SubmissionIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         };
     }
@@ -140,9 +147,11 @@ public final class LearningStateGraph {
                     state, LearningStage.INDEPENDENT_TEST, inconclusive.independentAttempt().attemptId(),
                     inconclusive.independentAttempt().purpose(), inconclusive.independentLearnerProjection(),
                     inconclusive.neutralTransitionMessage(), idempotencyKey, requestHash);
-            case DiagnosticSubmissionResult.Failed failed -> boundary(
-                    state, LearningStage.DIAGNOSTIC, null, null, null, failed.safeEndMessage(),
-                    idempotencyKey, requestHash);
+            case DiagnosticSubmissionResult.Failed failed ->
+                    // A failed submitted Diagnostic stays closed and is never
+                    // retroactively converted; the remediation cycle opens
+                    // with a fresh verified Apply Practice task.
+                    deliverPracticeBoundary(state, idempotencyKey, requestHash);
             case DiagnosticSubmissionResult.IndependentUnavailable unavailable -> boundary(
                     state, LearningStage.DIAGNOSTIC, null, null, null, unavailable.learnerMessage(),
                     idempotencyKey, requestHash);
@@ -175,6 +184,72 @@ public final class LearningStateGraph {
                     new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
             case IndependentSubmissionResult.Ignored ignored ->
                     new ApplyFlowResult.SubmissionIgnored(ignored.reason());
+        };
+    }
+
+    /**
+     * The Apply Practice node of one submission: a conclusive pass delivers
+     * the fresh Independent Test — the only outcome that makes fresh
+     * Independent testing legal in the current remediation cycle — a
+     * conclusive fail or an Inconclusive judgment delivers a fresh Practice
+     * task, and a failed follow-up generation stops at a terminal unavailable
+     * boundary that keeps the accepted Evidence (or none) exactly as the
+     * transition left it.
+     */
+    private ApplyFlowResult submitPractice(
+            LearningState state,
+            UUID attemptId,
+            String rawDerivative,
+            String confirmedCanonical,
+            String rationale,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        PracticeSubmissionResult result = practiceFlow.submitPractice(
+                state.flow(), attemptId, rawDerivative, confirmedCanonical, rationale);
+        return switch (result) {
+            case PracticeSubmissionResult.PracticePassed passed -> boundary(
+                    state, LearningStage.INDEPENDENT_TEST, passed.independentAttempt().attemptId(),
+                    passed.independentAttempt().purpose(), passed.independentLearnerProjection(),
+                    passed.learnerMessage(), idempotencyKey, requestHash);
+            case PracticeSubmissionResult.PracticeFailed failed -> boundary(
+                    state, LearningStage.LEARNING_AND_PRACTICE, failed.practiceAttempt().attemptId(),
+                    failed.practiceAttempt().purpose(), failed.practiceLearnerProjection(),
+                    failed.learnerMessage(), idempotencyKey, requestHash);
+            case PracticeSubmissionResult.PracticeInconclusive inconclusive -> boundary(
+                    state, LearningStage.LEARNING_AND_PRACTICE, inconclusive.practiceAttempt().attemptId(),
+                    inconclusive.practiceAttempt().purpose(), inconclusive.practiceLearnerProjection(),
+                    inconclusive.learnerMessage(), idempotencyKey, requestHash);
+            case PracticeSubmissionResult.PracticeUnavailable unavailable -> boundary(
+                    state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
+                    unavailable.learnerMessage(), idempotencyKey, requestHash);
+            case PracticeSubmissionResult.NotSubmittable notSubmittable ->
+                    new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
+            case PracticeSubmissionResult.Ignored ignored ->
+                    new ApplyFlowResult.SubmissionIgnored(ignored.reason());
+        };
+    }
+
+    /**
+     * The deterministic remediation entry of an accepted Diagnostic failure:
+     * the Practice node delivers a fresh verified task over the frozen
+     * Practice Blueprint, or a terminal unavailable boundary when no task can
+     * be prepared.
+     */
+    private ApplyFlowResult deliverPracticeBoundary(
+            LearningState state,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        ApplyDeliveryResult delivery = practiceFlow.deliverPractice(state.flow().flowId());
+        return switch (delivery) {
+            case ApplyDeliveryResult.Delivered delivered -> boundary(
+                    state, LearningStage.LEARNING_AND_PRACTICE, delivered.attempt().attemptId(),
+                    delivered.attempt().purpose(), delivered.learnerProjection(),
+                    PracticeSubmissionFlow.PRACTICE_START_MESSAGE, idempotencyKey, requestHash);
+            case ApplyDeliveryResult.Unavailable unavailable -> boundary(
+                    state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
+                    unavailable.learnerMessage(), idempotencyKey, requestHash);
         };
     }
 

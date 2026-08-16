@@ -347,6 +347,12 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
+    public synchronized boolean acceptEvidence(AcceptedLearningEvidence evidence) {
+        Objects.requireNonNull(evidence, "evidence must not be null");
+        return this.evidence.putIfAbsent(evidence.taskAttemptId(), evidence) == null;
+    }
+
+    @Override
     public synchronized List<AcceptedLearningEvidence> allEvidence() {
         return List.copyOf(evidence.values());
     }

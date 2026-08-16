@@ -52,6 +52,16 @@ public interface LearningFlowStore {
 
     List<AcceptedLearningEvidence> allEvidence();
 
+    /**
+     * Atomically accepts exactly one item of Learning Evidence per Task
+     * Attempt: an attempt that already has Evidence makes this a no-op
+     * returning false, so a replay or recovered submission can never stack a
+     * second record. Practice uses this plain acceptance because it must never
+     * touch the Review cadence; the Independent and Review acceptances own
+     * their cadence transitions separately.
+     */
+    boolean acceptEvidence(AcceptedLearningEvidence evidence);
+
     Optional<ProcessedCommand> findCommand(UUID idempotencyKey);
 
     record FlowRecord(

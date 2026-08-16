@@ -222,6 +222,53 @@ class ResponseAssessmentDeciderTest {
                 judgment(NOT_REQUESTED, NOT_APPLICABLE), null));
     }
 
+    @Test
+    void aProvenEquivalentPracticePassesWithAnOmittedRationale() {
+        AssessmentOutcome outcome = decide(
+                AttemptPurpose.PRACTICE, PROVEN_EQUIVALENT,
+                judgment(NOT_REQUESTED, NOT_PROVIDED), null);
+
+        assertInstanceOf(AssessmentOutcome.Passed.class, outcome);
+    }
+
+    @Test
+    void aProvenNonEquivalentPracticeFailsConclusively() {
+        AssessmentOutcome outcome = decide(
+                AttemptPurpose.PRACTICE, PROVEN_NOT_EQUIVALENT,
+                judgment(NOT_REQUESTED, NOT_PROVIDED), null);
+
+        assertInstanceOf(AssessmentOutcome.Failed.class, outcome);
+    }
+
+    @Test
+    void aClearlyContradictoryPracticeRationaleOverACorrectAnswerIsBlockedEvidence() {
+        AssessmentOutcome outcome = decide(
+                AttemptPurpose.PRACTICE, PROVEN_EQUIVALENT,
+                judgment(NOT_REQUESTED, CLEARLY_CONTRADICTORY), null);
+
+        assertInstanceOf(AssessmentOutcome.Blocked.class, outcome,
+                "the Practice submission flow maps this conclusive signal to a FAIL, never to a pass");
+    }
+
+    @Test
+    void anInconclusivePracticeJudgmentOnCannotDecideIsInconclusive() {
+        AssessmentOutcome outcome = decide(
+                AttemptPurpose.PRACTICE, CANNOT_DECIDE,
+                judgment(EQUIVALENT, NOT_PROVIDED), judgment(NOT_EQUIVALENT, NOT_PROVIDED));
+
+        assertInstanceOf(AssessmentOutcome.Inconclusive.class, outcome);
+    }
+
+    @Test
+    void anApplicableOrNotApplicableJudgmentIsRejectedForAPractice() {
+        assertThrows(IllegalArgumentException.class, () -> decide(
+                AttemptPurpose.PRACTICE, PROVEN_EQUIVALENT,
+                judgment(NOT_REQUESTED, APPLICABLE), null));
+        assertThrows(IllegalArgumentException.class, () -> decide(
+                AttemptPurpose.PRACTICE, PROVEN_EQUIVALENT,
+                judgment(NOT_REQUESTED, NOT_APPLICABLE), null));
+    }
+
     private AssessmentOutcome decide(
             AttemptPurpose purpose,
             EquivalenceOutcome deterministic,

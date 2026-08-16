@@ -20,6 +20,18 @@ public final class ApplyScriptData {
     public static final String REVIEW_TASK_TEXT = "设 h(x) = 2x⁴ − 3x² + 5，求 h'(x)。";
     public static final String REVIEW_EXPECTED_EXPRESSION = "8*x^3 - 6*x";
 
+    public static final String PRACTICE_TASK_TEXT = "设 p(x) = 6x³ − 4x + 3，求 p'(x)。";
+    public static final String PRACTICE_EXPECTED_EXPRESSION = "18*x^2 - 4";
+
+    public static final String SECOND_PRACTICE_TASK_TEXT = "设 q(x) = 7x³ − 5x + 2，求 q'(x)。";
+    public static final String SECOND_PRACTICE_EXPECTED_EXPRESSION = "21*x^2 - 5";
+
+    public static final String PRACTICE_CORRECT_DERIVATIVE = "18x²−4";
+    public static final String PRACTICE_CORRECT_CANONICAL = "18*x^2-4";
+
+    public static final String SECOND_PRACTICE_CORRECT_DERIVATIVE = "21x²−5";
+    public static final String SECOND_PRACTICE_CORRECT_CANONICAL = "21*x^2-5";
+
     public static final String WRONG_DERIVATIVE = "6*x^2 - 3*x + 7";
 
     public static final String UNICODE_CORRECT_DERIVATIVE = "12x²−6x+7";
