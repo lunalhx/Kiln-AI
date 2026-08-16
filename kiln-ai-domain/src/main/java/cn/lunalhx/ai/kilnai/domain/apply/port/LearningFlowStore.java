@@ -1,11 +1,14 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 
 import java.time.Instant;
@@ -66,6 +69,39 @@ public interface LearningFlowStore {
     List<String> exposedExampleFingerprints(UUID flowId);
 
     /**
+     * Records the deterministic content fingerprint of one generated Hint
+     * Ladder in the Flow's exposure ledger (idempotent per fingerprint) so
+     * later task and example generation never reuses exposed hint content.
+     */
+    void recordHintLadderExposure(UUID flowId, String ladderFingerprint);
+
+    List<String> exposedHintLadderFingerprints(UUID flowId);
+
+    /**
+     * Records the deterministic content fingerprint of one H5 revealed
+     * solution in the Flow's exposure ledger (idempotent per fingerprint) so
+     * later task and example generation never reuses the revealed answer.
+     */
+    void recordRevealedSolutionExposure(UUID flowId, String revealFingerprint);
+
+    List<String> exposedRevealedSolutionFingerprints(UUID flowId);
+
+    /**
+     * The complete novelty-exclusion snapshot of one Flow's exposure ledger —
+     * task, solution, example, hint-ladder, and revealed-solution fingerprints
+     * — assembled in one place so every generation flow supplies the same
+     * closed exclusion set to its execution context.
+     */
+    default ApplyExecutionContext.NoveltyExclusions noveltyExclusions(UUID flowId) {
+        return new ApplyExecutionContext.NoveltyExclusions(
+                exposedTaskFingerprints(flowId),
+                exposedSolutionFingerprints(flowId),
+                exposedExampleFingerprints(flowId),
+                exposedHintLadderFingerprints(flowId),
+                exposedRevealedSolutionFingerprints(flowId));
+    }
+
+    /**
      * Records one eligible Teach-back anchor (an exposed Explain worked
      * example or an H5 solution reveal) in the Flow's anchor ledger. The same
      * anchor id is idempotent, so a crashed command that re-records its own
@@ -89,6 +125,30 @@ public interface LearningFlowStore {
      * their cadence transitions separately.
      */
     boolean acceptEvidence(AcceptedLearningEvidence evidence);
+
+    /**
+     * The cycle-aware readiness fact of one Flow's current remediation cycle:
+     * at least one conclusive Apply Practice pass accepted after the latest
+     * triggering failure (an accepted no-hint Independent failure starts a
+     * new cycle). A pass from an earlier cycle never re-qualifies the
+     * learner, so a fresh Independent Test cannot be reopened on stale
+     * evidence. The Workflow Guard and the Practice flow's Feedback Facts
+     * derive readiness from this single rule.
+     */
+    default boolean qualifyingPracticePassExists(UUID flowId) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        List<AcceptedLearningEvidence> flowEvidence = allEvidence().stream()
+                .filter(evidence -> evidence.flowId().equals(flowId))
+                .toList();
+        Optional<Instant> latestFail = flowEvidence.stream()
+                .filter(AcceptedLearningEvidence::isIndependentFailure)
+                .map(AcceptedLearningEvidence::acceptedAt)
+                .max(Instant::compareTo);
+        return flowEvidence.stream().anyMatch(evidence ->
+                evidence.attemptPurpose() == AttemptPurpose.PRACTICE
+                        && evidence.result() == LearningResult.PASS
+                        && (latestFail.isEmpty() || evidence.acceptedAt().isAfter(latestFail.get())));
+    }
 
     Optional<ProcessedCommand> findCommand(UUID idempotencyKey);
 

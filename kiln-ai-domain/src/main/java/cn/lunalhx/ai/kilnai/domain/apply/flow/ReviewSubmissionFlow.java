@@ -267,8 +267,7 @@ public final class ReviewSubmissionFlow {
         }
         ReviewTask review = started.get();
         ApplyExecutionContext reviewContext = reviewContextTemplate.withNoveltyExclusions(
-                flowStore.exposedTaskFingerprints(flow.flowId()),
-                flowStore.exposedSolutionFingerprints(flow.flowId()));
+                flowStore.noveltyExclusions(flow.flowId()));
         PreparedDelivery prepared = executor.prepareTask(reviewContext);
         TaskPackage replacement = prepared instanceof PreparedDelivery.TaskReady ready
                 ? ready.taskPackage()

@@ -1,5 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.apply.model;
 
+import cn.lunalhx.ai.kilnai.domain.apply.ApplyHash;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -31,6 +33,48 @@ public record HintLadder(UUID attemptId, List<HintGenerationDraft.Entry> entries
     public HintGenerationDraft.Entry entry(int level) {
         HintLevel.of(level);
         return entries.get(level - 1);
+    }
+
+    /**
+     * The deterministic content fingerprint of the whole generated ladder:
+     * every level, disclosure kind, learner-visible content, source trace,
+     * H5 reasoning step, and proposed final answer. Once the ladder is
+     * generated, the fingerprint is recorded in the Flow's novelty ledger so
+     * later task and example generation never reuses the exposed hint
+     * content.
+     */
+    public String fingerprint() {
+        StringBuilder raw = new StringBuilder();
+        for (HintGenerationDraft.Entry entry : entries) {
+            raw.append(entry.level()).append('|').append(entry.disclosureKind()).append('|')
+                    .append(entry.learnerContent()).append('|');
+            entry.sourceTrace().forEach(ref ->
+                    raw.append(ref.sourceDocumentId()).append('/').append(ref.passageId()).append(';'));
+            raw.append('|');
+            if (entry.reasoningSteps() != null) {
+                raw.append(String.join(",", entry.reasoningSteps()));
+            }
+            raw.append('|');
+            if (entry.proposedFinalAnswer() != null) {
+                raw.append(entry.proposedFinalAnswer());
+            }
+            raw.append('\n');
+        }
+        return ApplyHash.sha256Hex(raw.toString());
+    }
+
+    /**
+     * The deterministic content fingerprint of the H5 reveal entry alone
+     * (learner content, reasoning steps, and proposed final answer): the
+     * revealed solution that must never be reused by later generation.
+     */
+    public String revealFingerprint() {
+        HintGenerationDraft.Entry reveal = entry(5);
+        String raw = String.join("|",
+                reveal.learnerContent(),
+                String.join(",", reveal.reasoningSteps()),
+                reveal.proposedFinalAnswer());
+        return ApplyHash.sha256Hex(raw.toString());
     }
 
     /**

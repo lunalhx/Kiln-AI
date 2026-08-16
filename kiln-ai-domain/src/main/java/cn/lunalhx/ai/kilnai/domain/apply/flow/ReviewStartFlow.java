@@ -76,8 +76,7 @@ public final class ReviewStartFlow {
         }
         UUID flowId = review.flowId();
         ApplyExecutionContext reviewContext = reviewContextTemplate.withNoveltyExclusions(
-                flowStore.exposedTaskFingerprints(flowId),
-                flowStore.exposedSolutionFingerprints(flowId));
+                flowStore.noveltyExclusions(flowId));
         PreparedDelivery prepared = executor.prepareTask(reviewContext);
         if (prepared instanceof PreparedDelivery.Unavailable unavailable) {
             return new ReviewStartResult.Unavailable(unavailable.reason(), flowId, unavailable.learnerMessage());

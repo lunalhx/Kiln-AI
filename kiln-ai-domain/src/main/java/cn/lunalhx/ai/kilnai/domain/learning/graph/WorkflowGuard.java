@@ -58,7 +58,8 @@ public final class WorkflowGuard {
         PRACTICE_INCONCLUSIVE,
         TEACH_BACK_PASSED,
         TEACH_BACK_FAILED,
-        TEACH_BACK_INCONCLUSIVE
+        TEACH_BACK_INCONCLUSIVE,
+        INDEPENDENT_FAILED
     }
 
     /**
@@ -128,6 +129,8 @@ public final class WorkflowGuard {
                     TeachingAction.EXPLAIN);
             case TEACH_BACK_INCONCLUSIVE -> moves(List.of(TeachingAction.TEACH_BACK),
                     TeachingAction.TEACH_BACK);
+            case INDEPENDENT_FAILED -> moves(List.of(
+                    TeachingAction.EXPLAIN, TeachingAction.APPLY_PRACTICE), TeachingAction.EXPLAIN);
         };
     }
 

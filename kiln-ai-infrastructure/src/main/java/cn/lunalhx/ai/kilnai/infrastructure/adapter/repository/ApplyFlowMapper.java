@@ -113,6 +113,44 @@ public interface ApplyFlowMapper {
     List<String> exposedExampleFingerprints(UUID flowId);
 
     @Insert("""
+            INSERT INTO apply_hint_ladder_exposures (flow_id, ladder_fingerprint, created_at)
+            VALUES (#{flowId}, #{ladderFingerprint}, #{createdAt})
+            ON CONFLICT (flow_id, ladder_fingerprint) DO NOTHING
+            """)
+    void recordHintLadderExposure(
+            @Param("flowId") UUID flowId,
+            @Param("ladderFingerprint") String ladderFingerprint,
+            @Param("createdAt") Instant createdAt
+    );
+
+    @Select("""
+            SELECT ladder_fingerprint
+            FROM apply_hint_ladder_exposures
+            WHERE flow_id = #{flowId}
+            ORDER BY created_at ASC
+            """)
+    List<String> exposedHintLadderFingerprints(UUID flowId);
+
+    @Insert("""
+            INSERT INTO apply_revealed_solution_exposures (flow_id, reveal_fingerprint, created_at)
+            VALUES (#{flowId}, #{revealFingerprint}, #{createdAt})
+            ON CONFLICT (flow_id, reveal_fingerprint) DO NOTHING
+            """)
+    void recordRevealedSolutionExposure(
+            @Param("flowId") UUID flowId,
+            @Param("revealFingerprint") String revealFingerprint,
+            @Param("createdAt") Instant createdAt
+    );
+
+    @Select("""
+            SELECT reveal_fingerprint
+            FROM apply_revealed_solution_exposures
+            WHERE flow_id = #{flowId}
+            ORDER BY created_at ASC
+            """)
+    List<String> exposedRevealedSolutionFingerprints(UUID flowId);
+
+    @Insert("""
             INSERT INTO apply_explain_artifacts (id, flow_id, artifact, created_at)
             VALUES (#{id}, #{flowId}, CAST(#{artifactJson} AS JSONB), #{createdAt})
             """)

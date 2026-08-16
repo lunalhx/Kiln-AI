@@ -138,8 +138,7 @@ public final class DiagnosticFlow {
             AssessmentOutcome outcome
     ) {
         ApplyExecutionContext independentContext = independentContextTemplate.withNoveltyExclusions(
-                flowStore.exposedTaskFingerprints(flowId),
-                flowStore.exposedSolutionFingerprints(flowId));
+                flowStore.noveltyExclusions(flowId));
         ApplyDeliveryResult result = executor.deliver(independentContext);
         if (result instanceof ApplyDeliveryResult.Delivered delivered) {
             recordExposure(flowId, delivered.attempt().taskPackageId());

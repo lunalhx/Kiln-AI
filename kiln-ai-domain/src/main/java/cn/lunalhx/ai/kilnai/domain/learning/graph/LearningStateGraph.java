@@ -264,6 +264,16 @@ public final class LearningStateGraph {
             String requestHash
     ) {
         TaskAttempt attempt = revealed.attempt();
+        // The generated ladder's content fingerprint enters the Flow's
+        // novelty ledger once it exists; the H5 reveal additionally records
+        // the revealed-solution fingerprint, so later generation never
+        // reuses the exposed hint content or the revealed answer.
+        artifactStore.findLadder(attempt.attemptId()).ifPresent(ladder -> {
+            flowStore.recordHintLadderExposure(state.flow().flowId(), ladder.fingerprint());
+            if (!attempt.isOpen()) {
+                flowStore.recordRevealedSolutionExposure(state.flow().flowId(), ladder.revealFingerprint());
+            }
+        });
         if (attempt.isOpen()) {
             return boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, attempt.attemptId(), attempt.purpose(),
@@ -359,6 +369,21 @@ public final class LearningStateGraph {
             case IndependentSubmissionResult.EvidenceAccepted accepted -> boundary(
                     state, LearningStage.INDEPENDENT_TEST, null, null, null,
                     accepted.learnerMessage(), null, idempotencyKey, requestHash);
+            // A conclusive no-hint Independent failure: accept exactly one
+            // fail Evidence (only after the chosen remediation node's
+            // generation succeeds), drop Current Milestone to Learning, and
+            // begin remediation through the Guard — Explain and fresh Apply
+            // Practice are both legal and the Pedagogy Agent selects one.
+            case IndependentSubmissionResult.FailureEvidenceAccepted failed ->
+                    executeMove(state, decide(state, WorkflowGuard.DecisionContext.INDEPENDENT_FAILED,
+                                    failed.facts()),
+                            failed.evidence(), idempotencyKey, requestHash);
+            // A Blocked or Inconclusive judgment creates no Evidence and no
+            // milestone change: deliver a fresh verified Independent
+            // replacement using all applicable novelty exclusions.
+            case IndependentSubmissionResult.ReplacementRequired replacement ->
+                    deliverIndependentReplacement(state, replacement.learnerMessage(),
+                            idempotencyKey, requestHash);
             case IndependentSubmissionResult.NoEvidence noEvidence -> boundary(
                     state, LearningStage.INDEPENDENT_TEST, null, null, null,
                     noEvidence.learnerMessage(), null, idempotencyKey, requestHash);
@@ -366,6 +391,30 @@ public final class LearningStateGraph {
                     new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
             case IndependentSubmissionResult.Ignored ignored ->
                     new ApplyFlowResult.SubmissionIgnored(ignored.reason());
+        };
+    }
+
+    /**
+     * The mandated fresh verified Independent replacement of a Blocked or
+     * Inconclusive judgment: generated with all applicable novelty exclusions,
+     * or a terminal unavailable boundary when no task can be prepared. No
+     * Evidence and no milestone change on either path.
+     */
+    private ApplyFlowResult deliverIndependentReplacement(
+            LearningState state,
+            String learnerMessage,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        ApplyDeliveryResult delivery = practiceFlow.deliverIndependent(state.flow().flowId());
+        return switch (delivery) {
+            case ApplyDeliveryResult.Delivered delivered -> boundary(
+                    state, LearningStage.INDEPENDENT_TEST, delivered.attempt().attemptId(),
+                    delivered.attempt().purpose(), delivered.learnerProjection(),
+                    learnerMessage, null, idempotencyKey, requestHash);
+            case ApplyDeliveryResult.Unavailable unavailable -> boundary(
+                    state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
+                    unavailable.learnerMessage(), null, idempotencyKey, requestHash);
         };
     }
 
@@ -735,15 +784,15 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The readiness fact of the current remediation cycle: at least one
-     * conclusive Apply Practice pass Evidence in this Flow satisfies the
-     * prerequisite that makes fresh Independent testing legal.
+     * The readiness fact of the current remediation cycle, derived from the
+     * single shared rule: at least one conclusive Apply Practice pass accepted
+     * after the latest triggering failure of this Flow (the Diagnostic
+     * failure starts the first cycle; an accepted no-hint Independent failure
+     * starts a new cycle). A qualifying pass must follow the failure, so the
+     * learner cannot re-enter fresh Independent testing on an old pass.
      */
     private boolean readinessSatisfied(UUID flowId) {
-        return flowStore.allEvidence().stream().anyMatch(evidence ->
-                evidence.flowId().equals(flowId)
-                        && evidence.attemptPurpose() == AttemptPurpose.PRACTICE
-                        && evidence.result() == LearningResult.PASS);
+        return flowStore.qualifyingPracticePassExists(flowId);
     }
 
     private static String fallbackIntent(WorkflowGuard.DecisionContext context) {
@@ -766,6 +815,7 @@ public final class LearningStateGraph {
             case TEACH_BACK_PASSED -> TeachBackFlow.TEACH_BACK_FOLLOW_UP_MESSAGE;
             case TEACH_BACK_FAILED -> ExplainFlow.EXPLAIN_START_MESSAGE;
             case TEACH_BACK_INCONCLUSIVE -> TeachBackFlow.TEACH_BACK_REPLACEMENT_MESSAGE;
+            case INDEPENDENT_FAILED -> ExplainFlow.EXPLAIN_START_MESSAGE;
         };
     }
 

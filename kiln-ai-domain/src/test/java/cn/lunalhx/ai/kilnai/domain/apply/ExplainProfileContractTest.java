@@ -221,7 +221,9 @@ class ExplainProfileContractTest {
         String exposedFingerprint = ((ExplainDeliveryResult.Delivered) executor.deliver(context))
                 .artifact().exampleFingerprint().value();
 
-        ExplainExecutionContext withExclusions = context.withNoveltyExclusions(List.of(exposedFingerprint));
+        ExplainExecutionContext withExclusions = context.withNoveltyExclusions(
+                new ExplainExecutionContext.NoveltyExclusions(
+                        List.of(exposedFingerprint), List.of(), List.of()));
         ScriptedExplainGenerationModel second = new ScriptedExplainGenerationModel(List.of(
                 ExplainScriptData.explainReadyJson(),
                 ExplainScriptData.explainReadyJson(ExplainScriptData.PRINCIPLE_SUMMARY,
@@ -233,6 +235,40 @@ class ExplainProfileContractTest {
         assertEquals(2, second.calls().size(), "a re-exposed example must consume one fresh generation cycle");
         assertNotEquals(exposedFingerprint, fresh.artifact().exampleFingerprint().value(),
                 "the delivered worked example must be materially different from the exposed one");
+    }
+
+    @Test
+    void noveltyRejectsACandidateThatReExposesAHintLadderOrRevealedSolutionFingerprint() {
+        ExplainProfileExecutor executor = new ExplainProfileExecutor(stack,
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())));
+        String exposedFingerprint = ((ExplainDeliveryResult.Delivered) executor.deliver(context))
+                .artifact().exampleFingerprint().value();
+
+        ExplainExecutionContext ladderExcluded = context.withNoveltyExclusions(
+                new ExplainExecutionContext.NoveltyExclusions(
+                        List.of(), List.of(exposedFingerprint), List.of()));
+        ScriptedExplainGenerationModel freshLadder = new ScriptedExplainGenerationModel(List.of(
+                ExplainScriptData.explainReadyJson(),
+                ExplainScriptData.explainReadyJson(ExplainScriptData.PRINCIPLE_SUMMARY,
+                        "设 h(x) = 5x⁴ − 3x + 4，求 h'(x)。", "20x³ − 3")));
+        ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered)
+                new ExplainProfileExecutor(stack, freshLadder).deliver(ladderExcluded);
+        assertNotEquals(exposedFingerprint, delivered.artifact().exampleFingerprint().value(),
+                "an example reusing an exposed ladder fingerprint must be rejected and regenerated");
+        assertEquals(2, freshLadder.calls().size());
+
+        ExplainExecutionContext revealExcluded = context.withNoveltyExclusions(
+                new ExplainExecutionContext.NoveltyExclusions(
+                        List.of(), List.of(), List.of(exposedFingerprint)));
+        ScriptedExplainGenerationModel freshReveal = new ScriptedExplainGenerationModel(List.of(
+                ExplainScriptData.explainReadyJson(),
+                ExplainScriptData.explainReadyJson(ExplainScriptData.PRINCIPLE_SUMMARY,
+                        "设 k(x) = 6x³ − x + 7，求 k'(x)。", "18x² − 1")));
+        ExplainDeliveryResult.Delivered fresh = (ExplainDeliveryResult.Delivered)
+                new ExplainProfileExecutor(stack, freshReveal).deliver(revealExcluded);
+        assertNotEquals(exposedFingerprint, fresh.artifact().exampleFingerprint().value(),
+                "an example reusing an exposed revealed solution must be rejected and regenerated");
+        assertEquals(2, freshReveal.calls().size());
     }
 
     @Test

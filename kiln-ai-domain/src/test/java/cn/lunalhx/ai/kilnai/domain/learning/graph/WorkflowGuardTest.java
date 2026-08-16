@@ -101,6 +101,17 @@ class WorkflowGuardTest {
     }
 
     @Test
+    void anIndependentFailureStartsRemediationWithExplainAndFreshPracticeOnly() {
+        LegalMoves moves = guard.derive(DecisionContext.INDEPENDENT_FAILED, GuardFacts.none());
+        assertEquals(Set.of(TeachingAction.EXPLAIN, TeachingAction.APPLY_PRACTICE),
+                Set.copyOf(moves.legalActions()),
+                "a conclusive no-hint Independent fail must begin remediation, never a fresh Independent");
+        assertEquals(TeachingAction.EXPLAIN, moves.fallback());
+        assertFalse(moves.legalActions().contains(TeachingAction.INDEPENDENT_TEST));
+        assertFalse(moves.single());
+    }
+
+    @Test
     void h5RevealAndTheTeachBackResultsMatchTheSpecifiedFallbacks() {
         assertEquals(TeachingAction.TEACH_BACK,
                 guard.derive(DecisionContext.H5_REVEALED, GuardFacts.none()).fallback());

@@ -170,6 +170,26 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
+    public void recordHintLadderExposure(UUID flowId, String ladderFingerprint) {
+        mapper.recordHintLadderExposure(flowId, ladderFingerprint, clock.instant());
+    }
+
+    @Override
+    public List<String> exposedHintLadderFingerprints(UUID flowId) {
+        return mapper.exposedHintLadderFingerprints(flowId);
+    }
+
+    @Override
+    public void recordRevealedSolutionExposure(UUID flowId, String revealFingerprint) {
+        mapper.recordRevealedSolutionExposure(flowId, revealFingerprint, clock.instant());
+    }
+
+    @Override
+    public List<String> exposedRevealedSolutionFingerprints(UUID flowId) {
+        return mapper.exposedRevealedSolutionFingerprints(flowId);
+    }
+
+    @Override
     public void recordAnchor(UUID flowId, TeachBackAnchor anchor) {
         mapper.insertTeachBackAnchor(
                 flowId, anchor.anchorId(), anchor.kind().name(), anchor.exposedAt());

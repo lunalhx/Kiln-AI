@@ -109,7 +109,8 @@ class ApplyTaskPackageGatePolicyTest {
     void aPackageWhoseTaskFingerprintWasAlreadyExposedIsRejected() {
         String fingerprint = validPackage.privateAssessorProjection().taskFingerprint().value();
         ApplyExecutionContext withExclusions = IndependentApplyFixture.independentContext().withNoveltyExclusions(
-                List.of(fingerprint), List.of());
+                new ApplyExecutionContext.NoveltyExclusions(
+                        List.of(fingerprint), List.of(), List.of(), List.of(), List.of()));
 
         GateResult<TaskPackage> result = pipeline.validate(
                 validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
@@ -122,13 +123,56 @@ class ApplyTaskPackageGatePolicyTest {
     void aPackageWhoseSolutionFingerprintWasAlreadyExposedIsRejected() {
         String fingerprint = validPackage.privateAssessorProjection().solutionFingerprint().value();
         ApplyExecutionContext withExclusions = IndependentApplyFixture.independentContext().withNoveltyExclusions(
-                List.of(), List.of(fingerprint));
+                new ApplyExecutionContext.NoveltyExclusions(
+                        List.of(), List.of(fingerprint), List.of(), List.of(), List.of()));
 
         GateResult<TaskPackage> result = pipeline.validate(
                 validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
 
         assertEquals(GateOutcome.REJECTED, result.outcome());
         assertTrue(result.violations().stream().anyMatch(v -> "novelty.solution-fingerprint".equals(v.code())));
+    }
+
+    @Test
+    void aPackageWhoseTaskFingerprintMatchesAnExposedHintLadderFingerprintIsRejected() {
+        String fingerprint = validPackage.privateAssessorProjection().taskFingerprint().value();
+        ApplyExecutionContext withExclusions = IndependentApplyFixture.independentContext().withNoveltyExclusions(
+                new ApplyExecutionContext.NoveltyExclusions(
+                        List.of(), List.of(), List.of(), List.of(fingerprint), List.of()));
+
+        GateResult<TaskPackage> result = pipeline.validate(
+                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
+
+        assertEquals(GateOutcome.REJECTED, result.outcome());
+        assertTrue(result.violations().stream().anyMatch(v -> "novelty.task-fingerprint".equals(v.code())));
+    }
+
+    @Test
+    void aPackageWhoseSolutionFingerprintMatchesAnExposedRevealedSolutionFingerprintIsRejected() {
+        String fingerprint = validPackage.privateAssessorProjection().solutionFingerprint().value();
+        ApplyExecutionContext withExclusions = IndependentApplyFixture.independentContext().withNoveltyExclusions(
+                new ApplyExecutionContext.NoveltyExclusions(
+                        List.of(), List.of(), List.of(), List.of(), List.of(fingerprint)));
+
+        GateResult<TaskPackage> result = pipeline.validate(
+                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
+
+        assertEquals(GateOutcome.REJECTED, result.outcome());
+        assertTrue(result.violations().stream().anyMatch(v -> "novelty.solution-fingerprint".equals(v.code())));
+    }
+
+    @Test
+    void aPackageWhoseTaskFingerprintMatchesAnExposedExampleFingerprintIsRejected() {
+        String fingerprint = validPackage.privateAssessorProjection().taskFingerprint().value();
+        ApplyExecutionContext withExclusions = IndependentApplyFixture.independentContext().withNoveltyExclusions(
+                new ApplyExecutionContext.NoveltyExclusions(
+                        List.of(), List.of(), List.of(fingerprint), List.of(), List.of()));
+
+        GateResult<TaskPackage> result = pipeline.validate(
+                validPackage, new ApplyTaskPackageGatePolicy(withExclusions, PINNED_STACK), GateContext.empty());
+
+        assertEquals(GateOutcome.REJECTED, result.outcome());
+        assertTrue(result.violations().stream().anyMatch(v -> "novelty.task-fingerprint".equals(v.code())));
     }
 
     @Test

@@ -59,7 +59,10 @@ public final class ExplainFlow {
                         facts.satisfiedCriteria(),
                         facts.missingCriteria(),
                         facts.errorDimensions()))
-                .withNoveltyExclusions(flowStore.exposedExampleFingerprints(flowId));
+                .withNoveltyExclusions(new ExplainExecutionContext.NoveltyExclusions(
+                        flowStore.exposedExampleFingerprints(flowId),
+                        flowStore.exposedHintLadderFingerprints(flowId),
+                        flowStore.exposedRevealedSolutionFingerprints(flowId)));
         ExplainDeliveryResult result = executor.deliver(context);
         if (result instanceof ExplainDeliveryResult.Delivered delivered) {
             artifactStore.saveExplainArtifact(flowId, delivered.artifact());

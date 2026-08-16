@@ -66,12 +66,18 @@ public final class ApplyTaskPackageGatePolicy implements GatePolicy<TaskPackage>
         validatePrivateProjection(candidate.privateAssessorProjection(), violations);
 
         String fingerprint = candidate.privateAssessorProjection().taskFingerprint().value();
-        if (context.noveltyExclusions().exposedTaskFingerprints().contains(fingerprint)) {
+        if (context.noveltyExclusions().exposedTaskFingerprints().contains(fingerprint)
+                || context.noveltyExclusions().exposedExampleFingerprints().contains(fingerprint)
+                || context.noveltyExclusions().exposedHintLadderFingerprints().contains(fingerprint)
+                || context.noveltyExclusions().exposedRevealedSolutionFingerprints().contains(fingerprint)) {
             violations.add(new GateViolation("novelty.task-fingerprint",
                     "candidate re-exposes a previously exposed task fingerprint"));
         }
         String solutionFingerprint = candidate.privateAssessorProjection().solutionFingerprint().value();
-        if (context.noveltyExclusions().exposedSolutionFingerprints().contains(solutionFingerprint)) {
+        if (context.noveltyExclusions().exposedSolutionFingerprints().contains(solutionFingerprint)
+                || context.noveltyExclusions().exposedExampleFingerprints().contains(solutionFingerprint)
+                || context.noveltyExclusions().exposedHintLadderFingerprints().contains(solutionFingerprint)
+                || context.noveltyExclusions().exposedRevealedSolutionFingerprints().contains(solutionFingerprint)) {
             violations.add(new GateViolation("novelty.solution-fingerprint",
                     "candidate re-exposes a previously exposed solution fingerprint"));
         }

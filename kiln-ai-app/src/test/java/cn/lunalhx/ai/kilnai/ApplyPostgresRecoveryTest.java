@@ -79,7 +79,9 @@ class ApplyPostgresRecoveryTest {
     @BeforeEach
     void cleanDatabase() {
         jdbc.execute("""
-                TRUNCATE review_tasks, apply_exposures, apply_commands, apply_checkpoints,
+                TRUNCATE review_tasks, apply_exposures, apply_example_exposures,
+                         apply_hint_ladder_exposures, apply_revealed_solution_exposures,
+                         apply_commands, apply_checkpoints,
                          apply_interactions, apply_evidence, apply_assessments, apply_verifications,
                          apply_attempts, apply_packages, apply_sources, apply_flows RESTART IDENTITY CASCADE
                 """);
@@ -463,5 +465,28 @@ class ApplyPostgresRecoveryTest {
         assertEquals(completed.interaction(), replayedIndependent.interaction());
         assertEquals(1, flowStore.allEvidence().size(),
                 "a replayed evidence-accepting key must never create a second Evidence");
+    }
+
+    @Test
+    void theNoveltyLedgerPersistsLadderAndRevealedSolutionFingerprintsIdempotently() {
+        UUID learnerId = UUID.randomUUID();
+        UUID flowId = ((ApplyFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID()))
+                .interaction().flowId();
+
+        assertTrue(flowStore.exposedHintLadderFingerprints(flowId).isEmpty());
+        assertTrue(flowStore.exposedRevealedSolutionFingerprints(flowId).isEmpty());
+
+        flowStore.recordHintLadderExposure(flowId, "ladder-fp-1");
+        flowStore.recordHintLadderExposure(flowId, "ladder-fp-1");
+        flowStore.recordHintLadderExposure(flowId, "ladder-fp-2");
+        flowStore.recordRevealedSolutionExposure(flowId, "reveal-fp-1");
+        flowStore.recordRevealedSolutionExposure(flowId, "reveal-fp-1");
+
+        assertEquals(List.of("ladder-fp-1", "ladder-fp-2"),
+                flowStore.exposedHintLadderFingerprints(flowId),
+                "ladder fingerprints must persist in the exposure ledger without duplicates");
+        assertEquals(List.of("reveal-fp-1"),
+                flowStore.exposedRevealedSolutionFingerprints(flowId),
+                "revealed-solution fingerprints must persist idempotently");
     }
 }

@@ -825,7 +825,7 @@ class ApplyProfileContractTest {
     }
 
     @Test
-    void anIndependentSubmissionWithAClearlyContradictoryRationaleNeverAcceptsEvidence() {
+    void anIndependentSubmissionWithAClearlyContradictoryRationaleCreatesNoEvidenceAndRequiresAReplacement() {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.CLEARLY_CONTRADICTORY)));
         ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of());
@@ -839,16 +839,16 @@ class ApplyProfileContractTest {
                 passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.CONTRADICTORY_RATIONALE);
 
-        assertInstanceOf(IndependentSubmissionResult.NoEvidence.class, result,
-                "a clearly contradictory rationale must block Independent evidence");
-        assertEquals(IndependentSubmissionFlow.SAFE_END_MESSAGE,
-                ((IndependentSubmissionResult.NoEvidence) result).learnerMessage());
+        assertInstanceOf(IndependentSubmissionResult.ReplacementRequired.class, result,
+                "ADR-0061: a clearly contradictory rationale must block Independent evidence and require a fresh replacement");
+        assertEquals(IndependentSubmissionFlow.REPLACEMENT_MESSAGE,
+                ((IndependentSubmissionResult.ReplacementRequired) result).learnerMessage());
         assertTrue(passed.harness().flowStore().allEvidence().isEmpty(),
                 "a contradictory rationale must never create evidence");
     }
 
     @Test
-    void aProvenDeterministicNonEquivalenceIsNeverOverriddenInAnIndependentSubmission() {
+    void aProvenDeterministicNonEquivalenceBuildsExactlyOneNoHintFailEvidenceCandidate() {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_PROVIDED)));
         ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of());
@@ -862,10 +862,16 @@ class ApplyProfileContractTest {
                 passed.independentAttemptId(), ApplyScriptData.WRONG_DERIVATIVE,
                 ApplyScriptData.WRONG_DERIVATIVE, null);
 
-        assertInstanceOf(IndependentSubmissionResult.NoEvidence.class, result,
-                "a proven deterministic non-equivalence is never overridden by a model judgment");
+        assertInstanceOf(IndependentSubmissionResult.FailureEvidenceAccepted.class, result,
+                "a proven deterministic non-equivalence is a conclusive no-hint failure");
+        IndependentSubmissionResult.FailureEvidenceAccepted failed =
+                (IndependentSubmissionResult.FailureEvidenceAccepted) result;
+        assertEquals(LearningResult.FAIL, failed.evidence().result());
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST, failed.evidence().attemptPurpose());
+        assertEquals(0, failed.evidence().highestHintLevel(), "a no-hint fail carries the zero hint level");
+        assertTrue(failed.evidence().assistanceTrace().isEmpty());
         assertTrue(passed.harness().flowStore().allEvidence().isEmpty(),
-                "a wrong derivative must never create evidence");
+                "the flow proposes the fail Evidence; only the Graph accepts it after remediation generation");
         assertTrue(assessment.contexts().isEmpty(), "no model judgment may override a proven deterministic result");
         assertTrue(verification.contexts().isEmpty());
     }
@@ -950,10 +956,10 @@ class ApplyProfileContractTest {
                 passed.independentAttemptId(), ApplyScriptData.UNDECIDABLE_DERIVATIVE,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
 
-        assertInstanceOf(IndependentSubmissionResult.NoEvidence.class, result,
+        assertInstanceOf(IndependentSubmissionResult.ReplacementRequired.class, result,
                 "evaluator disagreement on an uncertain expression must be Inconclusive, not a failure");
-        assertEquals(IndependentSubmissionFlow.SAFE_END_MESSAGE,
-                ((IndependentSubmissionResult.NoEvidence) result).learnerMessage());
+        assertEquals(IndependentSubmissionFlow.REPLACEMENT_MESSAGE,
+                ((IndependentSubmissionResult.ReplacementRequired) result).learnerMessage());
         assertTrue(passed.harness().flowStore().allEvidence().isEmpty(),
                 "an Inconclusive Independent submission must never create evidence");
         assertEquals(1, assessment.contexts().size());

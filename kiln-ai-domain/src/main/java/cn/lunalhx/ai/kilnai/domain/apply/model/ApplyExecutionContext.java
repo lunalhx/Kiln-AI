@@ -28,10 +28,11 @@ public record ApplyExecutionContext(
         Objects.requireNonNull(learnerLocale, "learnerLocale must not be null");
     }
 
-    public ApplyExecutionContext withNoveltyExclusions(List<String> taskFingerprints, List<String> solutionFingerprints) {
+    public ApplyExecutionContext withNoveltyExclusions(NoveltyExclusions exclusions) {
+        Objects.requireNonNull(exclusions, "exclusions must not be null");
         return new ApplyExecutionContext(
                 schema, conceptContract, masteryRubric, taskBlueprint, conceptSourcePack,
-                new NoveltyExclusions(taskFingerprints, solutionFingerprints),
+                exclusions,
                 answerRepresentationContract, learnerLocale);
     }
 
@@ -149,11 +150,17 @@ public record ApplyExecutionContext(
 
     public record NoveltyExclusions(
             @JsonProperty("exposed_task_fingerprints") List<String> exposedTaskFingerprints,
-            @JsonProperty("exposed_solution_fingerprints") List<String> exposedSolutionFingerprints
+            @JsonProperty("exposed_solution_fingerprints") List<String> exposedSolutionFingerprints,
+            @JsonProperty("exposed_example_fingerprints") List<String> exposedExampleFingerprints,
+            @JsonProperty("exposed_hint_ladder_fingerprints") List<String> exposedHintLadderFingerprints,
+            @JsonProperty("exposed_revealed_solution_fingerprints") List<String> exposedRevealedSolutionFingerprints
     ) {
         public NoveltyExclusions {
             exposedTaskFingerprints = List.copyOf(exposedTaskFingerprints);
             exposedSolutionFingerprints = List.copyOf(exposedSolutionFingerprints);
+            exposedExampleFingerprints = List.copyOf(exposedExampleFingerprints);
+            exposedHintLadderFingerprints = List.copyOf(exposedHintLadderFingerprints);
+            exposedRevealedSolutionFingerprints = List.copyOf(exposedRevealedSolutionFingerprints);
         }
     }
 

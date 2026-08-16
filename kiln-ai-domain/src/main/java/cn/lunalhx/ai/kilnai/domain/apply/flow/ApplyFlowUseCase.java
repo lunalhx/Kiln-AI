@@ -211,6 +211,17 @@ public final class ApplyFlowUseCase {
             case IndependentSubmissionResult.NoEvidence noEvidence -> boundary(
                     latest, LearningStage.INDEPENDENT_TEST, null, null, null,
                     noEvidence.learnerMessage(), idempotencyKey, hash);
+            // The legacy Apply seam has no remediation loop: a conclusive
+            // no-hint failure, a Blocked, or an Inconclusive outcome ends at
+            // the safe terminal boundary without creating Evidence, exactly
+            // like the pre-guard behavior. The graph-backed command surface
+            // owns fail Evidence, milestone drops, and fresh replacements.
+            case IndependentSubmissionResult.FailureEvidenceAccepted failed -> boundary(
+                    latest, LearningStage.INDEPENDENT_TEST, null, null, null,
+                    IndependentSubmissionFlow.SAFE_END_MESSAGE, idempotencyKey, hash);
+            case IndependentSubmissionResult.ReplacementRequired replacement -> boundary(
+                    latest, LearningStage.INDEPENDENT_TEST, null, null, null,
+                    IndependentSubmissionFlow.SAFE_END_MESSAGE, idempotencyKey, hash);
             case IndependentSubmissionResult.NotSubmittable notSubmittable ->
                     new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
             case IndependentSubmissionResult.Ignored ignored ->

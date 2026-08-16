@@ -40,6 +40,8 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     private final Map<UUID, Set<String>> solutionFingerprints = new HashMap<>();
     private final Map<UUID, Set<UUID>> exposedTaskPackages = new HashMap<>();
     private final Map<UUID, Set<String>> exampleFingerprints = new HashMap<>();
+    private final Map<UUID, Set<String>> hintLadderFingerprints = new HashMap<>();
+    private final Map<UUID, Set<String>> revealedSolutionFingerprints = new HashMap<>();
     private final Map<UUID, List<TeachBackAnchor>> teachBackAnchors = new HashMap<>();
     private final Map<UUID, AcceptedLearningEvidence> evidence = new HashMap<>();
     private final Map<UUID, ProcessedCommand> commands = new LinkedHashMap<>();
@@ -152,6 +154,30 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     @Override
     public synchronized List<String> exposedExampleFingerprints(UUID flowId) {
         return List.copyOf(exampleFingerprints.getOrDefault(flowId, Set.of()));
+    }
+
+    @Override
+    public synchronized void recordHintLadderExposure(UUID flowId, String ladderFingerprint) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(ladderFingerprint, "ladderFingerprint must not be null");
+        hintLadderFingerprints.computeIfAbsent(flowId, key -> new LinkedHashSet<>()).add(ladderFingerprint);
+    }
+
+    @Override
+    public synchronized List<String> exposedHintLadderFingerprints(UUID flowId) {
+        return List.copyOf(hintLadderFingerprints.getOrDefault(flowId, Set.of()));
+    }
+
+    @Override
+    public synchronized void recordRevealedSolutionExposure(UUID flowId, String revealFingerprint) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(revealFingerprint, "revealFingerprint must not be null");
+        revealedSolutionFingerprints.computeIfAbsent(flowId, key -> new LinkedHashSet<>()).add(revealFingerprint);
+    }
+
+    @Override
+    public synchronized List<String> exposedRevealedSolutionFingerprints(UUID flowId) {
+        return List.copyOf(revealedSolutionFingerprints.getOrDefault(flowId, Set.of()));
     }
 
     @Override

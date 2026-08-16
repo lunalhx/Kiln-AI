@@ -34,10 +34,12 @@ public record ExplainExecutionContext(
         Objects.requireNonNull(learnerLocale, "learnerLocale must not be null");
     }
 
-    public ExplainExecutionContext withNoveltyExclusions(List<String> exampleFingerprints) {
+    public ExplainExecutionContext withNoveltyExclusions(NoveltyExclusions exclusions) {
+        Objects.requireNonNull(exclusions, "exclusions must not be null");
         return new ExplainExecutionContext(
                 schema, conceptContract, masteryRubric, pedagogyIntent, conceptSourcePack,
-                new NoveltyExclusions(exampleFingerprints), learnerLocale);
+                exclusions,
+                learnerLocale);
     }
 
     /**
@@ -124,11 +126,15 @@ public record ExplainExecutionContext(
     }
 
     public record NoveltyExclusions(
-            @JsonProperty("exposed_example_fingerprints") List<String> exposedExampleFingerprints
+            @JsonProperty("exposed_example_fingerprints") List<String> exposedExampleFingerprints,
+            @JsonProperty("exposed_hint_ladder_fingerprints") List<String> exposedHintLadderFingerprints,
+            @JsonProperty("exposed_revealed_solution_fingerprints") List<String> exposedRevealedSolutionFingerprints
     ) {
 
         public NoveltyExclusions {
             exposedExampleFingerprints = List.copyOf(exposedExampleFingerprints);
+            exposedHintLadderFingerprints = List.copyOf(exposedHintLadderFingerprints);
+            exposedRevealedSolutionFingerprints = List.copyOf(exposedRevealedSolutionFingerprints);
         }
     }
 }

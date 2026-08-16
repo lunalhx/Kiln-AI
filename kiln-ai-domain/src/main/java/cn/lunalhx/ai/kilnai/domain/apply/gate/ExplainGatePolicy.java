@@ -96,7 +96,9 @@ public final class ExplainGatePolicy implements GatePolicy<ExplainTeachingArtifa
         }
 
         String fingerprint = candidate.exampleFingerprint().value();
-        if (context.noveltyExclusions().exposedExampleFingerprints().contains(fingerprint)) {
+        if (context.noveltyExclusions().exposedExampleFingerprints().contains(fingerprint)
+                || context.noveltyExclusions().exposedHintLadderFingerprints().contains(fingerprint)
+                || context.noveltyExclusions().exposedRevealedSolutionFingerprints().contains(fingerprint)) {
             violations.add(new GateViolation("explain.novelty.example-fingerprint",
                     "candidate re-exposes a previously exposed example fingerprint"));
         }

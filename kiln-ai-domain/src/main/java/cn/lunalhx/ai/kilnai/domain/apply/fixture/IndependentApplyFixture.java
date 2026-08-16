@@ -70,7 +70,7 @@ public final class IndependentApplyFixture {
                                         + "is f'(x) plus or minus g'(x). "
                                         + "The power rule states that the derivative of x raised to a "
                                         + "constant real power n is n times x raised to n minus one."))),
-                new ApplyExecutionContext.NoveltyExclusions(List.of(), List.of()),
+                new ApplyExecutionContext.NoveltyExclusions(List.of(), List.of(), List.of(), List.of(), List.of()),
                 new ApplyExecutionContext.AnswerRepresentationContract(
                         "mathematical-expression.x",
                         "1.0.0",

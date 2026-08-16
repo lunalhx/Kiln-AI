@@ -62,7 +62,7 @@ public final class ExplainApplyFixture {
                                         + "is f'(x) plus or minus g'(x). "
                                         + "The power rule states that the derivative of x raised to a "
                                         + "constant real power n is n times x raised to n minus one."))),
-                new ExplainExecutionContext.NoveltyExclusions(List.of()),
+                new ExplainExecutionContext.NoveltyExclusions(List.of(), List.of(), List.of()),
                 "zh-CN");
     }
 }

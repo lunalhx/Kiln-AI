@@ -191,7 +191,7 @@ public final class PracticeSubmissionFlow {
                 AssessmentRunner.errorDimensions(outcome),
                 closedAttempt.highestHintLevel(),
                 closedAttempt.assistanceTraceStrings(),
-                satisfied || practicePassEvidenceExists(flow));
+                satisfied || qualifyingPracticePassExists(flow));
     }
 
     private List<String> criterionIds() {
@@ -200,11 +200,15 @@ public final class PracticeSubmissionFlow {
                 .toList();
     }
 
-    private boolean practicePassEvidenceExists(LearningFlowStore.FlowRecord flow) {
-        return flowStore.allEvidence().stream().anyMatch(evidence ->
-                evidence.flowId().equals(flow.flowId())
-                        && evidence.attemptPurpose() == AttemptPurpose.PRACTICE
-                        && evidence.result() == LearningResult.PASS);
+    /**
+     * The cycle-aware readiness fact of the current remediation cycle, from
+     * the single shared rule: at least one conclusive Practice pass accepted
+     * after the latest triggering failure of this Flow. A pass from an
+     * earlier cycle never re-qualifies the learner, exactly like the Workflow
+     * Guard's own readiness derivation.
+     */
+    private boolean qualifyingPracticePassExists(LearningFlowStore.FlowRecord flow) {
+        return flowStore.qualifyingPracticePassExists(flow.flowId());
     }
 
     /**
@@ -236,8 +240,7 @@ public final class PracticeSubmissionFlow {
             ApplyExecutionContext contextTemplate
     ) {
         ApplyExecutionContext context = contextTemplate.withNoveltyExclusions(
-                flowStore.exposedTaskFingerprints(flowId),
-                flowStore.exposedSolutionFingerprints(flowId));
+                flowStore.noveltyExclusions(flowId));
         ApplyDeliveryResult result = executor.deliver(context);
         if (result instanceof ApplyDeliveryResult.Delivered delivered) {
             recordExposure(flowId, delivered.attempt().taskPackageId());
