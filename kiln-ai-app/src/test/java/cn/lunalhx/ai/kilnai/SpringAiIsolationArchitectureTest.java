@@ -28,4 +28,13 @@ class SpringAiIsolationArchitectureTest {
     static final ArchRule persistenceDoesNotImportSpringAi = noClasses()
             .that().resideInAnyPackage("cn.lunalhx.ai.kilnai.infrastructure.adapter.repository..")
             .should().dependOnClassesThat().resideInAnyPackage("org.springframework.ai..");
+
+    @ArchTest
+    static final ArchRule schedulersNeverTouchApplyOrModel = noClasses()
+            .that().resideInAnyPackage("cn.lunalhx.ai.kilnai.trigger.schedule..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "cn.lunalhx.ai.kilnai.domain.apply..",
+                    "cn.lunalhx.ai.kilnai.infrastructure.adapter.model..",
+                    "org.springframework.ai.."
+            );
 }

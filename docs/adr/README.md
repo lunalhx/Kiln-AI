@@ -75,5 +75,7 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0027](0027-generate-fresh-equivalent-tasks-from-blueprints-and-fingerprints.md): fresh equivalent tasks
 - [ADR-0028](0028-verify-independent-and-review-tasks-before-delivery.md): pre-delivery Task Verification
 - [ADR-0029](0029-schedule-review-work-without-running-the-learning-graph.md): non-Agent review scheduling
+- [ADR-0062](0062-represent-delayed-review-as-durable-review-tasks.md): durable Review Tasks with a fixed evidence cadence
+- [ADR-0063](0063-commands-are-exactly-once-under-replay-and-crash-recovery.md): exactly-once replay and crash recovery for durable flow commands
 - [ADR-0031](0031-reuse-a-typed-artifact-gate-pipeline-with-specialized-policies.md): shared typed validation pipeline
 - [ADR-0045](0045-combine-proof-bounded-math-checks-with-isolated-model-assessment.md): proof-bounded math checks with isolated model assessment

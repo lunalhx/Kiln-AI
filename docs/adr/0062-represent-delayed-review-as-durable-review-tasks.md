@@ -1,0 +1,15 @@
+---
+status: accepted
+---
+
+# Represent Delayed Review as application-owned durable Review Tasks with a fixed evidence cadence
+
+ADR-0029 scheduled Review work without running the Learning StateGraph, but it was written before the destructive Apply cutover replaced the graph runtime with direct durable Apply flows. This record fixes the durable shape of that decision in the current runtime.
+
+Delayed Review is coordinated through an application-owned durable work item — a Review Task — that is separate from Task Packages, Task Attempts, and Accepted Learning Evidence. A Review Task persists a learner, Concept, original Learning Flow, review number 1 through 4, status, due time, and creation and completion timestamps; its status is closed to Scheduled, Due, Started, Completed, and Cancelled, with the normal path Scheduled → Due → Started → Completed. It is coordination state, never epistemic state: the scheduler and the Review Task table can directly change task status, but they never award Independent or Durable; milestones are always projected by folding accepted Learning Evidence.
+
+The cadence is fixed domain policy, not configuration: exactly 24-hour durations over `Instant`, computed from the actual accepted completion times. Independent success schedules Review 1 at completion plus 24 hours; successful Reviews 1, 2, and 3 schedule Reviews 2, 3, and 4 at 3, 7, and 21 days after the actual Review completion; the fourth Review PASS closes the cadence. Review failures or lateness never compress a later interval, and a missed task stays Due indefinitely.
+
+A conventional trigger-layer scheduler invokes one deterministic due-transition use case that changes eligible Scheduled rows to Due with a concurrency-safe conditional operation. The scheduler performs no model call, no generation, no Task Verification, no Task Package or Task Attempt creation, no evidence acceptance, and no Flow resume; it never creates successors. Successors are created only by qualifying evidence transitions, each of which is one atomic transaction: Independent PASS acceptance plus Review 1 scheduling; Review PASS acceptance plus current-task completion plus successor scheduling; Review FAIL acceptance plus current-task completion plus defensive cancellation of any other unfinished work. A fresh Independent success cancels stale unfinished Review work, resets the success count, and restarts the cadence at one day.
+
+At most one unfinished Review Task exists per learner and Concept across Scheduled, Due, and Started; the database enforces it with a uniqueness constraint and the domain transitions check it as well, so in-memory and PostgreSQL behavior are identical. The Durable milestone is projected as four consecutive qualifying Review PASSes after the latest Independent PASS, so it is deterministic and rebuildable from evidence alone. No Review Tasks are backfilled for Independent evidence accepted before this feature, in line with the repository's no-backward-compatibility rule.
