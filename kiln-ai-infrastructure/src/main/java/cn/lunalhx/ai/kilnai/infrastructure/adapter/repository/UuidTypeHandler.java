@@ -11,7 +11,7 @@ import java.util.UUID;
 
 /**
  * The UUID type handler MyBatis 3.5 does not register by default. Every
- * {@code apply_*} and {@code review_tasks} identifier column is a PostgreSQL
+ * Learning Flow and {@code review_tasks} identifier column is a PostgreSQL
  * {@code uuid}, so both directions bind through {@code setObject/getObject}.
  */
 public final class UuidTypeHandler extends BaseTypeHandler<UUID> {

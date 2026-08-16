@@ -6,6 +6,6 @@
 
 **Status:** ready-for-agent
 
-- [ ] 新 baseline 不保留 `apply_*` 表或旧 Flyway 兼容路径，并持久 Flow、Interaction、Checkpoint、Command、Attempt、Evidence 与 ReviewTask。
-- [ ] PostgreSQL 重启后可以恢复“Diagnostic PASS → Independent PASS → Review 1”的 committed state。
-- [ ] 并发条件不会创建重复 open Attempt、Evidence 或 unfinished ReviewTask。
+- [x] 新 baseline 不保留 `apply_*` 表或旧 Flyway 兼容路径，并持久 Flow、Interaction、Checkpoint、Command、Attempt、Evidence 与 ReviewTask。
+- [x] PostgreSQL 重启后可以恢复“Diagnostic PASS → Independent PASS → Review 1”的 committed state。
+- [x] 并发条件不会创建重复 open Attempt、Evidence 或 unfinished ReviewTask。

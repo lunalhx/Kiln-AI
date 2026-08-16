@@ -79,11 +79,11 @@ class ApplyPostgresRecoveryTest {
     @BeforeEach
     void cleanDatabase() {
         jdbc.execute("""
-                TRUNCATE review_tasks, apply_exposures, apply_example_exposures,
-                         apply_hint_ladder_exposures, apply_revealed_solution_exposures,
-                         apply_commands, apply_checkpoints,
-                         apply_interactions, apply_evidence, apply_assessments, apply_verifications,
-                         apply_attempts, apply_packages, apply_sources, apply_flows RESTART IDENTITY CASCADE
+                TRUNCATE review_tasks, exposures, example_exposures,
+                         hint_ladder_exposures, revealed_solution_exposures,
+                         commands, checkpoints,
+                         interactions, evidence, assessments, verifications,
+                         attempts, packages, sources, flows RESTART IDENTITY CASCADE
                 """);
     }
 

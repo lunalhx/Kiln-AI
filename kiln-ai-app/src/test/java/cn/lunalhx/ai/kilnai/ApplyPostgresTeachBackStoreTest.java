@@ -71,11 +71,11 @@ class ApplyPostgresTeachBackStoreTest {
     @BeforeEach
     void cleanDatabase() {
         jdbc.execute("""
-                TRUNCATE apply_teach_back_assessments, apply_teach_back_packages,
-                         apply_teach_back_anchors, apply_hint_requests, apply_hint_ladders,
-                         review_tasks, apply_exposures, apply_commands, apply_checkpoints,
-                         apply_interactions, apply_evidence, apply_assessments, apply_verifications,
-                         apply_attempts, apply_packages, apply_sources, apply_flows RESTART IDENTITY CASCADE
+                TRUNCATE teach_back_assessments, teach_back_packages,
+                         teach_back_anchors, hint_requests, hint_ladders,
+                         review_tasks, exposures, commands, checkpoints,
+                         interactions, evidence, assessments, verifications,
+                         attempts, packages, sources, flows RESTART IDENTITY CASCADE
                 """);
     }
 
@@ -106,7 +106,7 @@ class ApplyPostgresTeachBackStoreTest {
         assertEquals(revealAnchorId, flowStore.latestAnchor(flowId).orElseThrow().anchorId(),
                 "re-recording the same anchor id must be idempotent for a crashed command");
         assertEquals(2, jdbc.queryForObject(
-                "SELECT count(*) FROM apply_teach_back_anchors WHERE flow_id = ?", Integer.class, flowId));
+                "SELECT count(*) FROM teach_back_anchors WHERE flow_id = ?", Integer.class, flowId));
     }
 
     @Test

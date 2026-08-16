@@ -15,7 +15,7 @@ import java.util.UUID;
 public interface ApplyFlowMapper {
 
     @Insert("""
-            INSERT INTO apply_flows (id, learner_id, concept_id, status, stage, created_at)
+            INSERT INTO flows (id, learner_id, concept_id, status, stage, created_at)
             VALUES (#{id}, #{learnerId}, #{conceptId}, #{status}, #{stage}, #{createdAt})
             """)
     void insertFlow(
@@ -29,13 +29,13 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT id, learner_id, concept_id, status, stage, created_at
-            FROM apply_flows
+            FROM flows
             WHERE id = #{flowId}
             """)
     Optional<ApplyFlowRow> findFlow(UUID flowId);
 
     @Insert("""
-            INSERT INTO apply_interactions (
+            INSERT INTO interactions (
                 id, flow_id, interaction_version, status, stage, attempt_id, attempt_purpose,
                 learner_projection, learner_message, teaching_projection, hint, assistance_consent, created_at
             ) VALUES (
@@ -54,7 +54,7 @@ public interface ApplyFlowMapper {
                    teaching_projection::text AS teaching_projection_json,
                    hint::text AS hint_json,
                    assistance_consent::text AS assistance_consent_json, created_at
-            FROM apply_interactions
+            FROM interactions
             WHERE flow_id = #{flowId}
             ORDER BY interaction_version DESC
             LIMIT 1
@@ -62,14 +62,14 @@ public interface ApplyFlowMapper {
     Optional<InteractionRow> latestInteraction(UUID flowId);
 
     @Insert("""
-            INSERT INTO apply_checkpoints (id, flow_id, interaction_version, created_at)
+            INSERT INTO checkpoints (id, flow_id, interaction_version, created_at)
             VALUES (#{id}, #{flowId}, #{interactionVersion}, #{createdAt})
             """)
     void insertCheckpoint(CheckpointRow row);
 
     @Select("""
             SELECT id, flow_id, interaction_version, created_at
-            FROM apply_checkpoints
+            FROM checkpoints
             WHERE flow_id = #{flowId}
             ORDER BY created_at DESC
             LIMIT 1
@@ -77,7 +77,7 @@ public interface ApplyFlowMapper {
     Optional<CheckpointRow> latestCheckpoint(UUID flowId);
 
     @Insert("""
-            INSERT INTO apply_exposures (flow_id, task_package_id, task_fingerprint, solution_fingerprint, created_at)
+            INSERT INTO exposures (flow_id, task_package_id, task_fingerprint, solution_fingerprint, created_at)
             VALUES (#{flowId}, #{taskPackageId}, #{taskFingerprint}, #{solutionFingerprint}, #{createdAt})
             ON CONFLICT (flow_id, task_package_id) DO NOTHING
             """)
@@ -89,14 +89,14 @@ public interface ApplyFlowMapper {
             @Param("createdAt") Instant createdAt
     );
 
-    @Select("SELECT task_fingerprint FROM apply_exposures WHERE flow_id = #{flowId} ORDER BY created_at ASC")
+    @Select("SELECT task_fingerprint FROM exposures WHERE flow_id = #{flowId} ORDER BY created_at ASC")
     List<String> exposedTaskFingerprints(UUID flowId);
 
-    @Select("SELECT solution_fingerprint FROM apply_exposures WHERE flow_id = #{flowId} ORDER BY created_at ASC")
+    @Select("SELECT solution_fingerprint FROM exposures WHERE flow_id = #{flowId} ORDER BY created_at ASC")
     List<String> exposedSolutionFingerprints(UUID flowId);
 
     @Insert("""
-            INSERT INTO apply_example_exposures (flow_id, example_fingerprint, created_at)
+            INSERT INTO example_exposures (flow_id, example_fingerprint, created_at)
             VALUES (#{flowId}, #{exampleFingerprint}, #{createdAt})
             ON CONFLICT (flow_id, example_fingerprint) DO NOTHING
             """)
@@ -108,14 +108,14 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT example_fingerprint
-            FROM apply_example_exposures
+            FROM example_exposures
             WHERE flow_id = #{flowId}
             ORDER BY created_at ASC
             """)
     List<String> exposedExampleFingerprints(UUID flowId);
 
     @Insert("""
-            INSERT INTO apply_hint_ladder_exposures (flow_id, ladder_fingerprint, created_at)
+            INSERT INTO hint_ladder_exposures (flow_id, ladder_fingerprint, created_at)
             VALUES (#{flowId}, #{ladderFingerprint}, #{createdAt})
             ON CONFLICT (flow_id, ladder_fingerprint) DO NOTHING
             """)
@@ -127,14 +127,14 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT ladder_fingerprint
-            FROM apply_hint_ladder_exposures
+            FROM hint_ladder_exposures
             WHERE flow_id = #{flowId}
             ORDER BY created_at ASC
             """)
     List<String> exposedHintLadderFingerprints(UUID flowId);
 
     @Insert("""
-            INSERT INTO apply_revealed_solution_exposures (flow_id, reveal_fingerprint, created_at)
+            INSERT INTO revealed_solution_exposures (flow_id, reveal_fingerprint, created_at)
             VALUES (#{flowId}, #{revealFingerprint}, #{createdAt})
             ON CONFLICT (flow_id, reveal_fingerprint) DO NOTHING
             """)
@@ -146,14 +146,14 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT reveal_fingerprint
-            FROM apply_revealed_solution_exposures
+            FROM revealed_solution_exposures
             WHERE flow_id = #{flowId}
             ORDER BY created_at ASC
             """)
     List<String> exposedRevealedSolutionFingerprints(UUID flowId);
 
     @Insert("""
-            INSERT INTO apply_explain_artifacts (id, flow_id, artifact, created_at)
+            INSERT INTO explain_artifacts (id, flow_id, artifact, created_at)
             VALUES (#{id}, #{flowId}, CAST(#{artifactJson} AS JSONB), #{createdAt})
             """)
     void insertExplainArtifact(
@@ -165,13 +165,13 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT artifact::text AS artifact_json
-            FROM apply_explain_artifacts
+            FROM explain_artifacts
             WHERE id = #{artifactId}
             """)
     Optional<ExplainArtifactRow> findExplainArtifact(UUID artifactId);
 
     @Insert("""
-            INSERT INTO apply_commands (idempotency_key, request_hash, flow_id, response, created_at)
+            INSERT INTO commands (idempotency_key, request_hash, flow_id, response, created_at)
             VALUES (#{idempotencyKey}, #{requestHash}, #{flowId}, CAST(#{responseJson} AS JSONB), #{createdAt})
             ON CONFLICT (idempotency_key) DO NOTHING
             """)
@@ -179,13 +179,13 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT idempotency_key, request_hash, flow_id, response::text AS response_json, created_at
-            FROM apply_commands
+            FROM commands
             WHERE idempotency_key = #{idempotencyKey}
             """)
     Optional<CommandRow> findCommand(UUID idempotencyKey);
 
     @Insert("""
-            INSERT INTO apply_sources (source_pack_id, version, passages, created_at)
+            INSERT INTO sources (source_pack_id, version, passages, created_at)
             VALUES (#{sourcePackId}, #{version}, CAST(#{passagesJson} AS JSONB), #{createdAt})
             """)
     void insertSource(
@@ -197,13 +197,13 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT source_pack_id, version, passages::text AS passages_json
-            FROM apply_sources
+            FROM sources
             WHERE source_pack_id = #{sourcePackId}
             """)
     Optional<SourceRow> findSource(String sourcePackId);
 
     @Insert("""
-            INSERT INTO apply_packages (id, attempt_purpose, learner_projection, private_assessor_projection, created_at)
+            INSERT INTO packages (id, attempt_purpose, learner_projection, private_assessor_projection, created_at)
             VALUES (#{id}, #{attemptPurpose}, CAST(#{learnerProjectionJson} AS JSONB),
                     CAST(#{privateAssessorProjectionJson} AS JSONB), #{createdAt})
             """)
@@ -212,7 +212,7 @@ public interface ApplyFlowMapper {
     @Select("""
             SELECT id, attempt_purpose, learner_projection::text AS learner_projection_json,
                    private_assessor_projection::text AS private_assessor_projection_json, created_at
-            FROM apply_packages
+            FROM packages
             WHERE id = #{taskPackageId}
             """)
     Optional<PackageRow> findPackage(UUID taskPackageId);
@@ -220,13 +220,13 @@ public interface ApplyFlowMapper {
     @Select("""
             SELECT id, attempt_purpose, learner_projection::text AS learner_projection_json,
                    private_assessor_projection::text AS private_assessor_projection_json, created_at
-            FROM apply_packages
+            FROM packages
             ORDER BY created_at ASC
             """)
     List<PackageRow> listPackages();
 
     @Insert("""
-            INSERT INTO apply_attempts (id, task_package_id, purpose, status, opened_at, closed_at,
+            INSERT INTO attempts (id, task_package_id, purpose, status, opened_at, closed_at,
                                         submission, assistance_trace)
             VALUES (#{id}, #{taskPackageId}, #{purpose}, #{status}, #{openedAt}, #{closedAt},
                     CAST(#{submissionJson} AS JSONB), CAST(#{assistanceTraceJson} AS JSONB))
@@ -236,7 +236,7 @@ public interface ApplyFlowMapper {
     @Select("""
             SELECT id, task_package_id, purpose, status, opened_at, closed_at,
                    submission::text AS submission_json, assistance_trace::text AS assistance_trace_json
-            FROM apply_attempts
+            FROM attempts
             WHERE id = #{attemptId}
             """)
     Optional<AttemptRow> findAttempt(UUID attemptId);
@@ -248,7 +248,7 @@ public interface ApplyFlowMapper {
      */
     @Select("""
             SELECT DISTINCT task_package_id
-            FROM apply_exposures
+            FROM exposures
             WHERE flow_id = #{flowId}
             """)
     List<UUID> exposedTaskPackageIds(UUID flowId);
@@ -264,7 +264,7 @@ public interface ApplyFlowMapper {
             <script>
             SELECT id, task_package_id, purpose, status, opened_at, closed_at,
                    submission::text AS submission_json, assistance_trace::text AS assistance_trace_json
-            FROM apply_attempts
+            FROM attempts
             WHERE purpose = 'PRACTICE' AND status = 'OPEN'
               AND task_package_id IN
               <foreach collection='taskPackageIds' item='packageId' open='(' separator=',' close=')'>
@@ -277,7 +277,7 @@ public interface ApplyFlowMapper {
     Optional<AttemptRow> findOpenPracticeAttempt(@Param("taskPackageIds") List<UUID> taskPackageIds);
 
     @Update("""
-            UPDATE apply_attempts
+            UPDATE attempts
             SET status = 'SUBMITTED', closed_at = #{closedAt}, submission = CAST(#{submissionJson} AS JSONB)
             WHERE id = #{attemptId} AND status = 'OPEN'
             """)
@@ -293,7 +293,7 @@ public interface ApplyFlowMapper {
      * a duplicate or racing exposure a no-op.
      */
     @Update("""
-            UPDATE apply_attempts
+            UPDATE attempts
             SET assistance_trace = CAST(#{assistanceTraceJson} AS JSONB),
                 status = #{status},
                 closed_at = COALESCE(#{closedAt}, closed_at)
@@ -312,7 +312,7 @@ public interface ApplyFlowMapper {
      * no-op.
      */
     @Update("""
-            UPDATE apply_attempts
+            UPDATE attempts
             SET assistance_trace = CAST(#{assistanceTraceJson} AS JSONB)
             WHERE id = #{attemptId} AND status = 'OPEN'
             """)
@@ -328,7 +328,7 @@ public interface ApplyFlowMapper {
      * the attempt is converted exactly once and its trace never duplicates.
      */
     @Update("""
-            UPDATE apply_attempts
+            UPDATE attempts
             SET purpose = 'PRACTICE', assistance_trace = CAST(#{assistanceTraceJson} AS JSONB)
             WHERE id = #{attemptId} AND status = 'OPEN'
               AND purpose IN ('INDEPENDENT_TEST', 'REVIEW')
@@ -339,7 +339,7 @@ public interface ApplyFlowMapper {
     );
 
     @Insert("""
-            INSERT INTO apply_hint_ladders (attempt_id, ladder, created_at)
+            INSERT INTO hint_ladders (attempt_id, ladder, created_at)
             VALUES (#{attemptId}, CAST(#{ladderJson} AS JSONB), #{createdAt})
             ON CONFLICT (attempt_id) DO NOTHING
             """)
@@ -351,13 +351,13 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT attempt_id, ladder::text AS ladder_json
-            FROM apply_hint_ladders
+            FROM hint_ladders
             WHERE attempt_id = #{attemptId}
             """)
     Optional<HintLadderRow> findHintLadder(UUID attemptId);
 
     @Insert("""
-            INSERT INTO apply_hint_requests (
+            INSERT INTO hint_requests (
                 attempt_id, command_key, requested_level, exposed_level, exposed_at
             ) VALUES (
                 #{attemptId}, #{commandKey}, #{requestedLevel}, #{exposedLevel}, #{exposedAt}
@@ -368,7 +368,7 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT attempt_id, command_key, requested_level, exposed_level, exposed_at
-            FROM apply_hint_requests
+            FROM hint_requests
             WHERE attempt_id = #{attemptId} AND command_key = #{commandKey}
             """)
     Optional<HintRequestRow> findHintRequest(
@@ -376,7 +376,7 @@ public interface ApplyFlowMapper {
             @Param("commandKey") UUID commandKey);
 
     @Insert("""
-            INSERT INTO apply_verifications (id, task_package_id, verdict, created_at)
+            INSERT INTO verifications (id, task_package_id, verdict, created_at)
             VALUES (#{id}, #{taskPackageId}, CAST(#{verdictJson} AS JSONB), #{createdAt})
             """)
     void insertVerification(
@@ -388,14 +388,14 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT verdict::text AS verdict_json
-            FROM apply_verifications
+            FROM verifications
             WHERE task_package_id = #{taskPackageId}
             ORDER BY created_at ASC
             """)
     List<String> listVerificationJson(UUID taskPackageId);
 
     @Insert("""
-            INSERT INTO apply_assessments (id, attempt_id, assessment, created_at)
+            INSERT INTO assessments (id, attempt_id, assessment, created_at)
             VALUES (#{id}, #{attemptId}, CAST(#{assessmentJson} AS JSONB), #{createdAt})
             """)
     void insertAssessment(
@@ -407,14 +407,14 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT assessment::text AS assessment_json
-            FROM apply_assessments
+            FROM assessments
             WHERE attempt_id = #{attemptId}
             ORDER BY created_at ASC
             """)
     List<String> listAssessmentJson(UUID attemptId);
 
     @Insert("""
-            INSERT INTO apply_evidence (
+            INSERT INTO evidence (
                 id, task_attempt_id, flow_id, concept_id, learner_id, result,
                 attempt_purpose, highest_hint_level, assistance_trace, accepted_at
             ) VALUES (
@@ -425,14 +425,14 @@ public interface ApplyFlowMapper {
             """)
     void insertEvidence(EvidenceRow row);
 
-    @Select("SELECT 1 FROM apply_evidence WHERE task_attempt_id = #{attemptId}")
+    @Select("SELECT 1 FROM evidence WHERE task_attempt_id = #{attemptId}")
     Optional<Integer> evidenceExists(UUID attemptId);
 
     @Select("""
             SELECT id, task_attempt_id, flow_id, concept_id, learner_id, result,
                    attempt_purpose, highest_hint_level, assistance_trace::text AS assistance_trace_json,
                    accepted_at
-            FROM apply_evidence
+            FROM evidence
             ORDER BY accepted_at ASC, id ASC
             """)
     List<EvidenceRow> listEvidence();
@@ -557,7 +557,7 @@ public interface ApplyFlowMapper {
             @Param("newOpenAttemptId") UUID newOpenAttemptId);
 
     @Insert("""
-            INSERT INTO apply_teach_back_anchors (flow_id, anchor_id, anchor_kind, exposed_at)
+            INSERT INTO teach_back_anchors (flow_id, anchor_id, anchor_kind, exposed_at)
             VALUES (#{flowId}, #{anchorId}, #{anchorKind}, #{exposedAt})
             ON CONFLICT (flow_id, anchor_id) DO NOTHING
             """)
@@ -570,14 +570,14 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT flow_id, anchor_id, anchor_kind, exposed_at
-            FROM apply_teach_back_anchors
+            FROM teach_back_anchors
             WHERE flow_id = #{flowId}
             ORDER BY exposed_at ASC, anchor_id ASC
             """)
     List<TeachBackAnchorRow> listTeachBackAnchors(UUID flowId);
 
     @Insert("""
-            INSERT INTO apply_teach_back_packages (
+            INSERT INTO teach_back_packages (
                 id, attempt_purpose, learner_projection, private_projection, created_at
             ) VALUES (
                 #{id}, #{attemptPurpose}, CAST(#{learnerProjectionJson} AS JSONB),
@@ -589,13 +589,13 @@ public interface ApplyFlowMapper {
     @Select("""
             SELECT id, attempt_purpose, learner_projection::text AS learner_projection_json,
                    private_projection::text AS private_projection_json, created_at
-            FROM apply_teach_back_packages
+            FROM teach_back_packages
             WHERE id = #{taskPackageId}
             """)
     Optional<TeachBackPackageRow> findTeachBackPackage(UUID taskPackageId);
 
     @Insert("""
-            INSERT INTO apply_teach_back_assessments (id, attempt_id, assessment, created_at)
+            INSERT INTO teach_back_assessments (id, attempt_id, assessment, created_at)
             VALUES (#{id}, #{attemptId}, CAST(#{assessmentJson} AS JSONB), #{createdAt})
             """)
     void insertTeachBackAssessment(
@@ -607,7 +607,7 @@ public interface ApplyFlowMapper {
 
     @Select("""
             SELECT assessment::text AS assessment_json
-            FROM apply_teach_back_assessments
+            FROM teach_back_assessments
             WHERE attempt_id = #{attemptId}
             ORDER BY created_at ASC
             """)

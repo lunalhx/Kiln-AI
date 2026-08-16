@@ -66,7 +66,7 @@ An ArchUnit test in `kiln-ai-domain` prevents the domain from depending on Sprin
    ./mvnw -pl kiln-ai-app -am spring-boot:run
    ```
 
-Flyway applies the Apply schema automatically. The learner UI is served at `http://localhost:8080/`.
+Flyway applies the Learning Flow schema automatically. The learner UI is served at `http://localhost:8080/`.
 
 ## Try The Apply Flow
 
