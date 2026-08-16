@@ -59,7 +59,7 @@ public record ReviewTask(
     @JsonIgnore
     public boolean isStartable() {
         return status == ReviewTaskStatus.DUE
-                || status == ReviewTaskStatus.STARTED && openAttemptId == null;
+                || (status == ReviewTaskStatus.STARTED && openAttemptId == null);
     }
 
     public ReviewTask withOpenAttempt(UUID attemptId) {

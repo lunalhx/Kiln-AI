@@ -42,7 +42,14 @@ public final class ReviewTaskScheduler {
         this.reviewStore = Objects.requireNonNull(reviewStore, "reviewStore must not be null");
     }
 
-    public ReviewTask acceptEvidenceAndScheduleFirstReview(AcceptedLearningEvidence evidence) {
+    /**
+     * Atomically accepts one qualifying Independent pass and schedules the
+     * unique Review 1 due 24 hours after the acceptance time, cancelling any
+     * stale unfinished Review of the same learner and Concept. Returns empty
+     * when the task attempt already has Evidence, in which case nothing at
+     * all is written.
+     */
+    public Optional<ReviewTask> acceptEvidenceAndScheduleFirstReview(AcceptedLearningEvidence evidence) {
         Objects.requireNonNull(evidence, "evidence must not be null");
         return reviewStore.acceptEvidenceAndScheduleFirstReview(
                 evidence, evidence.acceptedAt().plus(FIRST_REVIEW_DELAY));
@@ -52,8 +59,10 @@ public final class ReviewTaskScheduler {
      * Advances the cadence by one qualifying Review pass: completes the
      * STARTED Review of the evidence's learner and Concept and schedules the
      * successor after the fixed interval measured from the actual acceptance
-     * time. Returns empty when no Review is STARTED, in which case nothing at
-     * all is written.
+     * time. Returns empty when no Review is STARTED or when the evidence does
+     * not come from the STARTED Review's own open attempt — a stale or
+     * cancelled Review attempt can never advance or stop a cadence — in which
+     * case nothing at all is written.
      */
     public Optional<ReviewTaskStore.ReviewAdvance> acceptEvidenceAndAdvanceReview(AcceptedLearningEvidence evidence) {
         Objects.requireNonNull(evidence, "evidence must not be null");
@@ -63,6 +72,9 @@ public final class ReviewTaskScheduler {
             return Optional.empty();
         }
         ReviewTask current = started.get();
+        if (!evidence.taskAttemptId().equals(current.openAttemptId())) {
+            return Optional.empty();
+        }
         Instant nextDueAt = current.reviewNumber() < ConceptProgressProjector.QUALIFYING_REVIEW_COUNT
                 ? evidence.acceptedAt().plus(SUCCESSOR_DELAYS.get(current.reviewNumber() - 1))
                 : null;
@@ -73,8 +85,9 @@ public final class ReviewTaskScheduler {
      * Stops the cadence by one conclusive no-hint Review failure: completes
      * the STARTED Review of the evidence's learner and Concept at the actual
      * acceptance time, cancels any other unfinished Review defensively, and
-     * schedules no successor. Returns empty when no Review is STARTED, in
-     * which case nothing at all is written.
+     * schedules no successor. Returns empty when no Review is STARTED or when
+     * the evidence does not come from the STARTED Review's own open attempt,
+     * in which case nothing at all is written.
      */
     public Optional<ReviewTaskStore.ReviewStop> acceptEvidenceAndFailReview(AcceptedLearningEvidence evidence) {
         Objects.requireNonNull(evidence, "evidence must not be null");
@@ -83,6 +96,10 @@ public final class ReviewTaskScheduler {
         if (started.isEmpty()) {
             return Optional.empty();
         }
-        return reviewStore.acceptEvidenceAndFailReview(evidence, started.get().reviewId());
+        ReviewTask current = started.get();
+        if (!evidence.taskAttemptId().equals(current.openAttemptId())) {
+            return Optional.empty();
+        }
+        return reviewStore.acceptEvidenceAndFailReview(evidence, current.reviewId());
     }
 }

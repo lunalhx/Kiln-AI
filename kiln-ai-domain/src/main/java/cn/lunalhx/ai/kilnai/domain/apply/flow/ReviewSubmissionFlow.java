@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewSubmissionResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
@@ -121,7 +122,40 @@ public final class ReviewSubmissionFlow {
                     new ReviewSubmissionResult.NotSubmittable(notSubmittable.reason());
             case SubmissionCloser.CloseResult.Closed closedAttempt ->
                     assessAndAdvanceCadence(flow, closedAttempt.attempt(), idempotencyKey, requestHash);
+            case SubmissionCloser.CloseResult.Recovered recovered ->
+                    recoverOrIgnore(flow, recovered.attempt(), idempotencyKey, requestHash);
         };
+    }
+
+    /**
+     * An already-closed Attempt carries its saved submission. When that
+     * submission already produced its outcome — Evidence was accepted, or the
+     * Review no longer points at it as the open attempt — the command is a
+     * duplicate and nothing is re-run. Otherwise the process crashed between
+     * closing the Attempt and committing the result, and the evaluation of
+     * the saved submission is resumed so the retry recovers the original
+     * outcome; the exactly-once Evidence guard and the open-attempt claim
+     * make the resumed transition idempotent.
+     */
+    private ReviewSubmissionResult recoverOrIgnore(
+            LearningFlowStore.FlowRecord flow,
+            TaskAttempt closedAttempt,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        if (reviewOutcomeAlreadyProduced(flow, closedAttempt)) {
+            return new ReviewSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+        }
+        return assessAndAdvanceCadence(flow, closedAttempt, idempotencyKey, requestHash);
+    }
+
+    private boolean reviewOutcomeAlreadyProduced(LearningFlowStore.FlowRecord flow, TaskAttempt closedAttempt) {
+        if (flowStore.evidenceExists(closedAttempt.attemptId())) {
+            return true;
+        }
+        return reviewStore.findStartedReview(flow.learnerId(), flow.conceptId())
+                .map(started -> !Objects.equals(started.openAttemptId(), closedAttempt.attemptId()))
+                .orElse(true);
     }
 
     private ReviewSubmissionResult assessAndAdvanceCadence(
@@ -132,24 +166,21 @@ public final class ReviewSubmissionFlow {
     ) {
         AssessmentOutcome outcome = assessmentRunner.run(closedAttempt, packageOf(closedAttempt));
         AssessmentRunner.recordAssessments(artifactStore, closedAttempt.attemptId(), outcome);
-        if (outcome instanceof AssessmentOutcome.Passed) {
-            return acceptReviewPass(flow, closedAttempt);
-        }
-        if (outcome instanceof AssessmentOutcome.Failed) {
-            return failAndStopCadence(flow, closedAttempt, SAFE_END_MESSAGE);
-        }
-        if (outcome instanceof AssessmentOutcome.Blocked) {
-            // ADR-0061: in Review only, the answer-rationale contradiction is a
-            // conclusive no-hint FAIL; the learner is told that their final
-            // answer contradicts their rationale, with no assessment facts or
-            // reason codes exposed. Independent Test keeps its existing Blocked
-            // behavior of no evidence.
-            return failAndStopCadence(flow, closedAttempt, RATIONALE_CONTRADICTION_MESSAGE);
-        }
-        if (outcome instanceof AssessmentOutcome.Inconclusive) {
-            return resolveInconclusive(flow, closedAttempt, idempotencyKey, requestHash);
-        }
-        return new ReviewSubmissionResult.NoEvidence(closedAttempt, SAFE_END_MESSAGE);
+        return switch (outcome) {
+            case AssessmentOutcome.Passed passed -> acceptReviewPass(flow, closedAttempt);
+            case AssessmentOutcome.Failed failed ->
+                    failAndStopCadence(flow, closedAttempt, SAFE_END_MESSAGE);
+            case AssessmentOutcome.Blocked blocked -> {
+                // ADR-0061: in Review only, the answer-rationale contradiction
+                // is a conclusive no-hint FAIL; the learner is told that their
+                // final answer contradicts their rationale, with no assessment
+                // facts or reason codes exposed. Independent Test keeps its
+                // existing Blocked behavior of no evidence.
+                yield failAndStopCadence(flow, closedAttempt, RATIONALE_CONTRADICTION_MESSAGE);
+            }
+            case AssessmentOutcome.Inconclusive inconclusive ->
+                    resolveInconclusive(flow, closedAttempt, idempotencyKey, requestHash);
+        };
     }
 
     private ReviewSubmissionResult acceptReviewPass(
@@ -271,10 +302,7 @@ public final class ReviewSubmissionFlow {
     }
 
     private ConceptProgress projectProgress(UUID learnerId, UUID conceptId) {
-        List<AcceptedLearningEvidence> conceptEvidence = flowStore.allEvidence().stream()
-                .filter(item -> item.learnerId().equals(learnerId) && item.conceptId().equals(conceptId))
-                .toList();
-        return progressProjector.project(learnerId, conceptId, conceptEvidence);
+        return progressProjector.projectFor(flowStore, learnerId, conceptId);
     }
 
     private TaskPackage packageOf(TaskAttempt attempt) {

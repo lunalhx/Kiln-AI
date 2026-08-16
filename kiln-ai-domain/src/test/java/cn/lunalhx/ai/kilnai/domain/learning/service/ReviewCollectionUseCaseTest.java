@@ -61,10 +61,10 @@ class ReviewCollectionUseCaseTest {
         UUID earlierConcept = UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff");
         store.acceptEvidenceAndScheduleFirstReview(
                 independentEvidenceFor(Instant.parse("2026-08-15T10:00:00Z"), earlierConcept),
-                Instant.parse("2026-08-16T10:00:00Z"));
+                Instant.parse("2026-08-16T10:00:00Z")).orElseThrow();
         store.acceptEvidenceAndScheduleFirstReview(
                 independentEvidenceFor(Instant.parse("2026-08-15T10:00:00Z"), laterConcept),
-                Instant.parse("2026-08-16T14:00:00Z"));
+                Instant.parse("2026-08-16T14:00:00Z")).orElseThrow();
 
         Clock dueClock = Clock.fixed(Instant.parse("2026-08-16T12:00:00Z"), ZoneOffset.UTC);
         new ReviewDueTransitionUseCase(store, dueClock).markDueReviewsDue();

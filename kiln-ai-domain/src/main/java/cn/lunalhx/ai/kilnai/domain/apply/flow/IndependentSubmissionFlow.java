@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.IndependentSubmissionResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
@@ -19,6 +20,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -29,8 +31,12 @@ import java.util.UUID;
  * Review 1 due 24 hours later, and projects the updated Concept Progress.
  * Every other outcome—failed, Inconclusive, blocked by a clearly
  * contradictory rationale, duplicate submission, or unclosed attempt—never
- * creates Evidence. The learner sees only a safe continue-or-end message.
- * All state is persisted durably; the flow carries no in-memory state.
+ * creates Evidence. A submission replayed after the process crashed between
+ * closing the Attempt and committing the result resumes the evaluation of the
+ * saved submission, so the learner's retry recovers the outcome instead of
+ * being told the Attempt was already submitted. The learner sees only a safe
+ * continue-or-end message. All state is persisted durably; the flow carries
+ * no in-memory state.
  */
 public final class IndependentSubmissionFlow {
 
@@ -81,7 +87,27 @@ public final class IndependentSubmissionFlow {
                     new IndependentSubmissionResult.NotSubmittable(notSubmittable.reason());
             case SubmissionCloser.CloseResult.Closed closedAttempt ->
                     assessAndAcceptEvidence(flow, closedAttempt.attempt());
+            case SubmissionCloser.CloseResult.Recovered recovered ->
+                    recoverOrIgnore(flow, recovered.attempt());
         };
+    }
+
+    /**
+     * An already-closed Attempt carries its saved submission. When that
+     * submission already produced Evidence, the command is a duplicate whose
+     * outcome exists and nothing is re-run; otherwise the process crashed
+     * between closing and committing, and the evaluation of the saved
+     * submission is resumed so the retry recovers the original result. The
+     * exactly-once Evidence guard makes the resumed transition idempotent.
+     */
+    private IndependentSubmissionResult recoverOrIgnore(
+            LearningFlowStore.FlowRecord flow,
+            TaskAttempt closedAttempt
+    ) {
+        if (flowStore.evidenceExists(closedAttempt.attemptId())) {
+            return new IndependentSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+        }
+        return assessAndAcceptEvidence(flow, closedAttempt);
     }
 
     private IndependentSubmissionResult assessAndAcceptEvidence(
@@ -102,11 +128,16 @@ public final class IndependentSubmissionFlow {
                     0,
                     List.of(),
                     clock.instant());
-            ReviewTask scheduledReview = reviewScheduler.acceptEvidenceAndScheduleFirstReview(evidence);
+            Optional<ReviewTask> scheduledReview = reviewScheduler.acceptEvidenceAndScheduleFirstReview(evidence);
+            if (scheduledReview.isEmpty()) {
+                // The attempt already has Evidence — the transition is
+                // exactly once, so this run must not reschedule or stack.
+                return new IndependentSubmissionResult.NoEvidence(closedAttempt, SAFE_END_MESSAGE);
+            }
             return new IndependentSubmissionResult.EvidenceAccepted(
                     closedAttempt,
                     evidence,
-                    scheduledReview,
+                    scheduledReview.get(),
                     projectProgress(flow.learnerId(), flow.conceptId()),
                     INDEPENDENT_COMPLETE_MESSAGE);
         }
@@ -114,10 +145,7 @@ public final class IndependentSubmissionFlow {
     }
 
     private ConceptProgress projectProgress(UUID learnerId, UUID conceptId) {
-        List<AcceptedLearningEvidence> conceptEvidence = flowStore.allEvidence().stream()
-                .filter(item -> item.learnerId().equals(learnerId) && item.conceptId().equals(conceptId))
-                .toList();
-        return progressProjector.project(learnerId, conceptId, conceptEvidence);
+        return progressProjector.projectFor(flowStore, learnerId, conceptId);
     }
 
     private TaskPackage packageOf(TaskAttempt attempt) {

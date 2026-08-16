@@ -26,9 +26,12 @@ public interface ReviewTaskStore {
      * unique Review 1 due at the given {@code dueAt}, all in one commit.
      * The caller computes {@code dueAt} from its cadence policy; the store
      * only guarantees the atomic transition and the at-most-one-unfinished
-     * invariant.
+     * invariant. Returns empty when the task attempt already has Evidence —
+     * the transition is exactly once per Task Attempt — in which case nothing
+     * at all is written, so a replay or recovered submission can never
+     * reschedule or stack a Review.
      */
-    ReviewTask acceptEvidenceAndScheduleFirstReview(AcceptedLearningEvidence evidence, Instant dueAt);
+    Optional<ReviewTask> acceptEvidenceAndScheduleFirstReview(AcceptedLearningEvidence evidence, Instant dueAt);
 
     /**
      * Atomically changes every Scheduled Review whose due time has arrived

@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -47,7 +48,7 @@ class ReviewTaskSchedulerTest {
         ReviewTaskScheduler scheduler = new ReviewTaskScheduler(store);
 
         AcceptedLearningEvidence evidence = independentEvidence(Instant.parse("2026-08-15T10:00:00Z"));
-        ReviewTask review = scheduler.acceptEvidenceAndScheduleFirstReview(evidence);
+        ReviewTask review = scheduler.acceptEvidenceAndScheduleFirstReview(evidence).orElseThrow();
 
         assertEquals(1, review.reviewNumber());
         assertEquals(ReviewTaskStatus.SCHEDULED, review.status());
@@ -68,10 +69,10 @@ class ReviewTaskSchedulerTest {
         ReviewTaskScheduler scheduler = new ReviewTaskScheduler(store);
 
         AcceptedLearningEvidence first = independentEvidence(Instant.parse("2026-08-15T10:00:00Z"));
-        ReviewTask stale = scheduler.acceptEvidenceAndScheduleFirstReview(first);
+        ReviewTask stale = scheduler.acceptEvidenceAndScheduleFirstReview(first).orElseThrow();
 
         AcceptedLearningEvidence second = independentEvidence(Instant.parse("2026-08-15T12:00:00Z"));
-        ReviewTask fresh = scheduler.acceptEvidenceAndScheduleFirstReview(second);
+        ReviewTask fresh = scheduler.acceptEvidenceAndScheduleFirstReview(second).orElseThrow();
 
         assertEquals(ReviewTaskStatus.CANCELLED, store.findReview(stale.reviewId()).orElseThrow().status(),
                 "the stale unfinished Review must be cancelled");
@@ -92,12 +93,16 @@ class ReviewTaskSchedulerTest {
         AcceptedLearningEvidence evidence = independentEvidence(Instant.parse("2026-08-15T10:00:00Z"));
 
         scheduler.acceptEvidenceAndScheduleFirstReview(evidence);
-        scheduler.acceptEvidenceAndScheduleFirstReview(evidence);
+        assertTrue(scheduler.acceptEvidenceAndScheduleFirstReview(evidence).isEmpty(),
+                "accepting the same task attempt twice must write nothing the second time");
 
         assertEquals(1, store.allEvidence().size(),
                 "accepting the same task attempt twice must never duplicate Evidence");
         assertEquals(1, store.unfinishedReviewsFor(LEARNER).size(),
                 "the unfinished Review invariant must hold after a repeated accept");
+        assertEquals(ReviewTaskStatus.SCHEDULED,
+                store.unfinishedReviewsFor(LEARNER).get(0).status(),
+                "a repeated accept must never reschedule or stack a Review");
     }
 
     @Test
@@ -105,7 +110,7 @@ class ReviewTaskSchedulerTest {
         Harness harness = harness();
         ReviewTask started = harness.startNextDueReview();
 
-        AcceptedLearningEvidence evidence = reviewEvidence(Instant.parse("2026-08-16T10:00:00Z"));
+        AcceptedLearningEvidence evidence = reviewEvidence(started, Instant.parse("2026-08-16T10:00:00Z"));
         Optional<ReviewTaskStore.ReviewAdvance> advance =
                 harness.scheduler().acceptEvidenceAndAdvanceReview(evidence);
 
@@ -170,13 +175,13 @@ class ReviewTaskSchedulerTest {
         Harness harness = harness();
         ReviewTask started = harness.startNextDueReview();
         Instant scheduledCompletion = Instant.parse("2026-08-17T10:00:00Z");
-        harness.scheduler().acceptEvidenceAndAdvanceReview(reviewEvidence(scheduledCompletion));
+        harness.scheduler().acceptEvidenceAndAdvanceReview(reviewEvidence(started, scheduledCompletion));
 
         ReviewTask late = harness.startNextDueReview();
         assertEquals(2, late.reviewNumber());
         Instant lateCompletion = Instant.parse("2026-08-20T14:00:00Z");
         ReviewTaskStore.ReviewAdvance advance =
-                harness.scheduler().acceptEvidenceAndAdvanceReview(reviewEvidence(lateCompletion)).orElseThrow();
+                harness.scheduler().acceptEvidenceAndAdvanceReview(reviewEvidence(late, lateCompletion)).orElseThrow();
 
         assertEquals(lateCompletion.plus(Duration.ofDays(7)), advance.successor().dueAt(),
                 "the next due time must be measured from the late actual completion, never the scheduled time");
@@ -186,7 +191,7 @@ class ReviewTaskSchedulerTest {
     void repeatedAdvanceOfTheSameTaskAttemptNeverDuplicatesEvidenceCompletionOrSuccessor() {
         Harness harness = harness();
         ReviewTask started = harness.startNextDueReview();
-        AcceptedLearningEvidence evidence = reviewEvidence(Instant.parse("2026-08-16T10:00:00Z"));
+        AcceptedLearningEvidence evidence = reviewEvidence(started, Instant.parse("2026-08-16T10:00:00Z"));
 
         harness.scheduler().acceptEvidenceAndAdvanceReview(evidence);
         Optional<ReviewTaskStore.ReviewAdvance> replayed =
@@ -212,7 +217,7 @@ class ReviewTaskSchedulerTest {
         scheduler.acceptEvidenceAndScheduleFirstReview(independentEvidence(FIRST_INDEPENDENT_AT));
 
         Optional<ReviewTaskStore.ReviewAdvance> advance =
-                scheduler.acceptEvidenceAndAdvanceReview(reviewEvidence(Instant.parse("2026-08-16T10:00:00Z")));
+                scheduler.acceptEvidenceAndAdvanceReview(foreignReviewEvidence(Instant.parse("2026-08-16T10:00:00Z")));
 
         assertTrue(advance.isEmpty(), "no STARTED Review means the cadence cannot advance");
         assertTrue(store.allEvidence().stream()
@@ -224,11 +229,39 @@ class ReviewTaskSchedulerTest {
                 store.unfinishedReviewsFor(LEARNER).get(0).status());
     }
 
-    private ReviewTaskStore.ReviewAdvance advance(Harness harness, Instant acceptedAt) {
-        return harness.scheduler().acceptEvidenceAndAdvanceReview(reviewEvidence(acceptedAt)).orElseThrow();
+    @Test
+    void anAdvanceFromAnAttemptThatIsNotTheStartedReviewsOwnOpenAttemptWritesNothing() {
+        Harness harness = harness();
+        ReviewTask started = harness.startNextDueReview();
+        AcceptedLearningEvidence foreign = foreignReviewEvidence(Instant.parse("2026-08-16T10:00:00Z"));
+
+        assertTrue(harness.scheduler().acceptEvidenceAndAdvanceReview(foreign).isEmpty(),
+                "evidence from a different attempt can never advance the started Review");
+        assertTrue(harness.scheduler().acceptEvidenceAndFailReview(foreign).isEmpty(),
+                "evidence from a different attempt can never stop the started Review");
+        assertEquals(ReviewTaskStatus.STARTED,
+                harness.store().findReview(started.reviewId()).orElseThrow().status(),
+                "the started Review must stay untouched");
+        assertTrue(harness.store().allEvidence().stream().noneMatch(AcceptedLearningEvidence::isReviewSuccess),
+                "no foreign Evidence may be accepted");
+        assertEquals(1, harness.store().unfinishedReviewsFor(LEARNER).size(),
+                "no successor or cancellation may disturb the cadence");
     }
 
-    private static AcceptedLearningEvidence reviewEvidence(Instant acceptedAt) {
+    private ReviewTaskStore.ReviewAdvance advance(Harness harness, Instant acceptedAt) {
+        ReviewTask started = harness.store().findStartedReview(LEARNER, CONCEPT).orElseThrow();
+        return harness.scheduler()
+                .acceptEvidenceAndAdvanceReview(reviewEvidence(started, acceptedAt)).orElseThrow();
+    }
+
+    private static AcceptedLearningEvidence reviewEvidence(ReviewTask started, Instant acceptedAt) {
+        Objects.requireNonNull(started.openAttemptId(), "the started Review must hold its open attempt");
+        return new AcceptedLearningEvidence(
+                UUID.randomUUID(), started.openAttemptId(), started.flowId(), started.conceptId(), started.learnerId(),
+                LearningResult.PASS, AttemptPurpose.REVIEW, 0, List.of(), acceptedAt);
+    }
+
+    private static AcceptedLearningEvidence foreignReviewEvidence(Instant acceptedAt) {
         return new AcceptedLearningEvidence(
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), CONCEPT, LEARNER,
                 LearningResult.PASS, AttemptPurpose.REVIEW, 0, List.of(), acceptedAt);
@@ -265,7 +298,7 @@ class ReviewTaskSchedulerTest {
             ReviewTask due = unfinished.isEmpty()
                     ? store.acceptEvidenceAndScheduleFirstReview(
                             independentEvidence(FIRST_INDEPENDENT_AT),
-                            FIRST_INDEPENDENT_AT.plus(Duration.ofHours(24)))
+                            FIRST_INDEPENDENT_AT.plus(Duration.ofHours(24))).orElseThrow()
                     : unfinished.get(0);
             store.markDueReviewsDue(due.dueAt());
             PreparedDelivery delivery = executor.prepareTask(ReviewApplyFixture.reviewContext());

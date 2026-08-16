@@ -124,13 +124,14 @@ class ApplyPostgresRecoveryTest {
                 evidence(flow.learnerId(), flow.conceptId(), flow.flowId(),
                         started.interaction().attemptId(), now.minusSeconds(3600)),
                 now.plus(Duration.ofHours(24)));
-        reviewStore.acceptEvidenceAndScheduleFirstReview(
-                evidence(flow.learnerId(), flow.conceptId(), flow.flowId(),
-                        started.interaction().attemptId(), now),
-                now.plus(Duration.ofHours(25)));
+        assertTrue(reviewStore.acceptEvidenceAndScheduleFirstReview(
+                        evidence(flow.learnerId(), flow.conceptId(), flow.flowId(),
+                                started.interaction().attemptId(), now),
+                        now.plus(Duration.ofHours(25))).isEmpty(),
+                "repeated evidence for the same attempt must write nothing");
 
         assertEquals(1, reviewStore.unfinishedReviewsFor(learnerId).size(),
-                "the scheduler cancels stale work so at most one unfinished Review survives");
+                "repeated evidence never stacks or reschedules Review work");
         assertThrows(DuplicateKeyException.class, () -> jdbc.update("""
                         INSERT INTO review_tasks (id, learner_id, concept_id, flow_id, review_number,
                                                   status, due_at, created_at)
@@ -380,7 +381,7 @@ class ApplyPostgresRecoveryTest {
         ReviewTask scheduled = reviewStore.acceptEvidenceAndScheduleFirstReview(
                 evidence(flow.learnerId(), flow.conceptId(), flow.flowId(),
                         started.interaction().attemptId(), Instant.parse("2026-08-15T00:00:00Z")),
-                Instant.parse("2026-08-16T00:00:00Z"));
+                Instant.parse("2026-08-16T00:00:00Z")).orElseThrow();
         UUID bindKey = UUID.randomUUID();
         ReviewTaskStore.ReviewStartBind bind = new ReviewTaskStore.ReviewStartBind(
                 scheduled.reviewId(),

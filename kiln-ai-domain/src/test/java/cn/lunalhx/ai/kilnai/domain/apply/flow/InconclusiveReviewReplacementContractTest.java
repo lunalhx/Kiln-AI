@@ -300,6 +300,76 @@ class InconclusiveReviewReplacementContractTest {
     }
 
     @Test
+    void aReplacementWhoseVerificationRejectsEveryCandidateLeavesTheReviewStartedAndResumable() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(REPLACEMENT_TASK, REPLACEMENT_EXPECTED),
+                        ApplyScriptData.taskReadyJson(RESUME_TASK, RESUME_EXPECTED),
+                        ApplyScriptData.taskReadyJson(RESUME_TASK, RESUME_EXPECTED))),
+                new ScriptedAssessmentModel(List.of(
+                        ApplyScriptData.responseAssessment(
+                                FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_PROVIDED),
+                        ApplyScriptData.responseAssessment(
+                                FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_PROVIDED),
+                        ApplyScriptData.responseAssessment(
+                                FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_PROVIDED))),
+                new ScriptedTaskVerifier(List.of(
+                        ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict(),
+                        ApplyScriptData.rejectVerdict(),
+                        ApplyScriptData.rejectVerdict(),
+                        ApplyScriptData.passVerdict())));
+        UUID flowId = harness.completeIndependentPass();
+        ReviewTask review1 = harness.onlyUnfinishedReview();
+        harness.makeDue();
+
+        ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
+                review1.reviewId(), UUID.randomUUID());
+
+        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) harness.useCase().submit(
+                flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
+                started.interaction().attemptId(),
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
+        assertEquals(FlowStatus.TERMINAL, unavailable.interaction().status(),
+                "a verification-rejected replacement must not leave an answerable interaction");
+        assertTrue(unavailable.interaction().learnerMessage().contains("未能确定"));
+
+        ReviewTask review = harness.review(review1.reviewId());
+        assertEquals(ReviewTaskStatus.STARTED, review.status(),
+                "verification rejection must keep the Review Started");
+        assertNull(review.openAttemptId(),
+                "with no open Attempt the Review must be resumable");
+        assertEquals(3, harness.artifacts().allPackages().size(),
+                "rejected replacement candidates must never be persisted as Packages or Attempts");
+        assertEquals(3, harness.flowStore().exposedTaskFingerprints(flowId).size(),
+                "rejected replacement candidates must never be exposed");
+        assertTrue(harness.reviewEvidence().isEmpty(),
+                "verification rejection must accept no Evidence");
+        assertTrue(harness.collection().unfinishedFor(LEARNER_ID).get(0).startable(),
+                "the Review must advertise the continuation action");
+
+        ReviewStartResult.Boundary resumed = (ReviewStartResult.Boundary) harness.reviewStart().start(
+                review1.reviewId(), UUID.randomUUID());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, resumed.interaction().status());
+        assertEquals(RESUME_TASK, resumed.interaction().learnerProjection().taskText());
+        assertEquals(resumed.interaction().attemptId(), harness.review(review1.reviewId()).openAttemptId());
+
+        ApplyFlowResult.Boundary passed = (ApplyFlowResult.Boundary) harness.useCase().submit(
+                flowId, resumed.interaction().interactionVersion(), UUID.randomUUID(),
+                resumed.interaction().attemptId(), RESUME_EXPECTED, RESUME_EXPECTED, null);
+        assertEquals(FlowStatus.TERMINAL, passed.interaction().status());
+        assertEquals(1, harness.reviewEvidence().size(),
+                "the resumed attempt can complete the Review with exactly one PASS evidence");
+        assertEquals(ReviewTaskStatus.COMPLETED, harness.review(review1.reviewId()).status());
+    }
+
+    @Test
     void aConclusiveFailureIsNeitherReplacedNorResumable() {
         Harness harness = harness(new ScriptedApplyGenerationModel(List.of(
                 ApplyScriptData.taskReadyJson(),
@@ -409,19 +479,25 @@ class InconclusiveReviewReplacementContractTest {
             ScriptedApplyGenerationModel generation,
             ScriptedAssessmentModel assessment
     ) {
+        return harness(generation, assessment, new ScriptedTaskVerifier(List.of(
+                ApplyScriptData.passVerdict(),
+                ApplyScriptData.passVerdict(),
+                ApplyScriptData.passVerdict(),
+                ApplyScriptData.passVerdict(),
+                ApplyScriptData.passVerdict())));
+    }
+
+    private Harness harness(
+            ScriptedApplyGenerationModel generation,
+            ScriptedAssessmentModel assessment,
+            ScriptedTaskVerifier verifier
+    ) {
         MutableClock clock = new MutableClock(START);
         InMemoryArtifactStore artifacts = new InMemoryArtifactStore(clock);
         InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(clock, artifacts);
         ReviewTaskScheduler reviewScheduler = new ReviewTaskScheduler(flowStore);
         ApplyProfileExecutor executor = new ApplyProfileExecutor(
-                ReferenceBundles.stack(), generation,
-                new ScriptedTaskVerifier(List.of(
-                        ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict())),
-                artifacts);
+                ReferenceBundles.stack(), generation, verifier, artifacts);
         ScriptedResponseVerificationModel verification = new ScriptedResponseVerificationModel(List.of(
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_EQUIVALENT,
                         RationaleJudgment.NOT_PROVIDED)));

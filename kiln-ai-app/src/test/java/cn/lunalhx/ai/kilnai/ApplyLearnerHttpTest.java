@@ -198,6 +198,10 @@ class ApplyLearnerHttpTest {
         assertFalse(raw.getBody().contains("openstax"));
         assertFalse(raw.getBody().contains("assessment"));
         assertFalse(raw.getBody().contains("evidence"));
+        assertFalse(raw.getBody().contains("reasonCodes"),
+                "assessment reason codes must never appear in the collection");
+        assertFalse(raw.getBody().contains("rationaleJudgment"),
+                "assessment judgments must never appear in the collection");
     }
 
     @Test
@@ -361,6 +365,8 @@ class ApplyLearnerHttpTest {
                 "no answer facts in the Review completion message");
         assertFalse(completed.learnerMessage().contains("fingerprint"));
         assertFalse(completed.learnerMessage().contains("assessment"));
+        assertFalse(completed.learnerMessage().contains("reasonCode"),
+                "reason codes must never appear in the Review completion message");
         assertEquals("INDEPENDENT", completed.progress().currentMilestone());
         assertEquals("INDEPENDENT", completed.progress().highestMilestoneReached());
         assertEquals("DELAYED_REVIEW", completed.progress().stage());
@@ -426,6 +432,8 @@ class ApplyLearnerHttpTest {
         assertEquals("DELAYED_REVIEW", durable.progress().stage());
         assertFalse(durable.learnerMessage().contains(ScriptedApplyPortsConfiguration.REVIEW_EXPECTED_4));
         assertFalse(durable.learnerMessage().contains("fingerprint"));
+        assertFalse(durable.learnerMessage().contains("reasonCode"),
+                "reason codes must never appear in the Durable terminal message");
 
         ReviewTaskView[] finished = http.getForEntity("/api/apply/reviews?learnerId=" + learnerId,
                 ReviewTaskView[].class).getBody();
@@ -456,6 +464,8 @@ class ApplyLearnerHttpTest {
 
         assertEquals("TERMINAL", failed.status());
         assertEquals("DELAYED_REVIEW", failed.stage());
+        assertFalse(failed.learnerMessage().contains("reasonCode"),
+                "reason codes must never appear in the Review failure message");
         assertTrue(failed.learnerMessage().contains("复习已结束"),
                 "a conclusive Review failure must end with the safe learner outcome");
         assertFalse(failed.learnerMessage().contains(ScriptedApplyPortsConfiguration.REVIEW_EXPECTED),
@@ -504,6 +514,8 @@ class ApplyLearnerHttpTest {
                 "the contradiction message must never leak the expected answer");
         assertFalse(failed.learnerMessage().contains("fingerprint"));
         assertFalse(failed.learnerMessage().contains("assessment"));
+        assertFalse(failed.learnerMessage().contains("reasonCode"),
+                "reason codes must never appear in the contradiction failure message");
         assertEquals("LEARNING", failed.progress().currentMilestone());
         assertEquals("INDEPENDENT", failed.progress().highestMilestoneReached());
 

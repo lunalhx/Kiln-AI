@@ -44,10 +44,7 @@ public final class ReviewCollectionUseCase {
     }
 
     private ConceptProgress projectProgress(UUID learnerId, UUID conceptId) {
-        List<AcceptedLearningEvidence> evidence = flowStore.allEvidence().stream()
-                .filter(item -> item.learnerId().equals(learnerId) && item.conceptId().equals(conceptId))
-                .toList();
-        return progressProjector.project(learnerId, conceptId, evidence);
+        return progressProjector.projectFor(flowStore, learnerId, conceptId);
     }
 
     public record ReviewTaskView(

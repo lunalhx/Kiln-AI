@@ -122,6 +122,6 @@ class ReviewDueTransitionUseCaseTest {
                         UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), concept, learner,
                         LearningResult.PASS, AttemptPurpose.INDEPENDENT_TEST, 0, List.of(),
                         Instant.parse("2026-08-15T10:00:00Z")),
-                dueAt);
+                dueAt).orElseThrow();
     }
 }

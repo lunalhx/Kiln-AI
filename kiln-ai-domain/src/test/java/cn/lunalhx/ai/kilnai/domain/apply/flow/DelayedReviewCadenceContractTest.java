@@ -429,6 +429,156 @@ class DelayedReviewCadenceContractTest {
         assertEquals(ReviewTaskStatus.CANCELLED, harness.review(review1.reviewId()).status());
     }
 
+    @Test
+    void aStaleAttemptOfACancelledReviewCanNeverAdvanceTheRestartedCadence() {
+        Harness harness = harness(List.of(
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED)),
+                List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION)));
+        UUID flowId = harness.completeIndependentPass();
+        ReviewTask review1 = harness.onlyUnfinishedReview();
+        harness.clock().set(review1.dueAt().plus(Duration.ofHours(1)));
+        harness.dueTransition().markDueReviewsDue();
+        ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
+                review1.reviewId(), UUID.randomUUID());
+
+        Instant restartAt = review1.dueAt().plus(Duration.ofDays(2));
+        harness.clock().set(restartAt);
+        harness.completeIndependentPass();
+        ReviewTask fresh = harness.onlyUnfinishedReview();
+        harness.clock().set(fresh.dueAt().plus(Duration.ofHours(1)));
+        harness.dueTransition().markDueReviewsDue();
+        ReviewStartResult.Boundary freshStarted = (ReviewStartResult.Boundary) harness.reviewStart().start(
+                fresh.reviewId(), UUID.randomUUID());
+
+        ApplyFlowResult.Boundary outcome = (ApplyFlowResult.Boundary) harness.useCase().submit(
+                flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
+                started.interaction().attemptId(),
+                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
+
+        assertEquals(FlowStatus.TERMINAL, outcome.interaction().status(),
+                "a stale attempt of a cancelled Review must end safely instead of erroring");
+        assertTrue(outcome.interaction().learnerMessage().contains("复习已结束"));
+        assertTrue(harness.reviewEvidence().isEmpty(),
+                "a stale attempt must never accept Review Evidence, PASS or FAIL");
+        ReviewTask freshAfter = harness.review(fresh.reviewId());
+        assertEquals(ReviewTaskStatus.STARTED, freshAfter.status(),
+                "the restarted Review must remain the one cadence work item");
+        assertEquals(freshStarted.interaction().attemptId(), freshAfter.openAttemptId(),
+                "the restarted Review must keep its own open attempt");
+        assertEquals(1, harness.unfinishedReviews().size(),
+                "a stale attempt must never schedule a successor or cancel the fresh cadence");
+        assertEquals(MasteryMilestone.INDEPENDENT, harness.progress().currentMilestone());
+        assertEquals(MasteryMilestone.INDEPENDENT, harness.progress().highestMilestoneReached());
+    }
+
+    @Test
+    void anIndependentSubmissionReplayedAfterTheCrashBetweenCloseAndBoundaryRecoversTheSavedEvaluation() {
+        Harness harness = harness();
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(
+                LEARNER_ID, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submit(
+                flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        UUID attemptId = transitioned.interaction().attemptId();
+        UUID submitKey = UUID.randomUUID();
+        // crash after the close: the Attempt is closed durably, the outcome
+        // boundary is not committed yet.
+        new SubmissionCloser(harness.artifacts(), harness.clock()).close(
+                attemptId, AttemptPurpose.INDEPENDENT_TEST,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+
+        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().submit(
+                flowId, 2, submitKey, attemptId,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+
+        assertEquals(FlowStatus.TERMINAL, recovered.interaction().status(),
+                "the replayed submission must recover the terminal result instead of reporting already-submitted");
+        assertEquals(1, harness.flowStore().allEvidence().stream()
+                        .filter(item -> item.attemptPurpose() == AttemptPurpose.INDEPENDENT_TEST).count(),
+                "the recovered evaluation must accept exactly one Independent Evidence record");
+        assertEquals(1, harness.unfinishedReviews().size(),
+                "the recovered evaluation must schedule exactly one Review 1");
+        assertEquals(ReviewTaskStatus.SCHEDULED, harness.unfinishedReviews().get(0).status());
+        assertEquals(recovered.interaction(), harness.useCase().query(flowId),
+                "the recovered boundary must be durably committed");
+    }
+
+    @Test
+    void aReviewSubmissionReplayedAfterTheCrashBetweenCloseAndBoundaryRecoversTheSavedEvaluation() {
+        Harness harness = harness();
+        UUID flowId = harness.completeIndependentPass();
+        ReviewTask review1 = harness.onlyUnfinishedReview();
+        harness.clock().set(review1.dueAt().plus(Duration.ofHours(1)));
+        harness.dueTransition().markDueReviewsDue();
+        ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
+                review1.reviewId(), UUID.randomUUID());
+        UUID attemptId = started.interaction().attemptId();
+        UUID submitKey = UUID.randomUUID();
+        // crash after the close: the Attempt is closed durably, the outcome
+        // boundary is not committed yet.
+        new SubmissionCloser(harness.artifacts(), harness.clock()).close(
+                attemptId, AttemptPurpose.REVIEW,
+                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
+
+        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().submit(
+                flowId, started.interaction().interactionVersion(), submitKey, attemptId,
+                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
+
+        assertEquals(FlowStatus.TERMINAL, recovered.interaction().status(),
+                "the replayed submission must recover the terminal result instead of reporting already-submitted");
+        assertEquals(1, harness.reviewEvidence().size(),
+                "the recovered evaluation must accept exactly one Review PASS");
+        assertEquals(ReviewTaskStatus.COMPLETED, harness.review(review1.reviewId()).status(),
+                "the recovered evaluation must complete the started Review");
+        assertEquals(1, harness.unfinishedReviews().size(),
+                "the recovered evaluation must schedule exactly one successor");
+        assertEquals(2, harness.unfinishedReviews().get(0).reviewNumber());
+    }
+
+    @Test
+    void aDifferentKeyDuplicateOfACommittedReviewSubmissionConflictsWithoutWriting() {
+        Harness harness = harness();
+        UUID flowId = harness.completeIndependentPass();
+        ReviewTask review1 = harness.onlyUnfinishedReview();
+        harness.clock().set(review1.dueAt().plus(Duration.ofHours(1)));
+        harness.dueTransition().markDueReviewsDue();
+        ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
+                review1.reviewId(), UUID.randomUUID());
+        harness.useCase().submit(flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
+                started.interaction().attemptId(),
+                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
+
+        ApplyFlowResult duplicate = harness.useCase().submit(
+                flowId, harness.useCase().query(flowId).interactionVersion(), UUID.randomUUID(),
+                started.interaction().attemptId(),
+                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
+
+        assertTrue(duplicate instanceof ApplyFlowResult.SubmissionIgnored,
+                "a different-key duplicate of a committed Review submission must keep the conflict behavior");
+        assertEquals(1, harness.reviewEvidence().size(),
+                "a duplicate must never accept a second Review Evidence record");
+        assertEquals(1, harness.unfinishedReviews().size(),
+                "a duplicate must never create a second successor");
+        assertEquals(ReviewTaskStatus.COMPLETED, harness.review(review1.reviewId()).status());
+    }
+
     private static final class MutableClock extends Clock {
         private Instant now;
 

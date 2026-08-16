@@ -1,5 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.learning.service;
 
+import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ConceptProgress;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
@@ -27,6 +28,18 @@ public final class ConceptProgressProjector {
     public static final Comparator<AcceptedLearningEvidence> EVIDENCE_ORDER =
             Comparator.comparing(AcceptedLearningEvidence::acceptedAt)
                     .thenComparing(AcceptedLearningEvidence::id);
+
+    /**
+     * The shared projection helper used by the flows, collection, and HTTP
+     * mapper: folds the stored Evidence of one learner and Concept.
+     */
+    public ConceptProgress projectFor(LearningFlowStore flowStore, UUID learnerId, UUID conceptId) {
+        Objects.requireNonNull(flowStore, "flowStore must not be null");
+        List<AcceptedLearningEvidence> conceptEvidence = flowStore.allEvidence().stream()
+                .filter(item -> item.learnerId().equals(learnerId) && item.conceptId().equals(conceptId))
+                .toList();
+        return project(learnerId, conceptId, conceptEvidence);
+    }
 
     public ConceptProgress project(UUID learnerId, UUID conceptId, List<AcceptedLearningEvidence> evidence) {
         Objects.requireNonNull(learnerId, "learnerId must not be null");
@@ -82,14 +95,8 @@ public final class ConceptProgressProjector {
                 && (current == MasteryMilestone.INDEPENDENT || current == MasteryMilestone.DURABLE)) {
             return MasteryMilestone.LEARNING;
         }
-        if (item.isPracticeSuccess() && current == MasteryMilestone.UNASSESSED) {
-            return MasteryMilestone.LEARNING;
-        }
         if (item.isPracticeSuccess() && current.ordinal() < MasteryMilestone.LEARNING.ordinal()) {
             return MasteryMilestone.LEARNING;
-        }
-        if (item.isPracticeSuccess()) {
-            return current == MasteryMilestone.UNASSESSED ? MasteryMilestone.LEARNING : current;
         }
         return current;
     }

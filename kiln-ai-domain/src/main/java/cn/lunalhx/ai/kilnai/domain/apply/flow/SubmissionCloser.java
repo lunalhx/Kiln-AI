@@ -20,7 +20,10 @@ import java.util.UUID;
 /**
  * Validates one formal submission against the attempt's own Task Package and
  * atomically closes the attempt. A replay, duplicate, or stale submission
- * never produces a second evaluation or result.
+ * never produces a second evaluation or result. An already-closed attempt
+ * returns its saved closed state as {@link CloseResult.Recovered}, so the
+ * caller can resume the evaluation of the saved submission after a process
+ * crash instead of discarding it.
  */
 final class SubmissionCloser {
 
@@ -62,6 +65,9 @@ final class SubmissionCloser {
                 rationale,
                 clock.instant());
         AttemptCloseOutcome closeOutcome = artifactStore.closeAttempt(attemptId, submission);
+        if (closeOutcome.result() == AttemptCloseOutcome.Result.ALREADY_CLOSED) {
+            return new CloseResult.Recovered(closeOutcome.attempt());
+        }
         if (closeOutcome.result() != AttemptCloseOutcome.Result.CLOSED) {
             return new CloseResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
@@ -82,9 +88,19 @@ final class SubmissionCloser {
     }
 
     sealed interface CloseResult
-            permits CloseResult.Closed, CloseResult.NotSubmittable, CloseResult.Ignored {
+            permits CloseResult.Closed, CloseResult.Recovered, CloseResult.NotSubmittable, CloseResult.Ignored {
 
         record Closed(TaskAttempt attempt) implements CloseResult {
+        }
+
+        /**
+         * The attempt was already closed with a saved submission by a prior
+         * run of this or an identical command whose outcome boundary was not
+         * committed yet. The caller decides whether to resume the evaluation
+         * of the saved submission (crash recovery) or to treat the command as
+         * a duplicate whose outcome already exists.
+         */
+        record Recovered(TaskAttempt attempt) implements CloseResult {
         }
 
         record NotSubmittable(SubmissionRejectionReason reason) implements CloseResult {

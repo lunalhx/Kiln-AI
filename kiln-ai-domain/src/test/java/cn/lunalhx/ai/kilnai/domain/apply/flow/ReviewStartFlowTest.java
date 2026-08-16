@@ -167,6 +167,12 @@ class ReviewStartFlowTest {
                 "learner answers must not reach the Review generation");
         assertFalse(reviewContextJson.contains(ApplyScriptData.APPLICABLE_RATIONALE),
                 "learner rationales must not reach the Review generation");
+        assertFalse(reviewContextJson.contains("rationaleJudgment"),
+                "assessment judgments must not reach the Review generation");
+        assertFalse(reviewContextJson.contains("reasonCodes"),
+                "assessment reason codes must not reach the Review generation");
+        assertFalse(reviewContextJson.contains("response_assessment"),
+                "no assessment record may reach the Review generation");
     }
 
     @Test
@@ -246,7 +252,7 @@ class ReviewStartFlowTest {
                         DiagnosticApplyFixture.CONCEPT_ID, LEARNER_ID,
                         cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult.PASS,
                         AttemptPurpose.INDEPENDENT_TEST, 0, List.of(), CLOCK.instant()),
-                DUE_CLOCK);
+                DUE_CLOCK).orElseThrow();
 
         assertEquals(ReviewTaskStatus.CANCELLED, harness.reviewStore().findReview(stale.reviewId())
                 .orElseThrow().status());

@@ -132,15 +132,12 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
-    public synchronized void acceptEvidence(AcceptedLearningEvidence evidence) {
-        Objects.requireNonNull(evidence, "evidence must not be null");
-        this.evidence.putIfAbsent(evidence.taskAttemptId(), evidence);
-    }
-
-    @Override
-    public synchronized ReviewTask acceptEvidenceAndScheduleFirstReview(AcceptedLearningEvidence evidence, Instant dueAt) {
+    public synchronized Optional<ReviewTask> acceptEvidenceAndScheduleFirstReview(AcceptedLearningEvidence evidence, Instant dueAt) {
         Objects.requireNonNull(evidence, "evidence must not be null");
         Objects.requireNonNull(dueAt, "dueAt must not be null");
+        if (this.evidence.containsKey(evidence.taskAttemptId())) {
+            return Optional.empty();
+        }
         for (Map.Entry<UUID, ReviewTask> entry : reviews.entrySet()) {
             ReviewTask review = entry.getValue();
             if (review.learnerId().equals(evidence.learnerId())
@@ -154,7 +151,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
                 UUID.randomUUID(), evidence.learnerId(), evidence.conceptId(), evidence.flowId(),
                 1, ReviewTaskStatus.SCHEDULED, dueAt, clock.instant(), null, null, null, null);
         reviews.put(review.reviewId(), review);
-        return review;
+        return Optional.of(review);
     }
 
     @Override

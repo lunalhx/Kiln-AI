@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.DiagnosticSubmissionResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
@@ -86,6 +87,12 @@ public final class DiagnosticFlow {
             case SubmissionCloser.CloseResult.NotSubmittable notSubmittable ->
                     new DiagnosticSubmissionResult.NotSubmittable(notSubmittable.reason());
             case SubmissionCloser.CloseResult.Closed closedAttempt -> assess(flowId, closedAttempt.attempt());
+            // A Diagnostic outcome has no Evidence or cadence state to make a
+            // resumed evaluation idempotent: re-running it would regenerate a
+            // duplicate Independent Attempt. The pre-existing behavior is kept:
+            // an already-closed Diagnostic Attempt is ignored, never re-evaluated.
+            case SubmissionCloser.CloseResult.Recovered recovered ->
+                    new DiagnosticSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         };
     }
 

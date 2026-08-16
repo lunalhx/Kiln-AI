@@ -129,7 +129,10 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
 
     @Override
     @Transactional
-    public ReviewTask acceptEvidenceAndScheduleFirstReview(AcceptedLearningEvidence evidence, Instant dueAt) {
+    public Optional<ReviewTask> acceptEvidenceAndScheduleFirstReview(AcceptedLearningEvidence evidence, Instant dueAt) {
+        if (mapper.evidenceExists(evidence.taskAttemptId()).isPresent()) {
+            return Optional.empty();
+        }
         mapper.cancelUnfinishedReviews(evidence.learnerId(), evidence.conceptId(), clock.instant());
         mapper.insertEvidence(new ApplyFlowMapper.EvidenceRow(
                 evidence.id(),
@@ -158,7 +161,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 review.openAttemptId(),
                 review.completedAt(),
                 review.cancelledAt()));
-        return review;
+        return Optional.of(review);
     }
 
     @Override
@@ -388,21 +391,6 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 row.id(), row.learnerId(), row.conceptId(), row.flowId(), row.reviewNumber(),
                 ReviewTaskStatus.valueOf(row.status()), row.dueAt(), row.createdAt(),
                 row.startedAt(), row.openAttemptId(), row.completedAt(), row.cancelledAt());
-    }
-
-    @Override
-    public void acceptEvidence(AcceptedLearningEvidence evidence) {
-        mapper.insertEvidence(new ApplyFlowMapper.EvidenceRow(
-                evidence.id(),
-                evidence.taskAttemptId(),
-                evidence.flowId(),
-                evidence.conceptId(),
-                evidence.learnerId(),
-                evidence.result().name(),
-                evidence.attemptPurpose().name(),
-                evidence.highestHintLevel(),
-                writeJson(evidence.assistanceTrace()),
-                evidence.acceptedAt()));
     }
 
     @Override

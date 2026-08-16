@@ -6,8 +6,9 @@ import cn.lunalhx.ai.kilnai.api.dto.ApplyFlowResponse.ProgressView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
-import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ConceptProgress;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ConceptProgressProjector;
 import org.springframework.stereotype.Component;
 
@@ -57,18 +58,46 @@ public class ApplyFlowResponseMapper {
 
     public ProgressView progressOf(UUID flowId) {
         return flowStore.findFlow(flowId)
-                .map(flow -> {
-                    List<AcceptedLearningEvidence> evidence = flowStore.allEvidence().stream()
-                            .filter(item -> item.learnerId().equals(flow.learnerId())
-                                    && item.conceptId().equals(flow.conceptId()))
-                            .toList();
-                    ConceptProgress progress = progressProjector.project(
-                            flow.learnerId(), flow.conceptId(), evidence);
-                    return new ProgressView(
-                            progress.currentMilestone().name(),
-                            progress.highestMilestoneReached().name(),
-                            progress.currentStage().name());
-                })
+                .map(flow -> progressOf(flow.learnerId(), flow.conceptId()))
                 .orElse(null);
+    }
+
+    public ProgressView progressOf(UUID learnerId, UUID conceptId) {
+        ConceptProgress progress = progressProjector.projectFor(flowStore, learnerId, conceptId);
+        return new ProgressView(
+                progress.currentMilestone().name(),
+                progress.highestMilestoneReached().name(),
+                progress.currentStage().name());
+    }
+
+    /**
+     * The learner-safe response of an unavailable Review start: the Flow's
+     * actual durable state plus the shared neutral message, never a fabricated
+     * interaction. The Review Task itself stays Due and startable.
+     */
+    public ApplyFlowResponse unavailable(UUID flowId, String learnerMessage) {
+        return flowStore.latestInteraction(flowId)
+                .map(latest -> new ApplyFlowResponse(
+                        latest.flowId(),
+                        latest.interactionVersion(),
+                        latest.status().name(),
+                        latest.stage().name(),
+                        null,
+                        null,
+                        null,
+                        learnerMessage,
+                        List.of(),
+                        progressOf(latest.flowId())))
+                .orElseGet(() -> new ApplyFlowResponse(
+                        flowId,
+                        0,
+                        FlowStatus.TERMINAL.name(),
+                        LearningStage.DELAYED_REVIEW.name(),
+                        null,
+                        null,
+                        null,
+                        learnerMessage,
+                        List.of(),
+                        progressOf(flowId)));
     }
 }

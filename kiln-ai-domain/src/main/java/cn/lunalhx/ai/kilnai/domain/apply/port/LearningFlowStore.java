@@ -48,8 +48,6 @@ public interface LearningFlowStore {
 
     List<String> exposedSolutionFingerprints(UUID flowId);
 
-    void acceptEvidence(AcceptedLearningEvidence evidence);
-
     boolean evidenceExists(UUID attemptId);
 
     List<AcceptedLearningEvidence> allEvidence();

@@ -102,6 +102,46 @@ class ApplyLearnerUiTest {
             assertTrue(bound.contains("STARTED"), "the started Review must show as bound work");
             assertFalse(bound.contains("可以开始"), "a Started Review must no longer offer a start action");
             assertFalse(bound.contains("8*x^3 - 6*x"), "no answer facts in the Review collection after start");
+
+            page.fill("#derivative", "8*x^3 - 6*x");
+            page.click("#submit");
+            page.waitForFunction("() => document.getElementById('view').textContent.includes('TERMINAL')");
+            String afterReview1 = page.innerText("#view");
+            assertTrue(afterReview1.contains("TERMINAL"));
+            assertTrue(afterReview1.contains("INDEPENDENT"),
+                    "three Review passes keep Current Milestone Independent");
+            assertFalse(afterReview1.contains("8*x^3 - 6*x"), "no answer facts in the Review completion message");
+
+            passReviewInUi(page, 2, "15*x^4 - 4", Duration.ofDays(4));
+            passReviewInUi(page, 3, "24*x^3 + 10*x", Duration.ofDays(8));
+            passReviewInUi(page, 4, "21*x^2 - 2", Duration.ofDays(22));
+
+            String durable = page.innerText("#view");
+            assertTrue(durable.contains("TERMINAL"));
+            assertTrue(durable.contains("DURABLE"),
+                    "the fourth Review pass must show Durable in the reference UI");
+            page.waitForFunction("() => document.getElementById('reviews').textContent.includes('暂无即将到来的复习')");
+            assertTrue(page.innerText("#reviews").contains("暂无即将到来的复习"),
+                    "Durable must end the cadence with no unfinished Review work");
+            assertFalse(durable.contains("21*x^2 - 2"), "no answer facts in the Durable terminal message");
+            assertFalse(durable.contains("fingerprint"));
         }
+    }
+
+    /**
+     * Marks the next cadence step Due, reloads the reference UI, starts the
+     * ready Review, and submits the correct expected derivative for that step.
+     */
+    private void passReviewInUi(Page page, int reviewNumber, String expected, Duration dueOffset) {
+        reviewStore.markDueReviewsDue(Instant.now().plus(dueOffset));
+        page.reload();
+        page.waitForFunction("() => document.getElementById('reviews').textContent.includes('Review "
+                + reviewNumber + "')");
+        page.waitForFunction("() => document.getElementById('reviews').textContent.includes('可以开始')");
+        page.click(".start-review");
+        page.waitForFunction("() => document.getElementById('derivative').disabled === false");
+        page.fill("#derivative", expected);
+        page.click("#submit");
+        page.waitForFunction("() => document.getElementById('view').textContent.includes('TERMINAL')");
     }
 }

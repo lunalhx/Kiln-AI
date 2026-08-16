@@ -75,39 +75,9 @@ public class ReviewFlowController {
         ReviewStartResult result = startFlow.start(reviewId, idempotencyKey);
         return switch (result) {
             case ReviewStartResult.Boundary boundary -> responseMapper.toResponse(boundary.interaction());
-            case ReviewStartResult.Unavailable unavailable -> unavailableResponse(unavailable);
+            case ReviewStartResult.Unavailable unavailable ->
+                    responseMapper.unavailable(unavailable.flowId(), unavailable.learnerMessage());
         };
-    }
-
-    /**
-     * The unavailable start never commits an interaction, so the response
-     * carries the shared neutral message over the Flow's actual durable state
-     * — the Review Task itself stays Due and startable.
-     */
-    private ApplyFlowResponse unavailableResponse(ReviewStartResult.Unavailable unavailable) {
-        return flowStore.latestInteraction(unavailable.flowId())
-                .map(latest -> new ApplyFlowResponse(
-                        latest.flowId(),
-                        latest.interactionVersion(),
-                        latest.status().name(),
-                        latest.stage().name(),
-                        null,
-                        null,
-                        null,
-                        unavailable.learnerMessage(),
-                        List.of(),
-                        responseMapper.progressOf(latest.flowId())))
-                .orElseGet(() -> new ApplyFlowResponse(
-                        unavailable.flowId(),
-                        0,
-                        FlowStatus.TERMINAL.name(),
-                        LearningStage.DELAYED_REVIEW.name(),
-                        null,
-                        null,
-                        null,
-                        unavailable.learnerMessage(),
-                        List.of(),
-                        responseMapper.progressOf(unavailable.flowId())));
     }
 
     private ProgressView progress(ConceptProgress progress) {
