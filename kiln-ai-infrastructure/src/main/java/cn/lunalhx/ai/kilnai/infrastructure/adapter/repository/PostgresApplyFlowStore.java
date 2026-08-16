@@ -155,6 +155,11 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
+    public List<UUID> exposedTaskPackageIds(UUID flowId) {
+        return mapper.exposedTaskPackageIds(flowId);
+    }
+
+    @Override
     public void recordExampleExposure(UUID flowId, String exampleFingerprint) {
         mapper.recordExampleExposure(flowId, exampleFingerprint, clock.instant());
     }
@@ -582,6 +587,23 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     @Override
     public Optional<TaskAttempt> findAttempt(UUID attemptId) {
         return mapper.findAttempt(attemptId).map(row -> new TaskAttempt(
+                row.id(),
+                row.taskPackageId(),
+                AttemptPurpose.valueOf(row.purpose()),
+                AttemptStatus.valueOf(row.status()),
+                row.openedAt(),
+                row.closedAt(),
+                row.submissionJson() == null ? null : readJson(row.submissionJson(), TaskSubmission.class),
+                readJson(row.assistanceTraceJson(), new TypeReference<List<AssistanceTraceEntry>>() {
+                })));
+    }
+
+    @Override
+    public Optional<TaskAttempt> findOpenPracticeAttempt(List<UUID> taskPackageIds) {
+        if (taskPackageIds.isEmpty()) {
+            return Optional.empty();
+        }
+        return mapper.findOpenPracticeAttempt(taskPackageIds).map(row -> new TaskAttempt(
                 row.id(),
                 row.taskPackageId(),
                 AttemptPurpose.valueOf(row.purpose()),

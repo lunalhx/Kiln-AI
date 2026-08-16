@@ -72,6 +72,37 @@ public final class AssessmentRunner {
     }
 
     /**
+     * The sanitized closed error-dimension reason codes carried by one
+     * AssessmentOutcome. Only the closed reason-code lists of the isolated
+     * judgments are exposed — never the raw learner answer, the expected
+     * answer, or any hidden reasoning — so they are safe to project into the
+     * Pedagogy Agent's Feedback Facts.
+     */
+    public static List<String> errorDimensions(AssessmentOutcome outcome) {
+        Objects.requireNonNull(outcome, "outcome must not be null");
+        List<String> dimensions = new java.util.ArrayList<>();
+        ResponseAssessment assessment = switch (outcome) {
+            case AssessmentOutcome.Passed passed -> passed.assessment();
+            case AssessmentOutcome.Failed failed -> failed.assessment();
+            case AssessmentOutcome.Inconclusive inconclusive -> inconclusive.assessment();
+            case AssessmentOutcome.Blocked blocked -> blocked.assessment();
+        };
+        if (assessment != null) {
+            dimensions.addAll(assessment.reasonCodes());
+        }
+        ResponseAssessment verification = switch (outcome) {
+            case AssessmentOutcome.Passed passed -> passed.verification();
+            case AssessmentOutcome.Failed failed -> failed.verification();
+            case AssessmentOutcome.Inconclusive inconclusive -> inconclusive.verification();
+            case AssessmentOutcome.Blocked blocked -> blocked.verification();
+        };
+        if (verification != null) {
+            dimensions.addAll(verification.reasonCodes());
+        }
+        return List.copyOf(dimensions);
+    }
+
+    /**
      * Appends every non-null isolated judgment carried by the outcome to the
      * Artifact Store. Duplicate recordings are audit records, never state.
      */

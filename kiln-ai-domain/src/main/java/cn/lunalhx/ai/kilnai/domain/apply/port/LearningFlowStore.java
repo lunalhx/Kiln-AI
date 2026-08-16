@@ -50,6 +50,14 @@ public interface LearningFlowStore {
     List<String> exposedSolutionFingerprints(UUID flowId);
 
     /**
+     * The Task Package ids the Flow has exposed to its learner, from the
+     * exposure ledger. The Graph uses them to scope the open Apply Practice
+     * Attempt lookup to the current Flow, so a Continue can never resume an
+     * Attempt from another Flow.
+     */
+    List<UUID> exposedTaskPackageIds(UUID flowId);
+
+    /**
      * Records one exposed Explain worked-example Fingerprint in the Flow's
      * exposure ledger so later teaching content can be checked for novelty.
      */

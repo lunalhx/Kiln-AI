@@ -1,7 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalAnswer;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
@@ -27,6 +26,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
+import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.FeedbackFacts;
 
 import java.time.Clock;
 import java.util.List;
@@ -42,12 +42,12 @@ import java.util.UUID;
  * exactly one formal submission and no Hint event. One formal submission
  * closes the Attempt and invokes the isolated semantic Assessment whose three
  * Rubric dimensions must all pass for a Teach-back pass; a conclusive pass or
- * fail accepts exactly one understanding-dimension Evidence record (never
- * Independent Evidence, never lowering Current Mastery) and delivers a fresh
- * verified Apply Practice task — a Teach-back pass never satisfies Apply
- * Practice readiness — while an Inconclusive judgment accepts no Evidence and
- * delivers a fresh Teach-back replacement. The follow-up or replacement is
- * always generated, gated, and verified before Evidence is accepted, so a
+ * fail builds exactly one understanding-dimension Evidence candidate (never
+ * Independent Evidence, never lowering Current Mastery) and an Inconclusive
+ * judgment builds none. The follow-up Teaching Node is never selected here:
+ * the Learning StateGraph derives the legal next moves through the Workflow
+ * Guard and the Pedagogy Agent, then accepts the Evidence only after the
+ * chosen follow-up node's generation, gating, and verification succeed, so a
  * failed generation leaves no Evidence and the same command can be retried.
  * The flow writes no Learning State; the graph owns the boundary.
  */
@@ -60,7 +60,6 @@ public final class TeachBackFlow {
     private final TeachBackProfileExecutor executor;
     private final ArtifactStore artifactStore;
     private final LearningFlowStore flowStore;
-    private final PracticeSubmissionFlow practiceFlow;
     private final TeachBackAssessmentPort assessmentPort;
     private final TeachBackExecutionContext contextTemplate;
     private final Clock clock;
@@ -69,7 +68,6 @@ public final class TeachBackFlow {
             TeachBackProfileExecutor executor,
             ArtifactStore artifactStore,
             LearningFlowStore flowStore,
-            PracticeSubmissionFlow practiceFlow,
             TeachBackAssessmentPort assessmentPort,
             TeachBackExecutionContext contextTemplate,
             Clock clock
@@ -77,7 +75,6 @@ public final class TeachBackFlow {
         this.executor = Objects.requireNonNull(executor, "executor must not be null");
         this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
         this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
-        this.practiceFlow = Objects.requireNonNull(practiceFlow, "practiceFlow must not be null");
         this.assessmentPort = Objects.requireNonNull(assessmentPort, "assessmentPort must not be null");
         this.contextTemplate = Objects.requireNonNull(contextTemplate, "contextTemplate must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
@@ -121,7 +118,7 @@ public final class TeachBackFlow {
             case CloseOutcome.Ignored ignored -> new TeachBackSubmissionResult.Ignored(ignored.reason());
             case CloseOutcome.NotSubmittable notSubmittable ->
                     new TeachBackSubmissionResult.NotSubmittable(notSubmittable.reason());
-            case CloseOutcome.Closed closedAttempt -> assessAndResolve(flow, closedAttempt.attempt());
+            case CloseOutcome.Closed closedAttempt -> assessAndReturn(flow, closedAttempt.attempt());
             case CloseOutcome.Recovered recovered -> recoverOrIgnore(flow, recovered.attempt());
         };
     }
@@ -222,10 +219,10 @@ public final class TeachBackFlow {
         if (flowStore.evidenceExists(closedAttempt.attemptId())) {
             return new TeachBackSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
-        return assessAndResolve(flow, closedAttempt);
+        return assessAndReturn(flow, closedAttempt);
     }
 
-    private TeachBackSubmissionResult assessAndResolve(
+    private TeachBackSubmissionResult assessAndReturn(
             LearningFlowStore.FlowRecord flow,
             TaskAttempt closedAttempt
     ) {
@@ -251,65 +248,55 @@ public final class TeachBackFlow {
                 closedAttempt.purpose());
         TeachBackAssessment assessment = assessmentPort.assess(context);
         artifactStore.recordTeachBackAssessment(closedAttempt.attemptId(), assessment);
+        return new TeachBackSubmissionResult.TeachBackAssessed(
+                closedAttempt,
+                assessment,
+                evidenceCandidate(flow, closedAttempt, assessment),
+                facts(flow, assessment));
+    }
+
+    /**
+     * The understanding-dimension Evidence candidate of one closed Teach-back
+     * Attempt: a Practice-purpose record with no assistance, since Teach-back
+     * never exposes hints, that never lowers Current Mastery and never counts
+     * as an Apply Practice pass for readiness. An Inconclusive judgment
+     * builds none.
+     */
+    private AcceptedLearningEvidence evidenceCandidate(
+            LearningFlowStore.FlowRecord flow,
+            TaskAttempt closedAttempt,
+            TeachBackAssessment assessment
+    ) {
         return switch (assessment.outcome()) {
-            case PASS -> resolve(flow, closedAttempt,
-                    understandingEvidence(flow, closedAttempt, LearningResult.PASS));
-            case FAIL -> resolve(flow, closedAttempt,
-                    understandingEvidence(flow, closedAttempt, LearningResult.FAIL));
-            case INCONCLUSIVE -> deliverReplacement(flow, closedAttempt);
+            case PASS -> understandingEvidence(flow, closedAttempt, LearningResult.PASS);
+            case FAIL -> understandingEvidence(flow, closedAttempt, LearningResult.FAIL);
+            case INCONCLUSIVE -> null;
         };
     }
 
-    /**
-     * The conclusive branch: the fresh verified Apply Practice follow-up task
-     * is generated, gated, and verified before the understanding-dimension
-     * Evidence is accepted, so a failed generation leaves no Evidence and the
-     * same command can be retried. A Teach-back pass never satisfies Apply
-     * Practice readiness — only the follow-up Apply Practice pass can reopen
-     * fresh Independent testing.
-     */
-    private TeachBackSubmissionResult resolve(
-            LearningFlowStore.FlowRecord flow,
-            TaskAttempt closedAttempt,
-            AcceptedLearningEvidence evidence
-    ) {
-        ApplyDeliveryResult delivery = practiceFlow.deliverPractice(flow.flowId());
-        if (delivery instanceof ApplyDeliveryResult.Unavailable unavailable) {
-            return new TeachBackSubmissionResult.Unavailable(
-                    mapReason(unavailable.reason()), unavailable.learnerMessage());
-        }
-        ApplyDeliveryResult.Delivered delivered = (ApplyDeliveryResult.Delivered) delivery;
-        if (!flowStore.acceptEvidence(evidence)) {
-            return new TeachBackSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
-        }
-        if (evidence.result() == LearningResult.PASS) {
-            return new TeachBackSubmissionResult.Passed(
-                    closedAttempt, evidence, delivered.attempt(), delivered.learnerProjection(),
-                    TEACH_BACK_FOLLOW_UP_MESSAGE);
-        }
-        return new TeachBackSubmissionResult.Failed(
-                closedAttempt, evidence, delivered.attempt(), delivered.learnerProjection(),
-                TEACH_BACK_FOLLOW_UP_MESSAGE);
+    private FeedbackFacts facts(LearningFlowStore.FlowRecord flow, TeachBackAssessment assessment) {
+        boolean satisfied = assessment.outcome() == TeachBackAssessment.TeachBackOutcome.PASS;
+        List<String> criterionIds = criterionIds();
+        return new FeedbackFacts(
+                satisfied ? criterionIds : List.of(),
+                satisfied ? List.of() : criterionIds,
+                assessment.reasonCodes(),
+                0,
+                List.of(),
+                practicePassEvidenceExists(flow));
     }
 
-    /**
-     * The Inconclusive branch: no Evidence is accepted and a fresh verified
-     * Teach-back replacement over the same anchor is delivered, so evaluator
-     * uncertainty is never counted against the learner.
-     */
-    private TeachBackSubmissionResult deliverReplacement(
-            LearningFlowStore.FlowRecord flow,
-            TaskAttempt closedAttempt
-    ) {
-        TeachBackDeliveryResult delivery = deliverTeachBack(flow.flowId());
-        if (delivery instanceof TeachBackDeliveryResult.Unavailable unavailable) {
-            return new TeachBackSubmissionResult.Unavailable(
-                    unavailable.reason(), unavailable.learnerMessage());
-        }
-        TeachBackDeliveryResult.Delivered delivered = (TeachBackDeliveryResult.Delivered) delivery;
-        return new TeachBackSubmissionResult.Inconclusive(
-                closedAttempt, delivered.attempt(), delivered.learnerProjection(),
-                TEACH_BACK_REPLACEMENT_MESSAGE);
+    private List<String> criterionIds() {
+        return contextTemplate.masteryRubric().criteria().stream()
+                .map(criterion -> criterion.id())
+                .toList();
+    }
+
+    private boolean practicePassEvidenceExists(LearningFlowStore.FlowRecord flow) {
+        return flowStore.allEvidence().stream().anyMatch(evidence ->
+                evidence.flowId().equals(flow.flowId())
+                        && evidence.attemptPurpose() == AttemptPurpose.PRACTICE
+                        && evidence.result() == LearningResult.PASS);
     }
 
     /**
@@ -349,14 +336,5 @@ public final class TeachBackFlow {
 
         record Ignored(SubmissionIgnoreReason reason) implements CloseOutcome {
         }
-    }
-
-    private static TeachBackUnavailableReason mapReason(
-            cn.lunalhx.ai.kilnai.domain.apply.model.TaskUnavailableReason reason
-    ) {
-        return switch (reason) {
-            case SOURCE_GAP -> TeachBackUnavailableReason.SOURCE_GAP;
-            case TASK_GENERATION_EXHAUSTED -> TeachBackUnavailableReason.TASK_GENERATION_EXHAUSTED;
-        };
     }
 }

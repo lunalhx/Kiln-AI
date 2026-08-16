@@ -201,6 +201,41 @@ public interface ApplyFlowMapper {
             """)
     Optional<AttemptRow> findAttempt(UUID attemptId);
 
+    /**
+     * The exposed Task Package ids of one Flow, scoping the open Apply
+     * Practice Attempt lookup so a Continue can never resume another Flow's
+     * Attempt.
+     */
+    @Select("""
+            SELECT DISTINCT task_package_id
+            FROM apply_exposures
+            WHERE flow_id = #{flowId}
+            """)
+    List<UUID> exposedTaskPackageIds(UUID flowId);
+
+    /**
+     * The one open Apply Practice Attempt among the given exposed Task
+     * Package ids, if any: a PRACTICE-purpose open Attempt (Teach-back
+     * packages live in their own table and are excluded). The Workflow Guard
+     * uses it as the committed-state fact that a temporary Explain was shown
+     * inside an open Attempt.
+     */
+    @Select("""
+            <script>
+            SELECT id, task_package_id, purpose, status, opened_at, closed_at,
+                   submission::text AS submission_json, assistance_trace::text AS assistance_trace_json
+            FROM apply_attempts
+            WHERE purpose = 'PRACTICE' AND status = 'OPEN'
+              AND task_package_id IN
+              <foreach collection='taskPackageIds' item='packageId' open='(' separator=',' close=')'>
+                  #{packageId}
+              </foreach>
+            ORDER BY opened_at ASC
+            LIMIT 1
+            </script>
+            """)
+    Optional<AttemptRow> findOpenPracticeAttempt(@Param("taskPackageIds") List<UUID> taskPackageIds);
+
     @Update("""
             UPDATE apply_attempts
             SET status = 'SUBMITTED', closed_at = #{closedAt}, submission = CAST(#{submissionJson} AS JSONB)

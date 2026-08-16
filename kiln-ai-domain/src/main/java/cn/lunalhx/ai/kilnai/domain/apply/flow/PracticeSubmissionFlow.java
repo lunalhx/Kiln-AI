@@ -15,6 +15,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
+import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.FeedbackFacts;
 
 import java.time.Clock;
 import java.util.List;
@@ -24,22 +25,20 @@ import java.util.UUID;
 /**
  * The Apply Practice submission flow: one formal submission atomically closes
  * the Practice Attempt and runs the isolated Assessment under the Practice
- * final-derivative policy. A conclusive pass accepts exactly one assisted
- * Practice PASS Evidence record and delivers a fresh verified Independent
- * Test — the only outcome that makes fresh Independent testing legal in the
- * current remediation cycle. A conclusive fail — including a clearly
- * contradictory rationale over a correct final answer (ADR-0067) — accepts
- * exactly one assisted Practice FAIL Evidence record and delivers a fresh
- * Practice task. An Inconclusive judgment accepts no Evidence and delivers a
- * fresh verified Practice replacement. The fresh follow-up task is always
- * generated, gated, and verified before its Evidence is accepted, so a failed
- * generation leaves no Evidence and the same command can be retried; the
- * exactly-once Evidence guard and the closed Attempt make every resumed
- * transition idempotent. Neither a pass nor a fail ever lowers Current
- * Mastery, and Practice evidence never touches the Review cadence. The
- * learner sees only safe neutral messages; assessment facts and reason codes
- * stay private. All state is persisted durably; the flow carries no
- * in-memory state.
+ * final-derivative policy. A conclusive pass builds exactly one assisted
+ * Practice PASS Evidence candidate — the only outcome that can make fresh
+ * Independent testing legal in the current remediation cycle — a conclusive
+ * fail (including a clearly contradictory rationale over a correct final
+ * answer, ADR-0067) builds exactly one assisted Practice FAIL Evidence
+ * candidate, and an Inconclusive judgment builds no Evidence candidate. The
+ * follow-up Teaching Node is never selected here: the Learning StateGraph
+ * derives the legal next moves through the Workflow Guard and the Pedagogy
+ * Agent, then accepts the Evidence only after the chosen follow-up node's
+ * generation, gating, and verification succeed, so a failed generation leaves
+ * no Evidence and the same command can be retried. Neither a pass nor a fail
+ * ever lowers Current Mastery, and Practice evidence never touches the Review
+ * cadence. All state is persisted durably; the flow carries no in-memory
+ * state.
  */
 public final class PracticeSubmissionFlow {
 
@@ -83,13 +82,25 @@ public final class PracticeSubmissionFlow {
     /**
      * Delivers a fresh verified Apply Practice task over the frozen Practice
      * Blueprint, excluding every task, example, and solution already exposed
-     * in the Flow. Called by the Graph after an accepted Diagnostic failure to
-     * open the remediation cycle, and reused internally for every fresh
-     * replacement after a conclusive fail or an Inconclusive judgment.
+     * in the Flow. Called by the Graph when the guarded decision selects
+     * Apply Practice, and reused for every fresh replacement after a
+     * conclusive fail or an Inconclusive judgment.
      */
     public ApplyDeliveryResult deliverPractice(UUID flowId) {
         Objects.requireNonNull(flowId, "flowId must not be null");
         return deliverAndRecordExposure(flowId, practiceContextTemplate);
+    }
+
+    /**
+     * Delivers a fresh verified Independent Test over the frozen Independent
+     * Blueprint, excluding every task, example, and solution already exposed
+     * in the Flow. Called by the Graph only when the guarded decision selects
+     * the Independent Test — the sole outcome that makes fresh Independent
+     * testing legal in the current remediation cycle.
+     */
+    public ApplyDeliveryResult deliverIndependent(UUID flowId) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        return deliverAndRecordExposure(flowId, independentContextTemplate);
     }
 
     public PracticeSubmissionResult submitPractice(
@@ -109,7 +120,7 @@ public final class PracticeSubmissionFlow {
             case SubmissionCloser.CloseResult.NotSubmittable notSubmittable ->
                     new PracticeSubmissionResult.NotSubmittable(notSubmittable.reason());
             case SubmissionCloser.CloseResult.Closed closedAttempt ->
-                    assessAndResolve(flow, closedAttempt.attempt());
+                    assessAndReturn(flow, closedAttempt.attempt());
             case SubmissionCloser.CloseResult.Recovered recovered ->
                     recoverOrIgnore(flow, recovered.attempt());
         };
@@ -131,94 +142,69 @@ public final class PracticeSubmissionFlow {
         if (flowStore.evidenceExists(closedAttempt.attemptId())) {
             return new PracticeSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
-        return assessAndResolve(flow, closedAttempt);
+        return assessAndReturn(flow, closedAttempt);
     }
 
-    private PracticeSubmissionResult assessAndResolve(
+    private PracticeSubmissionResult assessAndReturn(
             LearningFlowStore.FlowRecord flow,
             TaskAttempt closedAttempt
     ) {
         AssessmentOutcome outcome = assessmentRunner.run(closedAttempt, packageOf(closedAttempt));
         AssessmentRunner.recordAssessments(artifactStore, closedAttempt.attemptId(), outcome);
+        return new PracticeSubmissionResult.PracticeAssessed(
+                closedAttempt,
+                outcome,
+                evidenceCandidate(flow, closedAttempt, outcome),
+                facts(flow, closedAttempt, outcome));
+    }
+
+    /**
+     * The assisted Practice Evidence candidate of one closed Attempt: only
+     * the hint levels that were actually exposed are recorded, so the audit
+     * trail reflects what the learner saw, and the highest exposed level
+     * feeds the readiness and eligibility rules. An Inconclusive judgment
+     * builds none.
+     */
+    private AcceptedLearningEvidence evidenceCandidate(
+            LearningFlowStore.FlowRecord flow,
+            TaskAttempt closedAttempt,
+            AssessmentOutcome outcome
+    ) {
         return switch (outcome) {
-            case AssessmentOutcome.Passed passed ->
-                    deliverIndependent(flow, closedAttempt, practiceEvidence(flow, closedAttempt, LearningResult.PASS));
-            case AssessmentOutcome.Failed failed ->
-                    deliverReplacement(flow, closedAttempt,
-                            practiceEvidence(flow, closedAttempt, LearningResult.FAIL));
-            case AssessmentOutcome.Blocked blocked ->
-                    // ADR-0067: a clearly contradictory rationale over a
-                    // correct final answer is a conclusive failure, exactly as
-                    // in Review; evaluative uncertainty is never involved.
-                    deliverReplacement(flow, closedAttempt,
-                            practiceEvidence(flow, closedAttempt, LearningResult.FAIL));
-            case AssessmentOutcome.Inconclusive inconclusive -> deliverReplacement(flow, closedAttempt, null);
+            case AssessmentOutcome.Passed passed -> practiceEvidence(flow, closedAttempt, LearningResult.PASS);
+            case AssessmentOutcome.Failed failed -> practiceEvidence(flow, closedAttempt, LearningResult.FAIL);
+            case AssessmentOutcome.Blocked blocked -> practiceEvidence(flow, closedAttempt, LearningResult.FAIL);
+            case AssessmentOutcome.Inconclusive inconclusive -> null;
         };
     }
 
-    /**
-     * The fresh Independent task is generated, gated, and verified before the
-     * assisted PASS Evidence is accepted, so a failed generation leaves no
-     * Evidence and the same command can be retried. Only this branch can
-     * deliver a fresh Independent Test; a conclusive fail or an Inconclusive
-     * judgment never may.
-     */
-    private PracticeSubmissionResult deliverIndependent(
+    private FeedbackFacts facts(
             LearningFlowStore.FlowRecord flow,
             TaskAttempt closedAttempt,
-            AcceptedLearningEvidence evidence
+            AssessmentOutcome outcome
     ) {
-        ApplyDeliveryResult delivery = deliverAndRecordExposure(flow.flowId(), independentContextTemplate);
-        if (delivery instanceof ApplyDeliveryResult.Unavailable unavailable) {
-            return new PracticeSubmissionResult.PracticeUnavailable(
-                    unavailable.reason(), unavailable.learnerMessage());
-        }
-        ApplyDeliveryResult.Delivered delivered = (ApplyDeliveryResult.Delivered) delivery;
-        if (!flowStore.acceptEvidence(evidence)) {
-            return new PracticeSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
-        }
-        return new PracticeSubmissionResult.PracticePassed(
-                closedAttempt,
-                evidence,
-                delivered.attempt(),
-                delivered.learnerProjection(),
-                INDEPENDENT_READY_MESSAGE);
+        boolean satisfied = outcome instanceof AssessmentOutcome.Passed;
+        List<String> criterionIds = criterionIds();
+        return new FeedbackFacts(
+                satisfied ? criterionIds : List.of(),
+                satisfied ? List.of() : criterionIds,
+                AssessmentRunner.errorDimensions(outcome),
+                closedAttempt.highestHintLevel(),
+                closedAttempt.assistanceTraceStrings(),
+                satisfied || practicePassEvidenceExists(flow));
     }
 
-    /**
-     * Delivers a fresh verified Practice replacement and, for a conclusive
-     * fail, accepts exactly one assisted FAIL Evidence record — the caller
-     * passes the already-built Evidence — while an Inconclusive judgment
-     * passes null and accepts nothing. The replacement is generated before any
-     * Evidence is accepted, so a failed generation leaves no Evidence.
-     */
-    private PracticeSubmissionResult deliverReplacement(
-            LearningFlowStore.FlowRecord flow,
-            TaskAttempt closedAttempt,
-            AcceptedLearningEvidence evidence
-    ) {
-        ApplyDeliveryResult delivery = deliverPractice(flow.flowId());
-        if (delivery instanceof ApplyDeliveryResult.Unavailable unavailable) {
-            return new PracticeSubmissionResult.PracticeUnavailable(
-                    unavailable.reason(), unavailable.learnerMessage());
-        }
-        ApplyDeliveryResult.Delivered delivered = (ApplyDeliveryResult.Delivered) delivery;
-        if (evidence != null && !flowStore.acceptEvidence(evidence)) {
-            return new PracticeSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
-        }
-        if (evidence == null) {
-            return new PracticeSubmissionResult.PracticeInconclusive(
-                    closedAttempt,
-                    delivered.attempt(),
-                    delivered.learnerProjection(),
-                    PRACTICE_REPLACEMENT_MESSAGE);
-        }
-        return new PracticeSubmissionResult.PracticeFailed(
-                closedAttempt,
-                evidence,
-                delivered.attempt(),
-                delivered.learnerProjection(),
-                PRACTICE_REPLACEMENT_MESSAGE);
+    private List<String> criterionIds() {
+        return practiceContextTemplate.masteryRubric().criteria().stream()
+                .map(criterion -> criterion.id())
+                .toList();
+    }
+
+    private boolean practicePassEvidenceExists(LearningFlowStore.FlowRecord flow) {
+        return flowStore.allEvidence().stream().anyMatch(evidence ->
+                evidence.flowId().equals(flow.flowId())
+                        && evidence.attemptPurpose() == AttemptPurpose.PRACTICE
+                        && evidence.result() == LearningResult.PASS);
     }
 
     /**

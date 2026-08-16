@@ -384,7 +384,10 @@ class ApplyProfileContractTest {
 
         assertInstanceOf(DiagnosticSubmissionResult.Failed.class, result);
         DiagnosticSubmissionResult.Failed failed = (DiagnosticSubmissionResult.Failed) result;
-        assertEquals(DiagnosticFlow.SAFE_END_MESSAGE, failed.safeEndMessage());
+        assertEquals(List.of("differentiate-polynomial"), failed.facts().missingCriteria(),
+                "the sanitized failure facts must carry the missing rubric criterion");
+        assertTrue(failed.facts().satisfiedCriteria().isEmpty(),
+                "a conclusive failure satisfies no rubric criterion");
         assertEquals(1, generation.calls().size(), "no Independent task may be generated after a failure");
         assertEquals(1, assessment.contexts().size(), "the failing rationale must be judged once");
     }

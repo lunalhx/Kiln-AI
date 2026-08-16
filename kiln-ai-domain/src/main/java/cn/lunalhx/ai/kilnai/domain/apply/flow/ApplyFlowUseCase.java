@@ -186,7 +186,7 @@ public final class ApplyFlowUseCase {
                     inconclusive.independentAttempt().purpose(),
                     inconclusive.independentLearnerProjection(), null, idempotencyKey, hash);
             case DiagnosticSubmissionResult.Failed failed -> boundary(
-                    latest, LearningStage.DIAGNOSTIC, null, null, null, failed.safeEndMessage(),
+                    latest, LearningStage.DIAGNOSTIC, null, null, null, DiagnosticFlow.SAFE_END_MESSAGE,
                     idempotencyKey, hash);
             case DiagnosticSubmissionResult.IndependentUnavailable unavailable -> boundary(
                     latest, LearningStage.DIAGNOSTIC, null, null, null, unavailable.learnerMessage(),

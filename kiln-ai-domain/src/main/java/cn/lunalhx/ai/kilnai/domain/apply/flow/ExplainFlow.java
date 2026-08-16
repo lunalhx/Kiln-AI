@@ -5,6 +5,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.FeedbackFacts;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -15,7 +16,10 @@ import java.util.UUID;
  * in the Flow's exposure ledger. It creates no Task Package, Attempt,
  * Assessment, or Learning Evidence; a Source Gap or a repeated invalid
  * envelope persists nothing and returns the neutral unavailable message so the
- * graph stops at a safe terminal boundary.
+ * graph stops at a safe terminal boundary. Each invocation carries the
+ * guarded decision's intent and sanitized Feedback Facts, which are projected
+ * into the execution context's pedagogy intent without exposing raw answers,
+ * expected answers, or assessment reasoning.
  */
 public final class ExplainFlow {
 
@@ -41,14 +45,21 @@ public final class ExplainFlow {
     /**
      * Delivers a fresh teaching artifact excluding every worked example
      * already exposed in the Flow, persists the artifact, and records its
-     * example Fingerprint for later freshness checks. Called by the Graph as
-     * the deterministic remediation entry after an accepted Diagnostic
-     * failure.
+     * example Fingerprint for later freshness checks. Called by the Graph
+     * when the guarded decision selects Explain after an accepted
+     * Diagnostic, Practice, or Teach-back failure.
      */
-    public ExplainDeliveryResult deliverExplain(UUID flowId) {
+    public ExplainDeliveryResult deliverExplain(UUID flowId, String intent, FeedbackFacts facts) {
         Objects.requireNonNull(flowId, "flowId must not be null");
-        ExplainExecutionContext context = contextTemplate.withNoveltyExclusions(
-                flowStore.exposedExampleFingerprints(flowId));
+        Objects.requireNonNull(intent, "intent must not be null");
+        Objects.requireNonNull(facts, "facts must not be null");
+        ExplainExecutionContext context = contextTemplate
+                .withPedagogyIntent(new ExplainExecutionContext.PedagogyIntent(
+                        intent,
+                        facts.satisfiedCriteria(),
+                        facts.missingCriteria(),
+                        facts.errorDimensions()))
+                .withNoveltyExclusions(flowStore.exposedExampleFingerprints(flowId));
         ExplainDeliveryResult result = executor.deliver(context);
         if (result instanceof ExplainDeliveryResult.Delivered delivered) {
             artifactStore.saveExplainArtifact(flowId, delivered.artifact());

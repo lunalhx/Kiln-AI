@@ -38,6 +38,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     private final Map<UUID, List<ApplyCheckpoint>> checkpoints = new HashMap<>();
     private final Map<UUID, Set<String>> taskFingerprints = new HashMap<>();
     private final Map<UUID, Set<String>> solutionFingerprints = new HashMap<>();
+    private final Map<UUID, Set<UUID>> exposedTaskPackages = new HashMap<>();
     private final Map<UUID, Set<String>> exampleFingerprints = new HashMap<>();
     private final Map<UUID, List<TeachBackAnchor>> teachBackAnchors = new HashMap<>();
     private final Map<UUID, AcceptedLearningEvidence> evidence = new HashMap<>();
@@ -122,6 +123,8 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
                 .add(taskPackage.privateAssessorProjection().taskFingerprint().value());
         solutionFingerprints.computeIfAbsent(flowId, key -> new LinkedHashSet<>())
                 .add(taskPackage.privateAssessorProjection().solutionFingerprint().value());
+        exposedTaskPackages.computeIfAbsent(flowId, key -> new LinkedHashSet<>())
+                .add(taskPackage.taskPackageId());
     }
 
     @Override
@@ -132,6 +135,11 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     @Override
     public synchronized List<String> exposedSolutionFingerprints(UUID flowId) {
         return List.copyOf(solutionFingerprints.getOrDefault(flowId, Set.of()));
+    }
+
+    @Override
+    public synchronized List<UUID> exposedTaskPackageIds(UUID flowId) {
+        return List.copyOf(exposedTaskPackages.getOrDefault(flowId, Set.of()));
     }
 
     @Override

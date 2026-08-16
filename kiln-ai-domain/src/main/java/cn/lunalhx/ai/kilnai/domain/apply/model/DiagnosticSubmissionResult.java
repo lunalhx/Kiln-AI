@@ -1,5 +1,18 @@
 package cn.lunalhx.ai.kilnai.domain.apply.model;
 
+import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.FeedbackFacts;
+
+import java.util.Objects;
+
+/**
+ * The result of one formal Diagnostic submission. A passing or Inconclusive
+ * Diagnostic moves through the Neutral Transition to a fresh verified
+ * Independent task; a conclusive failure closes the attempt without Evidence
+ * and returns the sanitized Feedback Facts so the Learning StateGraph can
+ * derive the legal remediation actions through the Workflow Guard and
+ * Pedagogy Agent. The next learner-visible move after a failure is never
+ * chosen here.
+ */
 public sealed interface DiagnosticSubmissionResult
         permits DiagnosticSubmissionResult.Passed,
         DiagnosticSubmissionResult.Failed,
@@ -16,7 +29,12 @@ public sealed interface DiagnosticSubmissionResult
     ) implements DiagnosticSubmissionResult {
     }
 
-    record Failed(TaskAttempt closedDiagnosticAttempt, String safeEndMessage) implements DiagnosticSubmissionResult {
+    record Failed(TaskAttempt closedDiagnosticAttempt, FeedbackFacts facts) implements DiagnosticSubmissionResult {
+
+        public Failed {
+            Objects.requireNonNull(closedDiagnosticAttempt, "closedDiagnosticAttempt must not be null");
+            Objects.requireNonNull(facts, "facts must not be null");
+        }
     }
 
     /**

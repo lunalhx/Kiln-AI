@@ -52,6 +52,18 @@ public interface ArtifactStore {
     Optional<TaskAttempt> findAttempt(UUID attemptId);
 
     /**
+     * Finds the one open Apply Practice Attempt among the given exposed Task
+     * Package ids, if any. The Graph passes the current Flow's exposed
+     * package ids from the exposure ledger, so a Continue can only resume an
+     * Attempt that belongs to the current Flow. The Guard uses it as the
+     * committed-state fact that a temporary Explain was shown inside an open
+     * Attempt: the only legal next move is returning to the same Practice
+     * interaction, never opening a new task. Teach-back Attempts are
+     * Practice-purpose but are excluded by their package type.
+     */
+    Optional<TaskAttempt> findOpenPracticeAttempt(List<UUID> taskPackageIds);
+
+    /**
      * Atomically closes one open attempt with its single formal submission.
      * A replay, duplicate, or stale close never produces a second evaluation.
      */

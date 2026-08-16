@@ -40,6 +40,18 @@ public record ExplainExecutionContext(
                 new NoveltyExclusions(exampleFingerprints), learnerLocale);
     }
 
+    /**
+     * Replaces the sanitized pedagogy intent of one invocation: the guarded
+     * decision supplies the chosen intent and the sanitized Feedback Facts
+     * (satisfied and missing criteria, error dimensions) while the frozen
+     * template supplies everything else.
+     */
+    public ExplainExecutionContext withPedagogyIntent(PedagogyIntent intent) {
+        Objects.requireNonNull(intent, "intent must not be null");
+        return new ExplainExecutionContext(
+                schema, conceptContract, masteryRubric, intent, conceptSourcePack, noveltyExclusions, learnerLocale);
+    }
+
     public record ConceptContract(
             @JsonProperty("id") String id,
             @JsonProperty("version") String version,

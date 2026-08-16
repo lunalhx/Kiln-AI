@@ -13,8 +13,10 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
+import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.FeedbackFacts;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -102,11 +104,32 @@ public final class DiagnosticFlow {
         return switch (outcome) {
             case AssessmentOutcome.Passed passed -> deliverIndependent(flowId, closedAttempt, outcome);
             case AssessmentOutcome.Inconclusive inconclusive -> deliverIndependent(flowId, closedAttempt, outcome);
+            // A failed submitted Diagnostic stays closed and is never
+            // retroactively converted. The next learner-visible move is not
+            // chosen here: the Learning StateGraph derives the legal
+            // remediation actions through the Workflow Guard and Pedagogy
+            // Agent, which receive only the sanitized Feedback Facts.
             case AssessmentOutcome.Failed failed ->
-                    new DiagnosticSubmissionResult.Failed(closedAttempt, SAFE_END_MESSAGE);
+                    new DiagnosticSubmissionResult.Failed(closedAttempt, failureFacts(closedAttempt, outcome));
             case AssessmentOutcome.Blocked blocked -> throw new IllegalStateException(
                     "a contradictory rationale is only valid for an Independent Test");
         };
+    }
+
+    private FeedbackFacts failureFacts(TaskAttempt closedAttempt, AssessmentOutcome outcome) {
+        return new FeedbackFacts(
+                List.of(),
+                criterionIds(),
+                AssessmentRunner.errorDimensions(outcome),
+                closedAttempt.highestHintLevel(),
+                closedAttempt.assistanceTraceStrings(),
+                false);
+    }
+
+    private List<String> criterionIds() {
+        return diagnosticContext.masteryRubric().criteria().stream()
+                .map(criterion -> criterion.id())
+                .toList();
     }
 
     private DiagnosticSubmissionResult deliverIndependent(

@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public final class InMemoryArtifactStore implements ArtifactStore {
@@ -87,6 +88,16 @@ public final class InMemoryArtifactStore implements ArtifactStore {
     @Override
     public synchronized Optional<TaskAttempt> findAttempt(UUID attemptId) {
         return Optional.ofNullable(attempts.get(attemptId));
+    }
+
+    @Override
+    public synchronized Optional<TaskAttempt> findOpenPracticeAttempt(List<UUID> taskPackageIds) {
+        Set<UUID> exposed = Set.copyOf(taskPackageIds);
+        return attempts.values().stream()
+                .filter(TaskAttempt::isOpen)
+                .filter(attempt -> attempt.purpose() == AttemptPurpose.PRACTICE)
+                .filter(attempt -> exposed.contains(attempt.taskPackageId()))
+                .findFirst();
     }
 
     @Override
