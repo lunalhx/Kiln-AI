@@ -34,6 +34,8 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0037](0037-use-an-opencode-style-operator-provider-catalog.md): OpenCode-style Provider Catalog, Strong/Small Model slots
 - [ADR-0038](0038-use-spring-ai-per-call-tools-from-the-authorized-set.md): superseded — the Apply stack is zero-tool
 - [ADR-0039](0039-connect-every-existing-model-port-through-one-spring-ai-adapter.md): superseded — the spike ports were removed; the Apply ports use `ApplyModelAdapter`
+- [ADR-0064](0064-restore-the-learning-state-graph-for-multi-profile-learning.md): restore the application-owned graph boundary for multi-Profile Learning and Practice
+- [ADR-0065](0065-limit-the-reference-hint-ladder-to-apply-practice.md): the reference Hint Ladder serves Apply Practice, not Teach-back
 
 ## Sources and Concept preparation
 

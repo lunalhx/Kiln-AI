@@ -1,0 +1,51 @@
+# Progress
+
+- 2026-08-16: Read the invoked `to-spec` and `grill-with-docs` skills, including the required `grilling` and `domain-modeling` instructions and documentation formats.
+- 2026-08-16: Created an isolated working plan; no product decisions or implementation files changed.
+- 2026-08-16: Established the repository baseline from README, CONTEXT, ADR/spec/ticket indexes, and targeted search. Confirmed the shipped product remains Apply-only and located the existing Learning/Practice vocabulary and Profile Contract Test seam.
+- 2026-08-16: Read the accepted assistance/attempt ADRs and inspected the concrete code surface. Confirmed the current implementation contains only Apply and that Practice assessment, assistance conversion, later Profiles, the Pedagogy Agent, and multi-Profile orchestration are absent.
+- 2026-08-16: Confirmed the four remaining Teaching Actions lack concrete domain contracts. Identified Profile Contract Tests plus a flow-level scripted contract as the likely existing test seams, pending scope/orchestration decisions.
+- 2026-08-16: Completed the decided-vs-unresolved audit and began the one-question-at-a-time design interview. No spec has been published.
+- 2026-08-16: User chose the Learning/Practice increment: concretely define Explain, Hint, and Teach-back Profiles/Action Skills; leave Retrieve for a separate spec.
+- 2026-08-16: User confirmed adaptive post-Diagnostic routing: the Pedagogy Agent selects Explain or a fresh Apply Practice Task when the Guard permits both; the closed Diagnostic is not converted.
+- 2026-08-16: User confirmed one formal submission per Practice Attempt, with multi-turn assistance and drafting before submission and a fresh verified task for subsequent practice.
+- 2026-08-16: User confirmed conclusive Practice PASS/FAIL evidence semantics and no-evidence handling for Inconclusive outcomes.
+- 2026-08-16: User confirmed Teach-back as a Rubric-bearing Practice Task Package and one-submission Attempt with isolated Assessment and understanding-dimension evidence.
+- 2026-08-16: User confirmed Explain as a source-grounded, non-assessing Teaching Result with explicit guarded handoff to later actions.
+- 2026-08-16: Checked primary/official intelligent-tutoring literature for Hint Ladder patterns. Evidence supports contextual on-demand progressive hints and explicit bottom-out handling, but does not resolve precomputation versus per-request generation.
+- 2026-08-16: User confirmed lazy full-Ladder generation on the first hint request, followed by deterministic level-by-level exposure; clarified the distinction between generation timing and learner-visible progressive disclosure.
+- 2026-08-16: User confirmed adaptive post-H5 routing between Teach-back and a fresh Apply Practice Task.
+- 2026-08-16: Verified that the proposed Learning/Practice reference is exactly the current Apply Concept Contract, Mastery Rubric, and Source Pack shared by Diagnostic, Independent, and Review.
+- 2026-08-16: User confirmed the exact existing Apply Concept/Source/Rubric artifacts as the sole reference scope.
+- 2026-08-16: User confirmed restoration of the application-owned Learning StateGraph for multi-Profile Learning/Practice. Added accepted ADR-0064 and updated the ADR index; no graph framework was selected.
+- 2026-08-16: User confirmed one first-party Action Bundle per new Profile for the reference slice, with no same-Profile strategy variants.
+- 2026-08-16: Reviewed primary worked-example and self-explanation research to inform the single Explain reference method; no product decision was inferred from the research.
+- 2026-08-16: User confirmed the targeted principle + one worked example + rule mapping Explain method. Added implementation-free Explain, Hint, and Teach-back definitions to the domain glossary.
+- 2026-08-16: User confirmed that Teach-back must be anchored to the most recently exposed Explain or H5 artifact in the same Flow.
+- 2026-08-16: User confirmed one conclusive Apply Practice PASS as the deterministic readiness gate for a new Independent Test in the reference Concept.
+- 2026-08-16: User confirmed atomic Review-to-Practice conversion: cancel the Started Review Task, accept no Review evidence, preserve milestones, and require a later Independent PASS to restart cadence.
+- 2026-08-16: User confirmed separate closed versioned draft contracts for Explain, Hint, and Teach-back rather than a generic teaching-result model schema.
+- 2026-08-16: User confirmed the least-privilege Hint Context View and task-stable rather than draft-personalized Ladder.
+- 2026-08-16: User confirmed the least-privilege Explain Context View using sanitized gaps, bounded sources, and novelty exclusions.
+- 2026-08-16: User confirmed the least-privilege Teach-back Context View and semantic Rubric assessment without a verbatim expected explanation.
+- 2026-08-16: User confirmed isolated verification for Apply Practice and Teach-back tasks, Output-Gate-only Explain, and specialized/deterministic Hint validation.
+- 2026-08-16: Audited all five existing Bundle contracts. Only the calculus notation responsibility is broadly reusable, and it requires a new major version to expand compatibility without mutating the pinned Apply release.
+- 2026-08-16: Found a normative conflict in ADR-0030: Teach-back permits Hint, but the confirmed Teach-back and Hint contracts provide no canonical explanation with which to validate a Teach-back H5. Paused that branch for explicit user choice.
+- 2026-08-16: User confirmed the minimal new Skill Stacks: existing Apply Stack for Practice and Action + calculus-notation for each new Profile, with no speculative Capability Bundles.
+- 2026-08-16: User chose Apply-Practice-only Hint semantics. Added ADR-0065, updated the ADR index, and narrowed the glossary definition of Hint; Teach-back no longer advertises Hint Requested.
+- 2026-08-16: User confirmed the deterministic invalid-Pedagogy-Plan fallback table and safe behavior when the fallback action itself cannot produce a valid artifact.
+- 2026-08-16: Audited Independent submission behavior and found the Apply-only implementation collapses conclusive fail, Blocked, and Inconclusive into NoEvidence; surfaced the missing remediation distinction for user decision.
+- 2026-08-16: User confirmed closed Independent result mapping: conclusive FAIL evidence enters Learning/Practice; Blocked and Inconclusive remain no-evidence and receive fresh verified Independent replacements.
+- 2026-08-16: User confirmed frozen Strong/Small role bindings, per-node repair/no-recursion rules, the 16,000-character instruction cap, and pause-at-next-interaction execution budget.
+- 2026-08-16: User confirmed the frozen polynomial-differentiation Practice Blueprint and its purpose, interaction, assessment, verification, and novelty boundaries.
+- 2026-08-16: User confirmed the Teach-back Blueprint, three-dimension Rubric, single short-text submission, and closed PASS/FAIL/Inconclusive rules.
+- 2026-08-16: User confirmed a structured Explain draft with explicit principle, worked-example steps, rule references, result, and Source Trace.
+- 2026-08-16: User confirmed the closed five-entry Hint draft, H5 structured answer check, leakage validation, and runtime-owned exposure selection.
+- 2026-08-16: User confirmed Teach-back's formal-task two-candidate generation policy and non-task Explain/Hint single-repair failure semantics; generalized the glossary definition of Task Generation Exhausted.
+- 2026-08-16: Audited the current HTTP DTO/controllers and confirmed they are Apply-only in naming and interaction shape; surfaced the required destructive Learning Flow API decision.
+- 2026-08-16: User confirmed the destructive unified Learning Flow command/response API and removal of all Apply-prefixed public endpoints/types.
+- 2026-08-16: User confirmed the highest domain Learning Flow command-to-interaction acceptance seam plus focused Profile, HTTP, PostgreSQL recovery, and ArchUnit supporting contracts.
+- 2026-08-16: Wrote `docs/specs/learning-practice-reference-spec.md` using only confirmed decisions. Kept Retrieve, strategy variants, graph framework choice, and broader concepts out of scope; left exact reference Action Bundle IDs as mechanical repository naming rather than inventing product variants.
+- 2026-08-16: Ran Markdown whitespace validation with `git diff --check`; it passed. Began tracker publication checks.
+- 2026-08-16: Ran `./mvnw clean test`. The sandboxed run could not access Docker; reran with Docker access and the full seven-module reactor passed. App tests: 40 run, 0 failures, 0 errors, 1 intentionally skipped live-model smoke test.
+- 2026-08-16: Tracker publication is operationally blocked: the configured `gh` token is invalid, Chrome cannot connect to GitHub, and the in-app browser reaches only the GitHub sign-in page. The local spec remains complete; no issue or label has been created yet.

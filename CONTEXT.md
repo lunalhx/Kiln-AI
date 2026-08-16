@@ -49,7 +49,7 @@ The bounded model component that performs Task Verification without receiving th
 _Avoid_: Teaching Node Profile, Assessment Agent, automatic task editor
 
 **Task Generation Exhausted**:
-The internal technical-recovery outcome reached after the maximum number of complete Apply generation, Output Gate, and Task Verification cycles fail before learner exposure. It creates no Task Attempt or evidence and returns control to the Graph; it is distinct from a Source Gap, which ends generation immediately because approved material is insufficient. For the Apply reference, either outcome maps to the same deterministic, non-diagnostic learner message and Flow Control options.
+The internal technical-recovery outcome reached after the maximum number of complete formal-task generation, Output Gate, and Task Verification cycles fail before learner exposure. It creates no Task Attempt or evidence and returns control to the Graph; it is distinct from a Source Gap, which ends generation immediately because approved material is insufficient. Apply and Teach-back may reach this outcome, while non-task Explain and Hint failures remain Node Execution Failed.
 _Avoid_: Learner failure, partially repaired task, evidence loss
 
 **Profile Contract Test**:
@@ -307,6 +307,18 @@ _Avoid_: Assessment feedback, implicit hint, score reveal
 **Teaching Action**:
 A single optional pedagogical intervention selected in response to the Mastery Criterion and current Learning Evidence, such as Explain, Retrieve, Apply, Teach-back, or Hint. Teaching Actions are tools, not mandatory stages.
 _Avoid_: Agent, prompt
+
+**Explain**:
+The Teaching Action that presents a source-grounded account of relevant Concept knowledge without assessing the learner or creating Learning Evidence. Any later understanding check or application is a separate Teach-back or Apply action.
+_Avoid_: Teach-back, worked task submission, Assessment
+
+**Hint**:
+The Teaching Action that exposes assistance for the current open Apply Practice Task Attempt under the Hint Ladder. It records only assistance actually shown and never assesses the learner or creates Learning Evidence itself.
+_Avoid_: General explanation, difficulty adjustment, Assessment
+
+**Teach-back**:
+The Teaching Action that asks the learner to explain relevant Concept reasoning against an explicit Rubric in a Practice Task Attempt. Its assessed result may provide understanding evidence but cannot establish Independent.
+_Avoid_: Explain, Independent Test, unassessed reflection
 
 **Apply**:
 The Teaching Action that delivers one bounded task requiring a learner to use a Target Concept in a declared context. It creates a Task Package and opens the appropriate Task Attempt but does not explain the Concept, reveal a worked solution, assess the response, or create Learning Evidence. Diagnostic and Independent Test uses are distinguished by their Task Blueprints and gates, not by separate Apply Profiles.
