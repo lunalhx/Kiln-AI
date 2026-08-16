@@ -59,12 +59,26 @@ public class ScriptedApplyPortsConfiguration {
         };
     }
 
-    private static int exposedTaskCount(String executionContextJson) {
+    static int exposedTaskCount(String executionContextJson) {
         String marker = "\"exposed_task_fingerprints\":[";
         int start = executionContextJson.indexOf(marker);
         int end = executionContextJson.indexOf(']', start);
         String contents = executionContextJson.substring(start + marker.length(), end).trim();
         return contents.isEmpty() ? 0 : contents.split(",").length;
+    }
+
+    /** The shared scripted Task Verification pass verdict of the app contract tests. */
+    public static TaskVerificationVerdict passVerdict() {
+        return new TaskVerificationVerdict(
+                TaskVerificationVerdict.SCHEMA,
+                TaskVerificationVerdict.Verdict.PASS,
+                Map.of(
+                        "answer_correctness", TaskVerificationVerdict.CheckResult.PASS,
+                        "rubric_alignment", TaskVerificationVerdict.CheckResult.PASS,
+                        "source_grounding", TaskVerificationVerdict.CheckResult.PASS,
+                        "blueprint_compliance", TaskVerificationVerdict.CheckResult.PASS,
+                        "learner_boundary", TaskVerificationVerdict.CheckResult.PASS),
+                List.of());
     }
 
     @Bean
@@ -73,16 +87,7 @@ public class ScriptedApplyPortsConfiguration {
         return new TaskVerifierPort() {
             @Override
             public TaskVerificationVerdict verify(TaskPackage taskPackage, ApplyExecutionContext context) {
-                return new TaskVerificationVerdict(
-                        TaskVerificationVerdict.SCHEMA,
-                        TaskVerificationVerdict.Verdict.PASS,
-                        Map.of(
-                                "answer_correctness", TaskVerificationVerdict.CheckResult.PASS,
-                                "rubric_alignment", TaskVerificationVerdict.CheckResult.PASS,
-                                "source_grounding", TaskVerificationVerdict.CheckResult.PASS,
-                                "blueprint_compliance", TaskVerificationVerdict.CheckResult.PASS,
-                                "learner_boundary", TaskVerificationVerdict.CheckResult.PASS),
-                        List.of());
+                return passVerdict();
             }
         };
     }

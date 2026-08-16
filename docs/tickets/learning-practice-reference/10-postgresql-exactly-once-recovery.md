@@ -6,6 +6,6 @@
 
 **Status:** ready-for-agent
 
-- [ ] 失败生成不留下未接受 artifact、Attempt 或 Evidence；已完成命令始终返回原始 committed interaction。
-- [ ] submission 关闭 Attempt 后和 Review conversion 后的崩溃都可恢复，且每个副作用恰好发生一次。
-- [ ] PostgreSQL recovery contract 覆盖 Blackboard/artifact references、Hint/Teaching artifacts、novelty、Evidence 与 ReviewTask。
+- [x] 失败生成不留下未接受 artifact、Attempt 或 Evidence；已完成命令始终返回原始 committed interaction。
+- [x] submission 关闭 Attempt 后和 Review conversion 后的崩溃都可恢复，且每个副作用恰好发生一次。
+- [x] PostgreSQL recovery contract 覆盖 Blackboard/artifact references、Hint/Teaching artifacts、novelty、Evidence 与 ReviewTask。
