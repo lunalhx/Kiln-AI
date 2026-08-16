@@ -2,6 +2,9 @@ package cn.lunalhx.ai.kilnai.domain.apply.port;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -15,14 +18,18 @@ import java.util.UUID;
 
 /**
  * The typed store for large and private Apply execution artifacts: curated
- * sources, Task Packages, Task Attempts with their submissions, isolated
- * Task Verification verdicts, and isolated Response Assessment records.
+ * sources, Task Packages, Task Attempts with their submissions and Assistance
+ * Traces, stable Hint Ladders, isolated Task Verification verdicts, and
+ * isolated Response Assessment records.
  *
  * <p>{@link #openAttempt(TaskPackage)} persists the Task Package and opens its
  * Task Attempt atomically, and {@link #closeAttempt(UUID, TaskSubmission)}
  * closes one open attempt and persists its single formal submission
- * atomically. A replay, duplicate, or stale close never produces a second
- * evaluation.
+ * atomically. {@link #exposeHint} persists the validated ladder, appends the
+ * exposed level to the attempt's Assistance Trace, records the hint request,
+ * and closes the attempt as Solution Revealed for H5 — all atomically, so a
+ * replay or duplicate never reveals a second level for one command. A
+ * replay, duplicate, or stale close never produces a second evaluation.
  */
 public interface ArtifactStore {
 
@@ -39,6 +46,20 @@ public interface ArtifactStore {
      * A replay, duplicate, or stale close never produces a second evaluation.
      */
     AttemptCloseOutcome closeAttempt(UUID attemptId, TaskSubmission submission);
+
+    Optional<HintLadder> findLadder(UUID attemptId);
+
+    /**
+     * Atomically persists the stable validated ladder (when absent), appends
+     * the exposed level to the attempt's Assistance Trace, records the
+     * request, and — for the H5 reveal — closes the attempt as Solution
+     * Revealed without Assessment or Evidence. An already-recorded request
+     * for the same command key returns {@link HintExposureOutcome.AlreadyExposed}
+     * so a crashed command resumes its original exposed level.
+     */
+    HintExposureOutcome exposeHint(UUID attemptId, HintLadder ladder, int requestedLevel, UUID commandKey);
+
+    Optional<HintRequestRecord> findHintRequest(UUID attemptId, UUID commandKey);
 
     void recordTaskVerification(UUID taskPackageId, TaskVerificationVerdict verdict);
 

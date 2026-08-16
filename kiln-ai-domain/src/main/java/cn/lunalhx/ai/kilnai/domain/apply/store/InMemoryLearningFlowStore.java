@@ -269,7 +269,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
-                bind.taskPackage().learnerProjection(), null, null);
+                bind.taskPackage().learnerProjection(), null, null, null);
         commitBoundary(interaction,
                 new ApplyCheckpoint(UUID.randomUUID(), bind.flowId(), bind.interactionVersion(), clock.instant()),
                 new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
@@ -304,11 +304,11 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         ApplyFlowInteraction interaction = replacement == null
                 ? new ApplyFlowInteraction(
                         review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
-                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null)
+                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null, null)
                 : new ApplyFlowInteraction(
                         review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                         LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
-                        replacementProjection, bind.learnerMessage(), null);
+                        replacementProjection, bind.learnerMessage(), null, null);
         commitBoundary(interaction,
                 new ApplyCheckpoint(UUID.randomUUID(), review.flowId(), bind.interactionVersion(), clock.instant()),
                 new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), review.flowId(),

@@ -9,6 +9,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
@@ -29,15 +30,16 @@ import java.util.Map;
 import java.util.function.Function;
 
 /**
- * The real-model adapter for the four Apply ports over the operator Provider
- * Catalog and Spring AI ChatClient. It registers no tools: the Apply stack is
- * zero-tool by contract, and this adapter must never attach tool callbacks.
- * Generation returns raw model text for the domain's strict
- * {@code apply_generation/v1} parser; Task Verification and Response
- * Assessment parse their closed JSON contracts back into domain types.
+ * The real-model adapter for the five Apply-family ports over the operator
+ * Provider Catalog and Spring AI ChatClient. It registers no tools: the
+ * Apply and Hint stacks are zero-tool by contract, and this adapter must
+ * never attach tool callbacks. Apply generation and Hint ladder generation
+ * return raw model text for the domain's strict closed contracts; Task
+ * Verification and Response Assessment parse their closed JSON contracts back
+ * into domain types.
  */
 public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifierPort,
-        AssessmentPort, ResponseVerificationPort {
+        AssessmentPort, ResponseVerificationPort, HintGenerationPort {
 
     private static final String JSON_ONLY = "Return JSON only. Do not add commentary, markdown, or fields outside the contract.";
 

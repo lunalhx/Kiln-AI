@@ -2,9 +2,11 @@ package cn.lunalhx.ai.kilnai.domain.learning.graph;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ApplyScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ExplainScriptData;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.HintScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedApplyGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedAssessmentModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedExplainGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedHintGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedResponseVerificationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTaskVerifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
@@ -14,6 +16,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
@@ -24,6 +27,9 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintGenerationDraft;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalAnswer;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
@@ -869,6 +875,281 @@ class LearningFlowGraphContractTest {
                 "a proven non-equivalence must never invoke a model judgment");
     }
 
+    @Test
+    void aFirstHintRequestGeneratesTheStableLadderAndRevealsH1KeepingTheAttemptOpen() {
+        Harness harness = practiceHarness();
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        ApplyFlowResult.Boundary h1 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
+        ApplyFlowInteraction interaction = h1.interaction();
+        assertEquals(4, interaction.interactionVersion());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
+        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
+        assertEquals(practiceAttemptId, interaction.attemptId(),
+                "H1 must keep the Practice Attempt open for a later formal submission");
+        assertEquals(1, harness.hintGeneration().calls().size(),
+                "the first request must make exactly one ladder generation call");
+        assertEquals(HintScriptData.H1_ORIENT, interaction.hint().learnerContent());
+        assertEquals(1, interaction.hint().level());
+        assertEquals("orient", interaction.hint().disclosureKind());
+        assertNull(interaction.hint().reasoningSteps());
+        assertNull(interaction.hint().proposedFinalAnswer());
+        assertEquals(AttemptStatus.OPEN,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status());
+        assertTrue(harness.artifacts().findLadder(practiceAttemptId).isPresent(),
+                "the validated ladder must be persisted for later deterministic reveal");
+        TaskAttempt attempt = harness.artifacts().findAttempt(practiceAttemptId).orElseThrow();
+        assertEquals(1, attempt.assistanceTrace().size(),
+                "only the actually exposed level may be recorded in the Assistance Trace");
+        assertEquals(1, attempt.highestHintLevel());
+    }
+
+    @Test
+    void repeatedHintRequestsRevealPersistedLevelsWithoutAnotherModelCall() {
+        Harness harness = practiceHarness();
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        ApplyFlowResult.Boundary h1 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
+        ApplyFlowResult.Boundary h2 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                h1.interaction().flowId(), h1.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
+        assertEquals(5, h2.interaction().interactionVersion());
+        assertEquals(2, h2.interaction().hint().level());
+        assertEquals("cue", h2.interaction().hint().disclosureKind());
+        assertEquals(1, harness.hintGeneration().calls().size(),
+                "later requests must reveal the persisted ladder without another model call");
+        assertEquals(AttemptStatus.OPEN,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status());
+        assertEquals(2, harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().assistanceTrace().size());
+    }
+
+    @Test
+    void aHintAssistedPracticeSubmissionRecordsOnlyExposedLevelsInEvidence() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), independentTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment(), conclusivePracticeJudgment())));
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        ApplyFlowResult.Boundary h1 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(),
+                practiceAttemptId, false, UUID.randomUUID());
+        ApplyFlowResult.Boundary h2 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                h1.interaction().flowId(), h1.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
+        ApplyFlowResult.Boundary submitted = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                h2.interaction().flowId(), h2.interaction().interactionVersion(), UUID.randomUUID(), practiceAttemptId,
+                ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
+        assertEquals(LearningStage.INDEPENDENT_TEST, submitted.interaction().stage(),
+                "an H1-H4-assisted Practice pass still counts toward readiness");
+        AcceptedLearningEvidence evidence = harness.flowStore().allEvidence().get(0);
+        assertEquals(2, evidence.highestHintLevel(),
+                "the Evidence must record the highest actually exposed hint level");
+        assertEquals(List.of("H1:orient", "H2:cue"), evidence.assistanceTrace(),
+                "only actually exposed levels may appear in the Evidence Assistance Trace");
+    }
+
+    @Test
+    void anAnswerRequestJumpsToH5ClosingTheAttemptAsSolutionRevealedWithoutAssessmentOrEvidence() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        ApplyFlowResult.Boundary revealed = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, true, UUID.randomUUID());
+        ApplyFlowInteraction interaction = revealed.interaction();
+        assertEquals(4, interaction.interactionVersion());
+        assertEquals(5, interaction.hint().level());
+        assertEquals("reveal", interaction.hint().disclosureKind());
+        assertEquals(HintScriptData.H5_LEARNER_CONTENT, interaction.hint().learnerContent());
+        assertEquals(4, interaction.hint().reasoningSteps().size());
+        assertEquals("18*x^2-4", interaction.hint().proposedFinalAnswer());
+        assertEquals(PracticeSubmissionFlow.PRACTICE_AFTER_REVEAL_MESSAGE, interaction.learnerMessage());
+        assertEquals(AttemptStatus.SOLUTION_REVEALED,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status(),
+                "the H5 reveal must close the attempt as Solution Revealed");
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "an H5 reveal must never create Evidence");
+        assertTrue(harness.artifacts().assessmentsFor(practiceAttemptId).isEmpty(),
+                "an H5 reveal must never trigger Assessment");
+        assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT,
+                interaction.learnerProjection().taskText(),
+                "a fresh verified Apply Practice task follows the reveal");
+        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
+        ApplyFlowResult.HintIgnored later = (ApplyFlowResult.HintIgnored) harness.useCase().requestHint(
+                interaction.flowId(), interaction.interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
+        assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED, later.reason(),
+                "a closed Solution Revealed attempt never takes another hint");
+    }
+
+    @Test
+    void hintsAreIgnoredForDiagnosticIndependentAndUnknownAttempts() {
+        Harness harness = harness();
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.HintIgnored diagnostic = (ApplyFlowResult.HintIgnored) harness.useCase().requestHint(
+                started.interaction().flowId(), 1, started.interaction().attemptId(), false, UUID.randomUUID());
+        assertEquals(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE, diagnostic.reason());
+        assertEquals(0, harness.hintGeneration().calls().size(),
+                "no model call may ever happen for a wrong-purpose hint request");
+        assertEquals(1, harness.flowStore().latestInteraction(started.interaction().flowId())
+                .orElseThrow().interactionVersion(), "an ignored hint must not advance the interaction");
+        ApplyFlowResult.HintIgnored unknown = (ApplyFlowResult.HintIgnored) harness.useCase().requestHint(
+                started.interaction().flowId(), 1, UUID.randomUUID(), false, UUID.randomUUID());
+        assertEquals(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND, unknown.reason());
+    }
+
+    @Test
+    void aSourceGapLadderExposesNothingAndKeepsTheAttemptOpen() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedHintGenerationModel(List.of(HintScriptData.sourceGapJson())));
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
+        ApplyFlowInteraction interaction = unavailable.interaction();
+        assertEquals(4, interaction.interactionVersion());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
+        assertEquals(practiceAttemptId, interaction.attemptId(),
+                "a failed ladder must leave the open Attempt exactly as it was");
+        assertNull(interaction.hint(), "a failed ladder must expose no partial content");
+        assertEquals(HintFlow.HINT_UNAVAILABLE_MESSAGE, interaction.learnerMessage());
+        assertEquals(AttemptStatus.OPEN,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status());
+        assertTrue(harness.artifacts().findLadder(practiceAttemptId).isEmpty(),
+                "a failed generation must leave no persisted ladder");
+        assertTrue(harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().assistanceTrace().isEmpty());
+    }
+
+    @Test
+    void aRepeatedlyInvalidLadderAfterTheAllowedRepairExposesNothing() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedHintGenerationModel(List.of(
+                        invalidLadderJson(), invalidLadderJson())));
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
+        assertNull(unavailable.interaction().hint(),
+                "a repeated invalid ladder after the one allowed repair must expose no partial content");
+        assertEquals(HintFlow.HINT_UNAVAILABLE_MESSAGE, unavailable.interaction().learnerMessage());
+        assertEquals(2, harness.hintGeneration().calls().size(),
+                "the gate permits one same-plan repair and no more");
+        assertEquals(AttemptStatus.OPEN,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status());
+        assertTrue(harness.artifacts().findLadder(practiceAttemptId).isEmpty());
+    }
+
+    @Test
+    void aReplayedHintCommandReturnsTheOriginalInteractionWithoutRegeneration() {
+        Harness harness = practiceHarness();
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        UUID key = UUID.randomUUID();
+        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, key);
+        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, key);
+        assertEquals(first.interaction(), replay.interaction(),
+                "a replayed key must return the original committed hint interaction");
+        assertEquals(1, harness.hintGeneration().calls().size(),
+                "a replay must never regenerate the ladder");
+        assertEquals(1, harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().assistanceTrace().size());
+    }
+
+    @Test
+    void aCrashBetweenHintExposureAndBoundaryCommitResumesTheSameExposedLevel() {
+        Harness harness = practiceHarness();
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        UUID h1Key = UUID.randomUUID();
+        ApplyFlowResult.Boundary h1 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, h1Key);
+        UUID crashKey = UUID.randomUUID();
+        HintLadder ladder = harness.artifacts().findLadder(practiceAttemptId).orElseThrow();
+        HintExposureOutcome exposed = harness.artifacts().exposeHint(practiceAttemptId, ladder, 2, crashKey);
+        assertInstanceOf(HintExposureOutcome.Exposed.class, exposed);
+        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                h1.interaction().flowId(), h1.interaction().interactionVersion(), practiceAttemptId, false, crashKey);
+        assertEquals(5, recovered.interaction().interactionVersion());
+        assertEquals(2, recovered.interaction().hint().level(),
+                "the retried command must resume the same exposed level, never the next one");
+        assertEquals(List.of(1, 2), harness.artifacts().findAttempt(practiceAttemptId).orElseThrow()
+                .assistanceTrace().stream().map(entry -> entry.level().level()).toList(),
+                "the resumed exposure must not duplicate a trace entry");
+        ApplyFlowResult.Boundary next = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                recovered.interaction().flowId(), recovered.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
+        assertEquals(3, next.interaction().hint().level(),
+                "a later request continues monotonically from the resumed trace");
+        assertEquals(1, harness.hintGeneration().calls().size(),
+                "the whole sequence must never regenerate the stable ladder");
+    }
+
+    @Test
+    void aCrashBetweenTheH5RevealAndItsBoundaryCommitResumesTheRevealExactlyOnce() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        UUID crashKey = UUID.randomUUID();
+        HintLadder ladder = HintLadder.from(practiceAttemptId,
+                (HintGenerationDraft.LadderReady) HintGenerationDraft.parse(HintScriptData.ladderReadyJson()));
+        assertInstanceOf(HintExposureOutcome.Exposed.class,
+                harness.artifacts().exposeHint(practiceAttemptId, ladder, 5, crashKey));
+        assertEquals(AttemptStatus.SOLUTION_REVEALED,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status(),
+                "the crashed run already closed the attempt as Solution Revealed");
+        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, true, crashKey);
+        assertEquals(4, recovered.interaction().interactionVersion());
+        assertEquals(5, recovered.interaction().hint().level(),
+                "the retried answer request must resume the same H5 reveal, not a fresh generation");
+        assertEquals("18*x^2-4", recovered.interaction().hint().proposedFinalAnswer());
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "the resumed H5 reveal must never create Evidence");
+        assertTrue(harness.artifacts().assessmentsFor(practiceAttemptId).isEmpty());
+        assertEquals(0, harness.hintGeneration().calls().size(),
+                "a resumed reveal must never call the model again");
+    }
+
+    private static String invalidLadderJson() {
+        return HintScriptData.ladderReadyJson(
+                HintScriptData.H4_SCAFFOLD, HintScriptData.H5_LEARNER_CONTENT,
+                HintScriptData.H5_STEPS, "6*x^2-4");
+    }
+
+    /**
+     * A harness whose scripted Apply generation covers the Diagnostic and one
+     * fresh Practice task, with the diagnostic judged as a conclusive failure
+     * so the remediation cycle opens the Practice boundary.
+     */
+    private Harness practiceHarness() {
+        return harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                new ScriptedTaskVerifier(List.of(
+                        ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
+    }
+
     private Harness harness() {
         return harness(
                 new ScriptedApplyGenerationModel(List.of(
@@ -950,7 +1231,8 @@ class LearningFlowGraphContractTest {
             ScriptedResponseVerificationModel verification
     ) {
         return harness(generation, verifier, assessment, verification,
-                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())));
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())));
     }
 
     private Harness harness(
@@ -959,6 +1241,30 @@ class LearningFlowGraphContractTest {
             ScriptedAssessmentModel assessment,
             ScriptedResponseVerificationModel verification,
             ScriptedExplainGenerationModel explainGeneration
+    ) {
+        return harness(generation, verifier, assessment, verification, explainGeneration,
+                new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())));
+    }
+
+    private Harness harness(
+            ScriptedApplyGenerationModel generation,
+            ScriptedTaskVerifier verifier,
+            ScriptedAssessmentModel assessment,
+            ScriptedResponseVerificationModel verification,
+            ScriptedHintGenerationModel hintGeneration
+    ) {
+        return harness(generation, verifier, assessment, verification,
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                hintGeneration);
+    }
+
+    private Harness harness(
+            ScriptedApplyGenerationModel generation,
+            ScriptedTaskVerifier verifier,
+            ScriptedAssessmentModel assessment,
+            ScriptedResponseVerificationModel verification,
+            ScriptedExplainGenerationModel explainGeneration,
+            ScriptedHintGenerationModel hintGeneration
     ) {
         InMemoryArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
         InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK);
@@ -975,17 +1281,21 @@ class LearningFlowGraphContractTest {
         ExplainFlow explainFlow = new ExplainFlow(
                 new ExplainProfileExecutor(ReferenceBundles.explainStack(), explainGeneration),
                 artifacts, flowStore, ExplainApplyFixture.explainContext());
+        HintFlow hintFlow = new HintFlow(
+                hintGeneration, artifacts, PracticeApplyFixture.practiceContext().conceptSourcePack());
         LearningStateGraph graph = new LearningStateGraph(
-                artifacts, flowStore, diagnosticFlow, independentFlow, practiceFlow, explainFlow, CLOCK);
+                artifacts, flowStore, diagnosticFlow, independentFlow, practiceFlow,
+                explainFlow, hintFlow, CLOCK);
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
                 artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), CLOCK);
-        return new Harness(artifacts, flowStore, generation, useCase, graph, explainGeneration);
+        return new Harness(artifacts, flowStore, generation, hintGeneration, useCase, graph, explainGeneration);
     }
 
     private record Harness(
             ArtifactStore artifacts,
             InMemoryLearningFlowStore flowStore,
             ScriptedApplyGenerationModel generation,
+            ScriptedHintGenerationModel hintGeneration,
             LearningFlowCommandUseCase useCase,
             LearningStateGraph graph,
             ScriptedExplainGenerationModel explainGeneration

@@ -10,6 +10,7 @@ import cn.lunalhx.ai.kilnai.domain.gate.GateContext;
 import cn.lunalhx.ai.kilnai.domain.gate.GatePolicy;
 import cn.lunalhx.ai.kilnai.domain.gate.GateResult;
 import cn.lunalhx.ai.kilnai.domain.gate.GateViolation;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -52,9 +53,10 @@ public final class ApplyTaskPackageGatePolicy implements GatePolicy<TaskPackage>
             violations.add(new GateViolation("learner.task-text", "learner task text is required"));
         }
         validateAnswerFields(learner, violations);
-        if (!Set.copyOf(learner.allowedEvents()).equals(LEGAL_EVENTS)) {
+        Set<ApplyLearnerEvent> legalEvents = legalEvents(context);
+        if (!Set.copyOf(learner.allowedEvents()).equals(legalEvents)) {
             violations.add(new GateViolation("interaction.events",
-                    "allowed events must be exactly answer_submitted, procedural_clarification, flow_control"));
+                    "allowed events must be exactly " + legalEvents + " for this blueprint"));
         }
         if (learner.submissionRule() == null || learner.submissionRule().maxFormalSubmissions() != 1) {
             violations.add(new GateViolation("interaction.submission",
@@ -83,6 +85,22 @@ public final class ApplyTaskPackageGatePolicy implements GatePolicy<TaskPackage>
             return GateResult.passed(candidate);
         }
         return GateResult.rejected(violations);
+    }
+
+    /**
+     * The closed event set of one Blueprint. Only the Practice Blueprint
+     * permits the Hint interaction (ADR-0065); Diagnostic, Independent, and
+     * Review packages never carry {@code HINT_REQUESTED}.
+     */
+    private Set<ApplyLearnerEvent> legalEvents(ApplyExecutionContext context) {
+        if (context.taskBlueprint().attemptPurpose() == AttemptPurpose.PRACTICE) {
+            return EnumSet.of(
+                    ApplyLearnerEvent.ANSWER_SUBMITTED,
+                    ApplyLearnerEvent.PROCEDURAL_CLARIFICATION,
+                    ApplyLearnerEvent.FLOW_CONTROL,
+                    ApplyLearnerEvent.HINT_REQUESTED);
+        }
+        return LEGAL_EVENTS;
     }
 
     private void validateAnswerFields(LearnerProjection learner, List<GateViolation> violations) {

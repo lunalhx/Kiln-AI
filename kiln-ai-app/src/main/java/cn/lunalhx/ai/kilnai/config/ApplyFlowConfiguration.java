@@ -12,6 +12,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
@@ -44,6 +45,14 @@ public class ApplyFlowConfiguration {
     ApplyGenerationPort failClosedApplyGeneration() {
         return (compiledSystemPrompt, executionContextJson) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "apply generation adapter is not configured");
+        };
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(HintGenerationPort.class)
+    HintGenerationPort failClosedHintGeneration() {
+        return (compiledSystemPrompt, executionContextJson) -> {
+            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "hint generation adapter is not configured");
         };
     }
 

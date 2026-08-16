@@ -73,6 +73,10 @@ public class ApplyFlowController {
                     .status(HttpStatus.CONFLICT)
                     .body(new ApiErrorResponse(ErrorCode.CONFLICT.name(),
                             ignored.reason().name(), Instant.now()));
+            case ApplyFlowResult.HintIgnored ignored -> ResponseEntity
+                    .status(HttpStatus.CONFLICT)
+                    .body(new ApiErrorResponse(ErrorCode.CONFLICT.name(),
+                            ignored.reason().name(), Instant.now()));
         };
     }
 

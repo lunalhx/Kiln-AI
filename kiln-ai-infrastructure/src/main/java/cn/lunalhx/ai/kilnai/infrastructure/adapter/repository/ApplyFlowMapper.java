@@ -37,11 +37,11 @@ public interface ApplyFlowMapper {
     @Insert("""
             INSERT INTO apply_interactions (
                 id, flow_id, interaction_version, status, stage, attempt_id, attempt_purpose,
-                learner_projection, learner_message, teaching_projection, created_at
+                learner_projection, learner_message, teaching_projection, hint, created_at
             ) VALUES (
                 #{id}, #{flowId}, #{interactionVersion}, #{status}, #{stage}, #{attemptId},
                 #{attemptPurpose}, CAST(#{learnerProjectionJson} AS JSONB), #{learnerMessage},
-                CAST(#{teachingProjectionJson} AS JSONB), #{createdAt}
+                CAST(#{teachingProjectionJson} AS JSONB), CAST(#{hintJson} AS JSONB), #{createdAt}
             )
             ON CONFLICT (flow_id, interaction_version) DO NOTHING
             """)
@@ -50,7 +50,8 @@ public interface ApplyFlowMapper {
     @Select("""
             SELECT id, flow_id, interaction_version, status, stage, attempt_id, attempt_purpose,
                    learner_projection::text AS learner_projection_json, learner_message,
-                   teaching_projection::text AS teaching_projection_json, created_at
+                   teaching_projection::text AS teaching_projection_json,
+                   hint::text AS hint_json, created_at
             FROM apply_interactions
             WHERE flow_id = #{flowId}
             ORDER BY interaction_version DESC
@@ -185,15 +186,16 @@ public interface ApplyFlowMapper {
     List<PackageRow> listPackages();
 
     @Insert("""
-            INSERT INTO apply_attempts (id, task_package_id, purpose, status, opened_at, closed_at, submission)
+            INSERT INTO apply_attempts (id, task_package_id, purpose, status, opened_at, closed_at,
+                                        submission, assistance_trace)
             VALUES (#{id}, #{taskPackageId}, #{purpose}, #{status}, #{openedAt}, #{closedAt},
-                    CAST(#{submissionJson} AS JSONB))
+                    CAST(#{submissionJson} AS JSONB), CAST(#{assistanceTraceJson} AS JSONB))
             """)
     void insertAttempt(AttemptRow row);
 
     @Select("""
             SELECT id, task_package_id, purpose, status, opened_at, closed_at,
-                   submission::text AS submission_json
+                   submission::text AS submission_json, assistance_trace::text AS assistance_trace_json
             FROM apply_attempts
             WHERE id = #{attemptId}
             """)
@@ -209,6 +211,62 @@ public interface ApplyFlowMapper {
             @Param("closedAt") Instant closedAt,
             @Param("submissionJson") String submissionJson
     );
+
+    /**
+     * Atomically appends the exposed Assistance Trace and — for the H5 reveal
+     * — closes the attempt as Solution Revealed; the open-status guard makes
+     * a duplicate or racing exposure a no-op.
+     */
+    @Update("""
+            UPDATE apply_attempts
+            SET assistance_trace = CAST(#{assistanceTraceJson} AS JSONB),
+                status = #{status},
+                closed_at = COALESCE(#{closedAt}, closed_at)
+            WHERE id = #{attemptId} AND status = 'OPEN'
+            """)
+    int appendAssistanceAndReveal(
+            @Param("attemptId") UUID attemptId,
+            @Param("assistanceTraceJson") String assistanceTraceJson,
+            @Param("status") String status,
+            @Param("closedAt") Instant closedAt
+    );
+
+    @Insert("""
+            INSERT INTO apply_hint_ladders (attempt_id, ladder, created_at)
+            VALUES (#{attemptId}, CAST(#{ladderJson} AS JSONB), #{createdAt})
+            ON CONFLICT (attempt_id) DO NOTHING
+            """)
+    void insertHintLadder(
+            @Param("attemptId") UUID attemptId,
+            @Param("ladderJson") String ladderJson,
+            @Param("createdAt") Instant createdAt
+    );
+
+    @Select("""
+            SELECT attempt_id, ladder::text AS ladder_json
+            FROM apply_hint_ladders
+            WHERE attempt_id = #{attemptId}
+            """)
+    Optional<HintLadderRow> findHintLadder(UUID attemptId);
+
+    @Insert("""
+            INSERT INTO apply_hint_requests (
+                attempt_id, command_key, requested_level, exposed_level, exposed_at
+            ) VALUES (
+                #{attemptId}, #{commandKey}, #{requestedLevel}, #{exposedLevel}, #{exposedAt}
+            )
+            ON CONFLICT (attempt_id, command_key) DO NOTHING
+            """)
+    void insertHintRequest(HintRequestRow row);
+
+    @Select("""
+            SELECT attempt_id, command_key, requested_level, exposed_level, exposed_at
+            FROM apply_hint_requests
+            WHERE attempt_id = #{attemptId} AND command_key = #{commandKey}
+            """)
+    Optional<HintRequestRow> findHintRequest(
+            @Param("attemptId") UUID attemptId,
+            @Param("commandKey") UUID commandKey);
 
     @Insert("""
             INSERT INTO apply_verifications (id, task_package_id, verdict, created_at)
@@ -395,6 +453,7 @@ public interface ApplyFlowMapper {
             String learnerProjectionJson,
             String learnerMessage,
             String teachingProjectionJson,
+            String hintJson,
             Instant createdAt
     ) {
     }
@@ -430,7 +489,20 @@ public interface ApplyFlowMapper {
             String status,
             Instant openedAt,
             Instant closedAt,
-            String submissionJson
+            String submissionJson,
+            String assistanceTraceJson
+    ) {
+    }
+
+    record HintLadderRow(UUID attemptId, String ladderJson) {
+    }
+
+    record HintRequestRow(
+            UUID attemptId,
+            UUID commandKey,
+            int requestedLevel,
+            int exposedLevel,
+            Instant exposedAt
     ) {
     }
 

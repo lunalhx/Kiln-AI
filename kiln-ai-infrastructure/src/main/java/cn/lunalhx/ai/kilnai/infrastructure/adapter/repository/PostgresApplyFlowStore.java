@@ -2,8 +2,13 @@ package cn.lunalhx.ai.kilnai.infrastructure.adapter.repository;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintLevel;
+import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
@@ -80,6 +85,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 interaction.learnerProjection() == null ? null : writeJson(interaction.learnerProjection()),
                 interaction.learnerMessage(),
                 interaction.teachingProjection() == null ? null : writeJson(interaction.teachingProjection()),
+                interaction.hint() == null ? null : writeJson(interaction.hint()),
                 checkpoint.createdAt()));
         mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
                 checkpoint.checkpointId(), checkpoint.flowId(), checkpoint.interactionVersion(),
@@ -114,7 +120,9 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                         cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection.class),
                 row.learnerMessage(),
                 row.teachingProjectionJson() == null ? null : readJson(row.teachingProjectionJson(),
-                        cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection.class)));
+                        cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection.class),
+                row.hintJson() == null ? null : readJson(row.hintJson(),
+                        cn.lunalhx.ai.kilnai.domain.apply.model.HintView.class)));
     }
 
     @Override
@@ -310,7 +318,8 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 attempt.status().name(),
                 attempt.openedAt(),
                 null,
-                null));
+                null,
+                writeJson(attempt.assistanceTrace())));
         mapper.recordExposure(
                 bind.flowId(),
                 bind.taskPackage().taskPackageId(),
@@ -320,7 +329,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
                 bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
-                bind.taskPackage().learnerProjection(), null, null);
+                bind.taskPackage().learnerProjection(), null, null, null);
         insertBoundary(bind.flowId(), bind.interactionVersion(), interaction,
                 bind.idempotencyKey(), bind.requestHash(), bind.startedAt());
         return Optional.of(interaction);
@@ -362,7 +371,8 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                     replacement.status().name(),
                     replacement.openedAt(),
                     null,
-                    null));
+                    null,
+                    writeJson(replacement.assistanceTrace())));
             mapper.recordExposure(
                     review.flowId(),
                     bind.replacementPackage().taskPackageId(),
@@ -373,11 +383,11 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         ApplyFlowInteraction interaction = replacement == null
                 ? new ApplyFlowInteraction(
                         review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
-                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null)
+                        LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null, null)
                 : new ApplyFlowInteraction(
                         review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                         LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
-                        replacementProjection, bind.learnerMessage(), null);
+                        replacementProjection, bind.learnerMessage(), null, null);
         insertBoundary(review.flowId(), bind.interactionVersion(), interaction,
                 bind.idempotencyKey(), bind.requestHash(), clock.instant());
         return Optional.of(interaction);
@@ -402,6 +412,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 interaction.learnerProjection() == null ? null : writeJson(interaction.learnerProjection()),
                 interaction.learnerMessage(),
                 interaction.teachingProjection() == null ? null : writeJson(interaction.teachingProjection()),
+                interaction.hint() == null ? null : writeJson(interaction.hint()),
                 createdAt));
         mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
                 UUID.randomUUID(), flowId, interactionVersion, createdAt));
@@ -486,7 +497,8 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 attempt.status().name(),
                 attempt.openedAt(),
                 null,
-                null));
+                null,
+                writeJson(attempt.assistanceTrace())));
         return attempt;
     }
 
@@ -521,7 +533,71 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 AttemptStatus.valueOf(row.status()),
                 row.openedAt(),
                 row.closedAt(),
-                row.submissionJson() == null ? null : readJson(row.submissionJson(), TaskSubmission.class)));
+                row.submissionJson() == null ? null : readJson(row.submissionJson(), TaskSubmission.class),
+                readJson(row.assistanceTraceJson(), new TypeReference<List<AssistanceTraceEntry>>() {
+                })));
+    }
+
+    @Override
+    public Optional<HintLadder> findLadder(UUID attemptId) {
+        return mapper.findHintLadder(attemptId).map(row -> readJson(row.ladderJson(), HintLadder.class));
+    }
+
+    @Override
+    @Transactional
+    public HintExposureOutcome exposeHint(
+            UUID attemptId,
+            HintLadder ladder,
+            int requestedLevel,
+            UUID commandKey
+    ) {
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        Objects.requireNonNull(ladder, "ladder must not be null");
+        Objects.requireNonNull(commandKey, "commandKey must not be null");
+        TaskAttempt current = findAttempt(attemptId).orElse(null);
+        if (current == null) {
+            return new HintExposureOutcome.NotFound();
+        }
+        // A saved request record resumes a crashed command even when its
+        // exposure already closed the attempt (H5 reveal).
+        HintRequestRecord recorded = findHintRequest(attemptId, commandKey).orElse(null);
+        if (recorded != null) {
+            return new HintExposureOutcome.AlreadyExposed(current, recorded);
+        }
+        if (current.purpose() != AttemptPurpose.PRACTICE || !current.isOpen()) {
+            return new HintExposureOutcome.NotOpen(current);
+        }
+        TaskAttempt extended = current.appendAssistance(
+                new AssistanceTraceEntry(HintLevel.of(requestedLevel), clock.instant()));
+        AttemptCloseOutcome closed = requestedLevel == 5
+                ? extended.closeAsSolutionRevealed(clock.instant())
+                : new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, extended);
+        if (closed.result() != AttemptCloseOutcome.Result.CLOSED) {
+            return new HintExposureOutcome.NotOpen(current);
+        }
+        mapper.insertHintLadder(attemptId, writeJson(ladder), clock.instant());
+        int updated = mapper.appendAssistanceAndReveal(
+                attemptId,
+                writeJson(closed.attempt().assistanceTrace()),
+                closed.attempt().status().name(),
+                closed.attempt().closedAt());
+        if (updated == 0) {
+            return findAttempt(attemptId)
+                    .<HintExposureOutcome>map(HintExposureOutcome.NotOpen::new)
+                    .orElseGet(HintExposureOutcome.NotFound::new);
+        }
+        HintRequestRecord request = new HintRequestRecord(
+                attemptId, commandKey, requestedLevel, requestedLevel, clock.instant());
+        mapper.insertHintRequest(new ApplyFlowMapper.HintRequestRow(
+                request.attemptId(), request.commandKey(), request.requestedLevel(),
+                request.exposedLevel(), request.exposedAt()));
+        return new HintExposureOutcome.Exposed(closed.attempt(), request);
+    }
+
+    @Override
+    public Optional<HintRequestRecord> findHintRequest(UUID attemptId, UUID commandKey) {
+        return mapper.findHintRequest(attemptId, commandKey).map(row -> new HintRequestRecord(
+                row.attemptId(), row.commandKey(), row.requestedLevel(), row.exposedLevel(), row.exposedAt()));
     }
 
     @Override

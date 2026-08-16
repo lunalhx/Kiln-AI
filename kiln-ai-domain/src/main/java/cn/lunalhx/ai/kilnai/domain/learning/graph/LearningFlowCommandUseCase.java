@@ -107,6 +107,30 @@ public final class LearningFlowCommandUseCase {
                 .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
     }
 
+    /**
+     * The hint-requested command of the closed learning command surface: it
+     * reuses the shared idempotency-replay boundary and the graph's Hint node.
+     * An explicit request for the answer jumps to H5; a regular request
+     * reveals the next persisted level of the attempt's stable ladder.
+     */
+    public ApplyFlowResult requestHint(
+            UUID flowId,
+            int interactionVersion,
+            UUID attemptId,
+            boolean answerRequested,
+            UUID idempotencyKey
+    ) {
+        requireUuidKey(idempotencyKey);
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        String hash = ApplyHash.sha256HexDelimited(
+                "hint", flowId, interactionVersion, attemptId, answerRequested);
+        return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
+                interaction -> new ApplyFlowResult.Boundary(interaction),
+                () -> graph.requestHint(flowId, interactionVersion, attemptId, answerRequested,
+                        idempotencyKey, hash));
+    }
+
     private void saveSourcePack() {
         ApplyExecutionContext.ConceptSourcePack pack = diagnosticContext.conceptSourcePack();
         artifactStore.saveSource(new SourceArtifact(pack.id(), pack.version(), pack.passages()));
