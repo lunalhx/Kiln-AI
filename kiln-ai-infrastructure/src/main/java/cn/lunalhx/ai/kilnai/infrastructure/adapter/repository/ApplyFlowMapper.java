@@ -432,6 +432,63 @@ public interface ApplyFlowMapper {
             @Param("closedAttemptId") UUID closedAttemptId,
             @Param("newOpenAttemptId") UUID newOpenAttemptId);
 
+    @Insert("""
+            INSERT INTO apply_teach_back_anchors (flow_id, anchor_id, anchor_kind, exposed_at)
+            VALUES (#{flowId}, #{anchorId}, #{anchorKind}, #{exposedAt})
+            ON CONFLICT (flow_id, anchor_id) DO NOTHING
+            """)
+    void insertTeachBackAnchor(
+            @Param("flowId") UUID flowId,
+            @Param("anchorId") UUID anchorId,
+            @Param("anchorKind") String anchorKind,
+            @Param("exposedAt") Instant exposedAt
+    );
+
+    @Select("""
+            SELECT flow_id, anchor_id, anchor_kind, exposed_at
+            FROM apply_teach_back_anchors
+            WHERE flow_id = #{flowId}
+            ORDER BY exposed_at ASC, anchor_id ASC
+            """)
+    List<TeachBackAnchorRow> listTeachBackAnchors(UUID flowId);
+
+    @Insert("""
+            INSERT INTO apply_teach_back_packages (
+                id, attempt_purpose, learner_projection, private_projection, created_at
+            ) VALUES (
+                #{id}, #{attemptPurpose}, CAST(#{learnerProjectionJson} AS JSONB),
+                CAST(#{privateProjectionJson} AS JSONB), #{createdAt}
+            )
+            """)
+    void insertTeachBackPackage(TeachBackPackageRow row);
+
+    @Select("""
+            SELECT id, attempt_purpose, learner_projection::text AS learner_projection_json,
+                   private_projection::text AS private_projection_json, created_at
+            FROM apply_teach_back_packages
+            WHERE id = #{taskPackageId}
+            """)
+    Optional<TeachBackPackageRow> findTeachBackPackage(UUID taskPackageId);
+
+    @Insert("""
+            INSERT INTO apply_teach_back_assessments (id, attempt_id, assessment, created_at)
+            VALUES (#{id}, #{attemptId}, CAST(#{assessmentJson} AS JSONB), #{createdAt})
+            """)
+    void insertTeachBackAssessment(
+            @Param("id") UUID id,
+            @Param("attemptId") UUID attemptId,
+            @Param("assessmentJson") String assessmentJson,
+            @Param("createdAt") Instant createdAt
+    );
+
+    @Select("""
+            SELECT assessment::text AS assessment_json
+            FROM apply_teach_back_assessments
+            WHERE attempt_id = #{attemptId}
+            ORDER BY created_at ASC
+            """)
+    List<String> listTeachBackAssessmentJson(UUID attemptId);
+
     record ApplyFlowRow(
             UUID id,
             UUID learnerId,
@@ -537,5 +594,17 @@ public interface ApplyFlowMapper {
     }
 
     record ExplainArtifactRow(String artifactJson) {
+    }
+
+    record TeachBackAnchorRow(UUID flowId, UUID anchorId, String anchorKind, Instant exposedAt) {
+    }
+
+    record TeachBackPackageRow(
+            UUID id,
+            String attemptPurpose,
+            String learnerProjectionJson,
+            String privateProjectionJson,
+            Instant createdAt
+    ) {
     }
 }

@@ -123,11 +123,39 @@ public final class ReferenceBundles {
                     List.of("explain", "hint", "teach_back"), null)
     );
 
+    private static final List<SkillBundle> TEACH_BACK_BUNDLES = List.of(
+            bundle("teach-back.anchored-explanation", BundleSlot.ACTION, "1.0.0",
+                    "Generate one short-text Teach-back task anchored to the exposed Explain or H5 content.",
+                    List.of("concept_contract", "mastery_rubric", "pedagogy_intent", "anchor",
+                            "learner_locale"),
+                    List.of("learner_prompt", "rubric_mapping", "source_trace", "anchor_reference",
+                            "source_gap"),
+                    """
+                    # Teach-back Anchored Explanation
+
+                    Generate exactly one short-text learner task in
+                    `learner_locale` that asks the learner to explain, in their
+                    own words, the reasoning of the supplied anchor content:
+                    which rules apply, why they apply, and how the steps connect
+                    to the result. Map every one of the three Rubric dimensions
+                    (`rule_identification`, `applicability_explanation`,
+                    `steps_result_coherence`) to a Mastery Rubric criterion,
+                    reference only the supplied anchor, and ground every source
+                    trace entry in the anchor's source trace. Keep learner-visible
+                    text free of sources, anchor ids, Rubric internals, expected
+                    explanations, solutions, and feedback. Return Source Gap when
+                    the approved anchor cannot support a valid task; never fill a
+                    gap with general knowledge.
+                    """,
+                    List.of("teach_back"), "teach_back_generation/v1")
+    );
+
     private ReferenceBundles() {
     }
 
     public static SkillBundle bundle(String pinnedId) {
-        return java.util.stream.Stream.concat(BUNDLES.stream(), EXPLAIN_BUNDLES.stream())
+        return java.util.stream.Stream.concat(BUNDLES.stream(),
+                        java.util.stream.Stream.concat(EXPLAIN_BUNDLES.stream(), TEACH_BACK_BUNDLES.stream()))
                 .filter(bundle -> pinnedId.equals(bundle.pinnedId()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("no reference bundle: " + pinnedId));
@@ -143,6 +171,16 @@ public final class ReferenceBundles {
 
     public static BundleStack explainStack() {
         return new BundleStack(EXPLAIN_BUNDLES);
+    }
+
+    /**
+     * The frozen Teach-back stack: exactly one reference Action Bundle and
+     * the shared immutable {@code subject.calculus-notation@1.0.0}.
+     */
+    public static BundleStack teachBackStack() {
+        return new BundleStack(List.of(
+                TEACH_BACK_BUNDLES.get(0),
+                EXPLAIN_BUNDLES.get(1)));
     }
 
     public static SkillBundle rewrap(BundleManifest manifest, SkillBundle bundle) {

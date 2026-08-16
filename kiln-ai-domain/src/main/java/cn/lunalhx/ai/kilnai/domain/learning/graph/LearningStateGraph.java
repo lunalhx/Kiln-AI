@@ -5,6 +5,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
@@ -19,6 +20,9 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.PracticeSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackDeliveryResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
@@ -60,6 +64,7 @@ public final class LearningStateGraph {
     private final PracticeSubmissionFlow practiceFlow;
     private final ExplainFlow explainFlow;
     private final HintFlow hintFlow;
+    private final TeachBackFlow teachBackFlow;
     private final Clock clock;
 
     public LearningStateGraph(
@@ -70,6 +75,7 @@ public final class LearningStateGraph {
             PracticeSubmissionFlow practiceFlow,
             ExplainFlow explainFlow,
             HintFlow hintFlow,
+            TeachBackFlow teachBackFlow,
             Clock clock
     ) {
         this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
@@ -79,6 +85,7 @@ public final class LearningStateGraph {
         this.practiceFlow = Objects.requireNonNull(practiceFlow, "practiceFlow must not be null");
         this.explainFlow = Objects.requireNonNull(explainFlow, "explainFlow must not be null");
         this.hintFlow = Objects.requireNonNull(hintFlow, "hintFlow must not be null");
+        this.teachBackFlow = Objects.requireNonNull(teachBackFlow, "teachBackFlow must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -135,10 +142,26 @@ public final class LearningStateGraph {
                     idempotencyKey, requestHash);
             case INDEPENDENT_TEST -> submitIndependent(state, attemptId, rawDerivative, confirmedCanonical, rationale,
                     idempotencyKey, requestHash);
-            case PRACTICE -> submitPractice(state, attemptId, rawDerivative, confirmedCanonical, rationale,
-                    idempotencyKey, requestHash);
+            case PRACTICE -> isTeachBackAttempt(attemptId)
+                    ? submitTeachBack(state, attemptId, rawDerivative, confirmedCanonical,
+                            idempotencyKey, requestHash)
+                    : submitPractice(state, attemptId, rawDerivative, confirmedCanonical, rationale,
+                            idempotencyKey, requestHash);
             default -> new ApplyFlowResult.SubmissionIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         };
+    }
+
+    /**
+     * The Teach-back Attempt is Practice-purpose but lives behind a
+     * teach-back task package; the graph discriminates by the package type so
+     * an Apply Practice submission is never routed into the Teach-back node
+     * and vice versa.
+     */
+    private boolean isTeachBackAttempt(UUID attemptId) {
+        return artifactStore.findAttempt(attemptId)
+                .map(TaskAttempt::taskPackageId)
+                .flatMap(artifactStore::findTeachBackPackage)
+                .isPresent();
     }
 
     /**
@@ -216,30 +239,39 @@ public final class LearningStateGraph {
                     state, LearningStage.LEARNING_AND_PRACTICE, attempt.attemptId(), attempt.purpose(),
                     projectionOf(attempt), null, revealed.hint(), idempotencyKey, requestHash);
         }
-        return deliverFreshPracticeAfterReveal(state, revealed.hint(), idempotencyKey, requestHash);
+        // The H5 reveal closes the attempt as Solution Revealed and becomes
+        // the most recently exposed eligible Teach-back anchor; the graph
+        // records it durably (idempotent per anchor id) before the Teach-back
+        // node delivers the anchored short-text task.
+        flowStore.recordAnchor(state.flow().flowId(),
+                new TeachBackAnchor(
+                        TeachBackAnchor.TeachBackAnchorKind.H5_SOLUTION_REVEAL,
+                        attempt.attemptId(),
+                        clock.instant()));
+        return deliverTeachBackAfterReveal(state, revealed.hint(), idempotencyKey, requestHash);
     }
 
     /**
      * After an H5 reveal the closed Solution Revealed Attempt never becomes
-     * Assessment or Evidence; the graph opens a fresh verified Apply Practice
-     * task so the learner can apply what was shown. A failed follow-up
-     * delivery stops at a safe boundary carrying the reveal and the neutral
-     * message.
+     * Assessment or Evidence; the graph delivers the anchored Teach-back task
+     * (the deterministic continuation of an H5 reveal), so the learner can
+     * explain the shown method. A failed Teach-back delivery stops at a safe
+     * boundary carrying the reveal and the neutral message.
      */
-    private ApplyFlowResult deliverFreshPracticeAfterReveal(
+    private ApplyFlowResult deliverTeachBackAfterReveal(
             LearningState state,
             HintView hint,
             UUID idempotencyKey,
             String requestHash
     ) {
-        ApplyDeliveryResult delivery = practiceFlow.deliverPractice(state.flow().flowId());
+        TeachBackDeliveryResult delivery = teachBackFlow.deliverTeachBack(state.flow().flowId());
         return switch (delivery) {
-            case ApplyDeliveryResult.Delivered delivered -> boundary(
+            case TeachBackDeliveryResult.Delivered delivered -> boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, delivered.attempt().attemptId(),
                     delivered.attempt().purpose(), delivered.learnerProjection(),
-                    PracticeSubmissionFlow.PRACTICE_AFTER_REVEAL_MESSAGE, hint,
+                    TeachBackFlow.TEACH_BACK_AFTER_REVEAL_MESSAGE, hint,
                     idempotencyKey, requestHash);
-            case ApplyDeliveryResult.Unavailable unavailable -> boundary(
+            case TeachBackDeliveryResult.Unavailable unavailable -> boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
                     unavailable.learnerMessage(), hint, idempotencyKey, requestHash);
         };
@@ -369,7 +401,9 @@ public final class LearningStateGraph {
      * The deterministic remediation entry of an accepted Diagnostic failure:
      * the Explain node delivers one source-grounded teaching interaction, or a
      * terminal unavailable boundary when no teaching content can be prepared.
-     * It never creates a Task Package, Attempt, Assessment, or Evidence.
+     * It never creates a Task Package, Attempt, Assessment, or Evidence. The
+     * delivered worked example becomes the most recently exposed eligible
+     * Teach-back anchor.
      */
     private ApplyFlowResult deliverExplainBoundary(
             LearningState state,
@@ -378,12 +412,62 @@ public final class LearningStateGraph {
     ) {
         ExplainDeliveryResult delivery = explainFlow.deliverExplain(state.flow().flowId());
         return switch (delivery) {
-            case ExplainDeliveryResult.Delivered delivered -> teachingBoundary(
-                    state, delivered.artifact().learnerProjection(), ExplainFlow.EXPLAIN_START_MESSAGE,
-                    idempotencyKey, requestHash);
+            case ExplainDeliveryResult.Delivered delivered -> {
+                flowStore.recordAnchor(state.flow().flowId(),
+                        new TeachBackAnchor(
+                                TeachBackAnchor.TeachBackAnchorKind.EXPLAIN_WORKED_EXAMPLE,
+                                delivered.artifact().artifactId(),
+                                clock.instant()));
+                yield teachingBoundary(
+                        state, delivered.artifact().learnerProjection(), ExplainFlow.EXPLAIN_START_MESSAGE,
+                        idempotencyKey, requestHash);
+            }
             case ExplainDeliveryResult.Unavailable unavailable -> boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
                     unavailable.learnerMessage(), null, idempotencyKey, requestHash);
+        };
+    }
+
+    /**
+     * The Teach-back node of one submission: a conclusive pass or fail
+     * accepts exactly one understanding-dimension Evidence record and
+     * delivers a fresh verified Apply Practice task — never a fresh
+     * Independent Test, because a Teach-back pass does not satisfy Apply
+     * Practice readiness — while an Inconclusive judgment creates no Evidence
+     * and delivers a fresh Teach-back replacement.
+     */
+    private ApplyFlowResult submitTeachBack(
+            LearningState state,
+            UUID attemptId,
+            String rawText,
+            String confirmedText,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        TeachBackSubmissionResult result = teachBackFlow.submitTeachBack(
+                state.flow(), attemptId, rawText, confirmedText);
+        return switch (result) {
+            case TeachBackSubmissionResult.Passed passed -> boundary(
+                    state, LearningStage.LEARNING_AND_PRACTICE, passed.followUpAttempt().attemptId(),
+                    passed.followUpAttempt().purpose(), passed.followUpLearnerProjection(),
+                    passed.learnerMessage(), null, idempotencyKey, requestHash);
+            case TeachBackSubmissionResult.Failed failed -> boundary(
+                    state, LearningStage.LEARNING_AND_PRACTICE, failed.followUpAttempt().attemptId(),
+                    failed.followUpAttempt().purpose(), failed.followUpLearnerProjection(),
+                    failed.learnerMessage(), null, idempotencyKey, requestHash);
+            case TeachBackSubmissionResult.Inconclusive inconclusive -> boundary(
+                    state, LearningStage.LEARNING_AND_PRACTICE,
+                    inconclusive.replacementAttempt().attemptId(),
+                    inconclusive.replacementAttempt().purpose(),
+                    inconclusive.replacementLearnerProjection(),
+                    inconclusive.learnerMessage(), null, idempotencyKey, requestHash);
+            case TeachBackSubmissionResult.Unavailable unavailable -> boundary(
+                    state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
+                    unavailable.learnerMessage(), null, idempotencyKey, requestHash);
+            case TeachBackSubmissionResult.Ignored ignored ->
+                    new ApplyFlowResult.SubmissionIgnored(ignored.reason());
+            case TeachBackSubmissionResult.NotSubmittable notSubmittable ->
+                    new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
         };
     }
 

@@ -22,6 +22,10 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessmentContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
@@ -168,6 +172,42 @@ class ApplyFlowStoreJsonRoundTripTest {
                 Instant.parse("2026-08-15T00:00:00Z"), Instant.parse("2026-08-16T01:00:00Z"),
                 UUID.randomUUID(), null, null);
         assertEquals(startedWithReplacement, roundTrip(startedWithReplacement));
+
+        TeachBackAnchor anchor = new TeachBackAnchor(
+                TeachBackAnchor.TeachBackAnchorKind.EXPLAIN_WORKED_EXAMPLE,
+                UUID.randomUUID(), Instant.parse("2026-08-16T02:00:00Z"));
+        assertEquals(anchor, roundTrip(anchor));
+        TeachBackAnchor revealAnchor = new TeachBackAnchor(
+                TeachBackAnchor.TeachBackAnchorKind.H5_SOLUTION_REVEAL,
+                UUID.randomUUID(), Instant.parse("2026-08-16T02:01:00Z"));
+        assertEquals(revealAnchor, roundTrip(revealAnchor));
+
+        TeachBackTaskPackage teachBackPackage = new TeachBackTaskPackage(
+                TeachBackTaskPackage.SCHEMA, UUID.randomUUID(), AttemptPurpose.PRACTICE, projection,
+                new TeachBackTaskPackage.TeachBackPrivateProjection(
+                        List.of(
+                                new TeachBackTaskPackage.RubricDimension("rule_identification", "differentiate-polynomial"),
+                                new TeachBackTaskPackage.RubricDimension("applicability_explanation", "differentiate-polynomial"),
+                                new TeachBackTaskPackage.RubricDimension("steps_result_coherence", "differentiate-polynomial")),
+                        List.of(new TeachBackTaskPackage.SourceTraceEntry("openstax-calculus-v1", "sec-3.3")),
+                        new TeachBackTaskPackage.AnchorReference(UUID.randomUUID(), "EXPLAIN_WORKED_EXAMPLE"),
+                        new TeachBackTaskPackage.ExecutionTrace("teach-back@1.0.0",
+                                List.of("teach-back.anchored-explanation@1.0.0"))));
+        assertEquals(teachBackPackage, roundTrip(teachBackPackage));
+        assertEquals(teachBackPackage.privateProjection(), roundTrip(teachBackPackage.privateProjection()));
+
+        TeachBackAssessment teachBackAssessment = new TeachBackAssessment(
+                TeachBackAssessment.SCHEMA,
+                TeachBackAssessment.DimensionJudgment.PASS,
+                TeachBackAssessment.DimensionJudgment.PASS,
+                TeachBackAssessment.DimensionJudgment.INCONCLUSIVE,
+                List.of("unreliable_judgment"));
+        assertEquals(teachBackAssessment, roundTrip(teachBackAssessment));
+
+        TeachBackAssessmentContext teachBackContext = new TeachBackAssessmentContext(
+                "请解释刚才的解题思路。", "完整解答：p'(x) = 18x² − 4。", "用了幂法则与和差法则。",
+                AttemptPurpose.PRACTICE);
+        assertEquals(teachBackContext, roundTrip(teachBackContext));
     }
 
     @SuppressWarnings("unchecked")

@@ -3,6 +3,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.port;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
@@ -55,6 +56,17 @@ public interface LearningFlowStore {
     void recordExampleExposure(UUID flowId, String exampleFingerprint);
 
     List<String> exposedExampleFingerprints(UUID flowId);
+
+    /**
+     * Records one eligible Teach-back anchor (an exposed Explain worked
+     * example or an H5 solution reveal) in the Flow's anchor ledger. The same
+     * anchor id is idempotent, so a crashed command that re-records its own
+     * anchor never duplicates it. Teach-back is legal only while the Flow
+     * carries such an anchor.
+     */
+    void recordAnchor(UUID flowId, TeachBackAnchor anchor);
+
+    Optional<TeachBackAnchor> latestAnchor(UUID flowId);
 
     boolean evidenceExists(UUID attemptId);
 

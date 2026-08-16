@@ -16,6 +16,9 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
@@ -159,6 +162,25 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     @Override
     public List<String> exposedExampleFingerprints(UUID flowId) {
         return mapper.exposedExampleFingerprints(flowId);
+    }
+
+    @Override
+    public void recordAnchor(UUID flowId, TeachBackAnchor anchor) {
+        mapper.insertTeachBackAnchor(
+                flowId, anchor.anchorId(), anchor.kind().name(), anchor.exposedAt());
+    }
+
+    @Override
+    public Optional<TeachBackAnchor> latestAnchor(UUID flowId) {
+        List<ApplyFlowMapper.TeachBackAnchorRow> anchors = mapper.listTeachBackAnchors(flowId);
+        if (anchors.isEmpty()) {
+            return Optional.empty();
+        }
+        ApplyFlowMapper.TeachBackAnchorRow latest = anchors.get(anchors.size() - 1);
+        return Optional.of(new TeachBackAnchor(
+                TeachBackAnchor.TeachBackAnchorKind.valueOf(latest.anchorKind()),
+                latest.anchorId(),
+                latest.exposedAt()));
     }
 
     @Override
@@ -503,6 +525,28 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
+    @Transactional
+    public TaskAttempt openAttempt(TeachBackTaskPackage taskPackage) {
+        TaskAttempt attempt = TaskAttempt.open(taskPackage, clock.instant());
+        mapper.insertTeachBackPackage(new ApplyFlowMapper.TeachBackPackageRow(
+                taskPackage.taskPackageId(),
+                taskPackage.attemptPurpose().name(),
+                writeJson(taskPackage.learnerProjection()),
+                writeJson(taskPackage.privateProjection()),
+                clock.instant()));
+        mapper.insertAttempt(new ApplyFlowMapper.AttemptRow(
+                attempt.attemptId(),
+                attempt.taskPackageId(),
+                attempt.purpose().name(),
+                attempt.status().name(),
+                attempt.openedAt(),
+                null,
+                null,
+                writeJson(attempt.assistanceTrace())));
+        return attempt;
+    }
+
+    @Override
     public Optional<TaskPackage> findPackage(UUID taskPackageId) {
         return mapper.findPackage(taskPackageId).map(row -> new TaskPackage(
                 TaskPackage.SCHEMA,
@@ -511,6 +555,17 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 readJson(row.learnerProjectionJson(), cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection.class),
                 readJson(row.privateAssessorProjectionJson(),
                         cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorProjection.class)));
+    }
+
+    @Override
+    public Optional<TeachBackTaskPackage> findTeachBackPackage(UUID taskPackageId) {
+        return mapper.findTeachBackPackage(taskPackageId).map(row -> new TeachBackTaskPackage(
+                TeachBackTaskPackage.SCHEMA,
+                row.id(),
+                AttemptPurpose.valueOf(row.attemptPurpose()),
+                readJson(row.learnerProjectionJson(), cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection.class),
+                readJson(row.privateProjectionJson(),
+                        cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage.TeachBackPrivateProjection.class)));
     }
 
     @Override
@@ -641,6 +696,18 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     public List<ResponseAssessment> assessmentsFor(UUID attemptId) {
         return mapper.listAssessmentJson(attemptId).stream()
                 .map(payload -> readJson(payload, ResponseAssessment.class)).toList();
+    }
+
+    @Override
+    public void recordTeachBackAssessment(UUID attemptId, TeachBackAssessment assessment) {
+        mapper.insertTeachBackAssessment(
+                UUID.randomUUID(), attemptId, writeJson(assessment), clock.instant());
+    }
+
+    @Override
+    public List<TeachBackAssessment> teachBackAssessmentsFor(UUID attemptId) {
+        return mapper.listTeachBackAssessmentJson(attemptId).stream()
+                .map(payload -> readJson(payload, TeachBackAssessment.class)).toList();
     }
 
     @Override

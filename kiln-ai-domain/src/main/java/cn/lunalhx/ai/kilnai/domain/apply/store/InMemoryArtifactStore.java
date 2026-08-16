@@ -13,6 +13,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 
@@ -28,11 +30,13 @@ import java.util.UUID;
 public final class InMemoryArtifactStore implements ArtifactStore {
 
     private final Map<UUID, TaskPackage> packages = new HashMap<>();
+    private final Map<UUID, TeachBackTaskPackage> teachBackPackages = new HashMap<>();
     private final Map<UUID, TaskAttempt> attempts = new HashMap<>();
     private final Map<UUID, HintLadder> ladders = new HashMap<>();
     private final Map<UUID, List<HintRequestRecord>> hintRequests = new HashMap<>();
     private final Map<UUID, List<TaskVerificationVerdict>> verifications = new HashMap<>();
     private final Map<UUID, List<ResponseAssessment>> assessments = new HashMap<>();
+    private final Map<UUID, List<TeachBackAssessment>> teachBackAssessments = new HashMap<>();
     private final Map<String, SourceArtifact> sources = new HashMap<>();
     private final Map<UUID, ExplainTeachingArtifact> explainArtifacts = new HashMap<>();
     private final Clock clock;
@@ -54,8 +58,25 @@ public final class InMemoryArtifactStore implements ArtifactStore {
     }
 
     @Override
+    public synchronized TaskAttempt openAttempt(TeachBackTaskPackage taskPackage) {
+        Objects.requireNonNull(taskPackage, "taskPackage must not be null");
+        if (teachBackPackages.containsKey(taskPackage.taskPackageId())) {
+            throw new IllegalStateException("teach-back task package already persisted: " + taskPackage.taskPackageId());
+        }
+        TaskAttempt attempt = TaskAttempt.open(taskPackage, clock.instant());
+        teachBackPackages.put(taskPackage.taskPackageId(), taskPackage);
+        attempts.put(attempt.attemptId(), attempt);
+        return attempt;
+    }
+
+    @Override
     public synchronized Optional<TaskPackage> findPackage(UUID taskPackageId) {
         return Optional.ofNullable(packages.get(taskPackageId));
+    }
+
+    @Override
+    public synchronized Optional<TeachBackTaskPackage> findTeachBackPackage(UUID taskPackageId) {
+        return Optional.ofNullable(teachBackPackages.get(taskPackageId));
     }
 
     @Override
@@ -152,6 +173,18 @@ public final class InMemoryArtifactStore implements ArtifactStore {
     @Override
     public synchronized List<ResponseAssessment> assessmentsFor(UUID attemptId) {
         return List.copyOf(assessments.getOrDefault(attemptId, List.of()));
+    }
+
+    @Override
+    public synchronized void recordTeachBackAssessment(UUID attemptId, TeachBackAssessment assessment) {
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        Objects.requireNonNull(assessment, "assessment must not be null");
+        teachBackAssessments.computeIfAbsent(attemptId, key -> new ArrayList<>()).add(assessment);
+    }
+
+    @Override
+    public synchronized List<TeachBackAssessment> teachBackAssessmentsFor(UUID attemptId) {
+        return List.copyOf(teachBackAssessments.getOrDefault(attemptId, List.of()));
     }
 
     @Override

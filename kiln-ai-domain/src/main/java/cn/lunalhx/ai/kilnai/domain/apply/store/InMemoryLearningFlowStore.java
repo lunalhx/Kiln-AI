@@ -5,6 +5,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
@@ -38,6 +39,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     private final Map<UUID, Set<String>> taskFingerprints = new HashMap<>();
     private final Map<UUID, Set<String>> solutionFingerprints = new HashMap<>();
     private final Map<UUID, Set<String>> exampleFingerprints = new HashMap<>();
+    private final Map<UUID, List<TeachBackAnchor>> teachBackAnchors = new HashMap<>();
     private final Map<UUID, AcceptedLearningEvidence> evidence = new HashMap<>();
     private final Map<UUID, ProcessedCommand> commands = new LinkedHashMap<>();
     private final Map<UUID, ReviewTask> reviews = new LinkedHashMap<>();
@@ -142,6 +144,26 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     @Override
     public synchronized List<String> exposedExampleFingerprints(UUID flowId) {
         return List.copyOf(exampleFingerprints.getOrDefault(flowId, Set.of()));
+    }
+
+    @Override
+    public synchronized void recordAnchor(UUID flowId, TeachBackAnchor anchor) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(anchor, "anchor must not be null");
+        List<TeachBackAnchor> anchors = teachBackAnchors.computeIfAbsent(flowId, key -> new ArrayList<>());
+        boolean alreadyRecorded = anchors.stream().anyMatch(existing -> existing.anchorId().equals(anchor.anchorId()));
+        if (!alreadyRecorded) {
+            anchors.add(anchor);
+        }
+    }
+
+    @Override
+    public synchronized Optional<TeachBackAnchor> latestAnchor(UUID flowId) {
+        List<TeachBackAnchor> anchors = teachBackAnchors.get(flowId);
+        if (anchors == null || anchors.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(anchors.get(anchors.size() - 1));
     }
 
     @Override

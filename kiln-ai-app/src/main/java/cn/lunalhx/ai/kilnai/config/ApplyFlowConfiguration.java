@@ -17,6 +17,9 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewCollectionUseCase;
@@ -53,6 +56,30 @@ public class ApplyFlowConfiguration {
     HintGenerationPort failClosedHintGeneration() {
         return (compiledSystemPrompt, executionContextJson) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "hint generation adapter is not configured");
+        };
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(TeachBackGenerationPort.class)
+    TeachBackGenerationPort failClosedTeachBackGeneration() {
+        return (compiledSystemPrompt, executionContextJson) -> {
+            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "teach-back generation adapter is not configured");
+        };
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(TeachBackTaskVerifierPort.class)
+    TeachBackTaskVerifierPort failClosedTeachBackTaskVerifier() {
+        return (taskPackage, context) -> {
+            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "teach-back task verifier adapter is not configured");
+        };
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(TeachBackAssessmentPort.class)
+    TeachBackAssessmentPort failClosedTeachBackAssessment() {
+        return context -> {
+            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "teach-back assessment adapter is not configured");
         };
     }
 

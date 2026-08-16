@@ -11,6 +11,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 
 import java.util.List;
 import java.util.Optional;
@@ -35,7 +37,15 @@ public interface ArtifactStore {
 
     TaskAttempt openAttempt(TaskPackage taskPackage);
 
+    /**
+     * Persists one validated Teach-back task package and opens its
+     * Practice-purpose Attempt atomically, exactly like an Apply package.
+     */
+    TaskAttempt openAttempt(TeachBackTaskPackage taskPackage);
+
     Optional<TaskPackage> findPackage(UUID taskPackageId);
+
+    Optional<TeachBackTaskPackage> findTeachBackPackage(UUID taskPackageId);
 
     List<TaskPackage> allPackages();
 
@@ -68,6 +78,15 @@ public interface ArtifactStore {
     void recordResponseAssessment(UUID attemptId, ResponseAssessment assessment);
 
     List<ResponseAssessment> assessmentsFor(UUID attemptId);
+
+    /**
+     * Records one isolated Teach-back semantic Assessment as an audit record
+     * of the closed attempt. Duplicate recordings are audit records, never
+     * state.
+     */
+    void recordTeachBackAssessment(UUID attemptId, TeachBackAssessment assessment);
+
+    List<TeachBackAssessment> teachBackAssessmentsFor(UUID attemptId);
 
     void saveSource(SourceArtifact source);
 

@@ -1,9 +1,11 @@
 package cn.lunalhx.ai.kilnai.infrastructure.adapter.model;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.model.EquivalenceOutcome;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
@@ -60,7 +62,7 @@ class ApplyModelAdapterTest {
                 """);
         ApplyModelAdapter adapter = adapter(model);
 
-        TaskVerificationVerdict verdict = adapter.verify(null, null);
+        TaskVerificationVerdict verdict = adapter.verify((TaskPackage) null, (ApplyExecutionContext) null);
 
         assertEquals(TaskVerificationVerdict.Verdict.PASS, verdict.verdict());
         assertTrue(verdict.passed());
@@ -79,7 +81,7 @@ class ApplyModelAdapterTest {
                 """);
         ApplyModelAdapter adapter = adapter(model);
 
-        TaskVerificationVerdict verdict = adapter.verify(null, null);
+        TaskVerificationVerdict verdict = adapter.verify((TaskPackage) null, (ApplyExecutionContext) null);
 
         assertEquals(TaskVerificationVerdict.Verdict.REJECT, verdict.verdict());
         assertTrue(verdict.reasonCodes().contains("task_answer_inconsistent"));
@@ -111,8 +113,69 @@ class ApplyModelAdapterTest {
         ScriptedChatModel model = new ScriptedChatModel("{\"schema\":\"task_verification/v2\",\"verdict\":\"pass\"}");
         ApplyModelAdapter adapter = adapter(model);
 
-        ApplicationException error = assertThrows(ApplicationException.class, () -> adapter.verify(null, null));
+        ApplicationException error = assertThrows(ApplicationException.class, () -> adapter.verify((TaskPackage) null, (ApplyExecutionContext) null));
         assertEquals(ErrorCode.SERVICE_UNAVAILABLE, error.errorCode());
+    }
+
+    @Test
+    void teachBackGenerationReturnsRawModelTextWithTheProfileSystemPrompt() {
+        ScriptedChatModel model = new ScriptedChatModel("{\"outcome\":\"source_gap\"}");
+        ApplyModelAdapter adapter = adapter(model);
+
+        String raw = adapter.generate("teach-back compiled prompt", "{\"schema\":\"teach_back_execution_context/v1\"}");
+
+        assertEquals("{\"outcome\":\"source_gap\"}", raw);
+        assertEquals("teach-back compiled prompt",
+                model.prompts.getFirst().getInstructions().get(0).getText());
+    }
+
+    @Test
+    void teachBackVerificationParsesTheClosedVerdict() {
+        ScriptedChatModel model = new ScriptedChatModel("""
+                {"schema":"task_verification/v1","verdict":"reject",
+                 "checks":{"answer_clarity":"reject","rubric_alignment":"pass","source_grounding":"pass",
+                 "anchor_grounding":"pass","learner_boundary":"pass"},
+                 "reason_codes":["ambiguous_prompt"]}
+                """);
+        ApplyModelAdapter adapter = adapter(model);
+
+        TaskVerificationVerdict verdict = adapter.verify(
+                (cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage) null,
+                (cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackExecutionContext) null);
+
+        assertEquals(TaskVerificationVerdict.Verdict.REJECT, verdict.verdict());
+        assertTrue(verdict.reasonCodes().contains("ambiguous_prompt"));
+        assertTrue(model.prompts.getFirst().getInstructions().get(0).getText()
+                .contains("# Teach-back Task Verifier"));
+    }
+
+    @Test
+    void teachBackAssessmentParsesTheThreeDimensionJudgments() {
+        ScriptedChatModel model = new ScriptedChatModel("""
+                {"schema":"teach_back_assessment/v1",
+                 "rule_identification":"pass","applicability_explanation":"fail",
+                 "steps_result_coherence":"inconclusive","reason_codes":["rule_not_identified"]}
+                """);
+        ApplyModelAdapter adapter = adapter(model);
+        cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessmentContext context =
+                new cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessmentContext(
+                        "请解释刚才的解题思路。", "完整解答：p'(x) = 18x² − 4。", "用了幂法则与和差法则。",
+                        AttemptPurpose.PRACTICE);
+
+        cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment assessment =
+                adapter.assess(context);
+
+        assertEquals(cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment.DimensionJudgment.PASS,
+                assessment.ruleIdentification());
+        assertEquals(cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment.DimensionJudgment.FAIL,
+                assessment.applicabilityExplanation());
+        assertEquals(cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment.DimensionJudgment.INCONCLUSIVE,
+                assessment.stepsResultCoherence());
+        assertEquals(cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment.TeachBackOutcome.INCONCLUSIVE,
+                assessment.outcome(),
+                "any inconclusive dimension makes the whole judgment inconclusive");
+        assertTrue(model.prompts.getFirst().getInstructions().get(0).getText()
+                .contains("# Teach-back Assessment"));
     }
 
     @Test

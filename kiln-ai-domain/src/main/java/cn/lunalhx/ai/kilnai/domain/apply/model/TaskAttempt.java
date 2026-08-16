@@ -54,6 +54,26 @@ public record TaskAttempt(
         );
     }
 
+    /**
+     * Opens one Practice-purpose Attempt for a validated Teach-back task
+     * package. The Teach-back Attempt is exactly as closed and idempotent as
+     * any other Attempt: one formal submission, no hints.
+     */
+    public static TaskAttempt open(TeachBackTaskPackage taskPackage, Instant now) {
+        Objects.requireNonNull(taskPackage, "taskPackage must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        return new TaskAttempt(
+                UUID.randomUUID(),
+                taskPackage.taskPackageId(),
+                taskPackage.attemptPurpose(),
+                AttemptStatus.OPEN,
+                now,
+                null,
+                null,
+                List.of()
+        );
+    }
+
     public AttemptCloseOutcome close(TaskSubmission submission, Instant now) {
         Objects.requireNonNull(submission, "submission must not be null");
         Objects.requireNonNull(now, "now must not be null");

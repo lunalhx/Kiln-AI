@@ -81,7 +81,11 @@ public final class HintFlow {
         if (resumed.isPresent()) {
             return resumed.get();
         }
-        if (attempt.purpose() != AttemptPurpose.PRACTICE) {
+        // Hints are never legal for a Teach-back Attempt (ADR-0065): its
+        // Practice-purpose Attempt carries a teach-back task package, which
+        // the package-type discriminator distinguishes from Apply Practice.
+        if (attempt.purpose() != AttemptPurpose.PRACTICE
+                || artifactStore.findTeachBackPackage(attempt.taskPackageId()).isPresent()) {
             return new HintResult.Ignored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         }
         if (!attempt.isOpen()) {

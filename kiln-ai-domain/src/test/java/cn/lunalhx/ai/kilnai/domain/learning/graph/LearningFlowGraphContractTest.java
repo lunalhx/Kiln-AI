@@ -9,16 +9,22 @@ import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedExplainGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedHintGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedResponseVerificationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTaskVerifier;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackAssessmentModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackTaskVerifier;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.TeachBackScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.TeachBackApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
@@ -37,12 +43,18 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionRejectionReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackDeliveryResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackUnavailableReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
@@ -64,8 +76,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -956,9 +970,8 @@ class LearningFlowGraphContractTest {
     void anAnswerRequestJumpsToH5ClosingTheAttemptAsSolutionRevealedWithoutAssessmentOrEvidence() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(
-                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
-                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict())),
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
         ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
@@ -971,7 +984,7 @@ class LearningFlowGraphContractTest {
         assertEquals(HintScriptData.H5_LEARNER_CONTENT, interaction.hint().learnerContent());
         assertEquals(4, interaction.hint().reasoningSteps().size());
         assertEquals("18*x^2-4", interaction.hint().proposedFinalAnswer());
-        assertEquals(PracticeSubmissionFlow.PRACTICE_AFTER_REVEAL_MESSAGE, interaction.learnerMessage());
+        assertEquals(TeachBackFlow.TEACH_BACK_AFTER_REVEAL_MESSAGE, interaction.learnerMessage());
         assertEquals(AttemptStatus.SOLUTION_REVEALED,
                 harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status(),
                 "the H5 reveal must close the attempt as Solution Revealed");
@@ -979,14 +992,32 @@ class LearningFlowGraphContractTest {
                 "an H5 reveal must never create Evidence");
         assertTrue(harness.artifacts().assessmentsFor(practiceAttemptId).isEmpty(),
                 "an H5 reveal must never trigger Assessment");
-        assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT,
-                interaction.learnerProjection().taskText(),
-                "a fresh verified Apply Practice task follows the reveal");
+        assertEquals(TeachBackScriptData.LEARNER_PROMPT, interaction.learnerProjection().taskText(),
+                "the anchored Teach-back task follows the reveal");
         assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
+        assertEquals(practiceAttemptId,
+                harness.flowStore().latestAnchor(interaction.flowId()).orElseThrow().anchorId(),
+                "the H5 reveal must be recorded as the eligible Teach-back anchor");
+        assertEquals(TeachBackAnchor.TeachBackAnchorKind.H5_SOLUTION_REVEAL,
+                harness.flowStore().latestAnchor(interaction.flowId()).orElseThrow().kind());
+        assertEquals(1, harness.teachBackGeneration().calls().size(),
+                "the Teach-back task must be generated exactly once for the reveal");
+        assertEquals(2, harness.generation().calls().size(),
+                "no fresh Apply Practice task may follow the reveal while the Teach-back is offered");
+        assertEquals(2, harness.artifacts().allPackages().size(),
+                "the Teach-back task is a short-text package, not an Apply package");
+        assertFalse(interaction.learnerProjection().allowedEvents().contains(ApplyLearnerEvent.HINT_REQUESTED),
+                "the Teach-back task never permits a Hint event");
         ApplyFlowResult.HintIgnored later = (ApplyFlowResult.HintIgnored) harness.useCase().requestHint(
                 interaction.flowId(), interaction.interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED, later.reason(),
                 "a closed Solution Revealed attempt never takes another hint");
+        ApplyFlowResult.HintIgnored teachBackHint = (ApplyFlowResult.HintIgnored) harness.useCase().requestHint(
+                interaction.flowId(), interaction.interactionVersion(), interaction.attemptId(), false, UUID.randomUUID());
+        assertEquals(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE, teachBackHint.reason(),
+                "hints are never legal on an open Teach-back Attempt (ADR-0065)");
+        assertEquals(1, harness.hintGeneration().calls().size(),
+                "only the practice ladder generation may ever happen, never one for the Teach-back Attempt");
     }
 
     @Test
@@ -1130,6 +1161,247 @@ class LearningFlowGraphContractTest {
                 "a resumed reveal must never call the model again");
     }
 
+    @Test
+    void aTeachBackPassAcceptsUnderstandingEvidenceAndDeliversAFreshPracticeTaskNotAnIndependentTest() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
+        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        UUID teachBackAttemptId = teachBack.interaction().attemptId();
+        ApplyFlowResult.Boundary followUp = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
+                UUID.randomUUID(), teachBackAttemptId,
+                TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
+        ApplyFlowInteraction interaction = followUp.interaction();
+        assertEquals(5, interaction.interactionVersion());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage(),
+                "a Teach-back pass alone must never reopen fresh Independent testing");
+        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose(),
+                "the follow-up is a fresh Apply Practice task, never an Independent Test");
+        assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT, interaction.learnerProjection().taskText());
+        assertEquals(TeachBackFlow.TEACH_BACK_FOLLOW_UP_MESSAGE, interaction.learnerMessage());
+        assertEquals(1, harness.flowStore().allEvidence().size(),
+                "the Teach-back pass must accept exactly one understanding Evidence record");
+        AcceptedLearningEvidence evidence = harness.flowStore().allEvidence().get(0);
+        assertEquals(teachBackAttemptId, evidence.taskAttemptId());
+        assertEquals(LearningResult.PASS, evidence.result());
+        assertEquals(AttemptPurpose.PRACTICE, evidence.attemptPurpose());
+        assertEquals(0, evidence.highestHintLevel(),
+                "Teach-back evidence carries no assistance because no hint is ever exposed");
+        assertTrue(evidence.assistanceTrace().isEmpty());
+        assertEquals(3, harness.generation().calls().size(),
+                "the follow-up must be a fresh Apply Practice generation, never an Independent one");
+        assertEquals(1, harness.teachBackAssessment().contexts().size());
+        assertEquals(TeachBackScriptData.LEARNER_PROMPT,
+                harness.teachBackAssessment().contexts().get(0).taskText());
+        assertTrue(harness.teachBackAssessment().contexts().get(0).anchorContent()
+                .contains("18*x^2-4"), "the assessor sees the already exposed H5 anchor content");
+        assertEquals(TeachBackScriptData.PASS_EXPLANATION,
+                harness.teachBackAssessment().contexts().get(0).learnerResponse());
+        assertEquals(1, harness.artifacts().teachBackAssessmentsFor(teachBackAttemptId).size(),
+                "the isolated Teach-back Assessment must be recorded for audit");
+        assertEquals(AttemptStatus.SUBMITTED,
+                harness.artifacts().findAttempt(teachBackAttemptId).orElseThrow().status(),
+                "one formal submission closes the Teach-back Attempt");
+    }
+
+    @Test
+    void aTeachBackFailAcceptsFailEvidenceAndDeliversAFreshPracticeTask() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())),
+                new ScriptedTeachBackGenerationModel(List.of(TeachBackScriptData.taskReadyJson())),
+                new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.failAssessment())));
+        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        UUID teachBackAttemptId = teachBack.interaction().attemptId();
+        ApplyFlowResult.Boundary followUp = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
+                UUID.randomUUID(), teachBackAttemptId,
+                "用了乘积法则，但没解释为什么。", "用了乘积法则，但没解释为什么。", null);
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, followUp.interaction().stage());
+        assertEquals(AttemptPurpose.PRACTICE, followUp.interaction().attemptPurpose());
+        assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT, followUp.interaction().learnerProjection().taskText());
+        assertEquals(1, harness.flowStore().allEvidence().size(),
+                "the Teach-back fail must accept exactly one understanding FAIL Evidence record");
+        assertEquals(LearningResult.FAIL, harness.flowStore().allEvidence().get(0).result());
+        assertEquals(teachBackAttemptId, harness.flowStore().allEvidence().get(0).taskAttemptId());
+    }
+
+    @Test
+    void anInconclusiveTeachBackCreatesNoEvidenceAndDeliversAFreshTeachBackReplacement() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())),
+                new ScriptedTeachBackGenerationModel(List.of(
+                        TeachBackScriptData.taskReadyJson(), TeachBackScriptData.taskReadyJson())),
+                new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.inconclusiveAssessment())));
+        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        UUID teachBackAttemptId = teachBack.interaction().attemptId();
+        ApplyFlowResult.Boundary replacement = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
+                UUID.randomUUID(), teachBackAttemptId,
+                "说不清为什么幂法则适用。", "说不清为什么幂法则适用。", null);
+        ApplyFlowInteraction interaction = replacement.interaction();
+        assertEquals(5, interaction.interactionVersion());
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
+        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
+        assertEquals(TeachBackScriptData.LEARNER_PROMPT, interaction.learnerProjection().taskText(),
+                "an Inconclusive judgment must deliver a fresh Teach-back task");
+        assertEquals(TeachBackFlow.TEACH_BACK_REPLACEMENT_MESSAGE, interaction.learnerMessage());
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "an Inconclusive Teach-back judgment must never create Evidence");
+        assertEquals(2, harness.teachBackGeneration().calls().size(),
+                "the replacement requires one fresh Teach-back generation");
+        assertEquals(2, harness.artifacts().allPackages().size(),
+                "the replacement is a Teach-back package, not an Apply package");
+        assertEquals(AttemptStatus.SUBMITTED,
+                harness.artifacts().findAttempt(teachBackAttemptId).orElseThrow().status());
+    }
+
+    @Test
+    void aReplayedTeachBackSubmissionReturnsTheOriginalInteractionWithoutASecondAssessment() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
+        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        UUID key = UUID.randomUUID();
+        UUID teachBackAttemptId = teachBack.interaction().attemptId();
+        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
+                key, teachBackAttemptId,
+                TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
+        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
+                key, teachBackAttemptId,
+                TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
+        assertEquals(first.interaction(), replay.interaction(), "a replayed key must return the original result");
+        assertEquals(1, harness.teachBackAssessment().contexts().size(),
+                "a replay must never run a second Teach-back Assessment");
+        assertEquals(1, harness.flowStore().allEvidence().size(),
+                "a replay must never accept a second Evidence");
+        assertEquals(1, harness.artifacts().teachBackAssessmentsFor(teachBackAttemptId).size());
+    }
+
+    @Test
+    void aCrashBetweenClosingAndCommittingATeachBackSubmissionResumesExactlyOnce() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
+        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        UUID teachBackAttemptId = teachBack.interaction().attemptId();
+        harness.artifacts().closeAttempt(teachBackAttemptId,
+                new TaskSubmission(
+                        new MathematicalAnswer(TeachBackScriptData.PASS_EXPLANATION,
+                                TeachBackScriptData.PASS_EXPLANATION, AnswerInputFamily.PLAIN_TEXT),
+                        null, CLOCK.instant()));
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "the crash must leave the closed Attempt without committed Evidence");
+        UUID retryKey = UUID.randomUUID();
+        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
+                retryKey, teachBackAttemptId,
+                TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
+        assertEquals(5, recovered.interaction().interactionVersion());
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, recovered.interaction().stage());
+        assertEquals(1, harness.flowStore().allEvidence().size(),
+                "the retry must resume the assessment of the saved submission exactly once");
+        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
+                retryKey, teachBackAttemptId,
+                TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
+        assertEquals(recovered.interaction(), replay.interaction());
+        assertEquals(1, harness.flowStore().allEvidence().size());
+    }
+
+    @Test
+    void theGuardOffersTeachBackOnlyWithAnEligibleAnchorAndNeverCallsTheModelWithoutOne() {
+        Harness harness = practiceHarness();
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        assertEquals(0, harness.flowStore().latestAnchor(started.interaction().flowId()).map(anchor -> 1).orElse(0),
+                "a freshly started Flow carries no eligible anchor yet");
+        TeachBackDeliveryResult.Unavailable guarded =
+                (TeachBackDeliveryResult.Unavailable) harness.teachBackFlow().deliverTeachBack(started.interaction().flowId());
+        assertEquals(TeachBackUnavailableReason.NO_ELIGIBLE_ANCHOR, guarded.reason(),
+                "without an eligible anchor the Guard must not offer Teach-back");
+        assertEquals(0, harness.teachBackGeneration().calls().size(),
+                "no model call may ever happen without an eligible anchor");
+        assertEquals(1, harness.artifacts().allPackages().size(),
+                "no Teach-back package may open without an eligible anchor");
+
+        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
+        TeachBackAnchor anchor = harness.flowStore().latestAnchor(explained.interaction().flowId()).orElseThrow();
+        assertEquals(TeachBackAnchor.TeachBackAnchorKind.EXPLAIN_WORKED_EXAMPLE, anchor.kind(),
+                "the Explain worked example must be recorded as the eligible Teach-back anchor");
+        assertEquals(0, harness.teachBackGeneration().calls().size(),
+                "no Teach-back task may be generated by the Explain boundary itself");
+    }
+
+    @Test
+    void theFullRemediationLoopReopensIndependentTestingOnlyAfterAnApplyPracticePass() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson(),
+                        independentTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment(),
+                        conclusivePracticeJudgment(), conclusivePracticeJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())),
+                new ScriptedTeachBackGenerationModel(List.of(TeachBackScriptData.taskReadyJson())),
+                new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.passAssessment())));
+        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        ApplyFlowResult.Boundary afterTeachBackPass = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
+                UUID.randomUUID(), teachBack.interaction().attemptId(),
+                TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, afterTeachBackPass.interaction().stage(),
+                "a Teach-back pass must not reopen Independent testing by itself");
+        assertEquals(1, harness.flowStore().allEvidence().size());
+        ApplyFlowResult.Boundary practicePass = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                afterTeachBackPass.interaction().flowId(), afterTeachBackPass.interaction().interactionVersion(),
+                UUID.randomUUID(), afterTeachBackPass.interaction().attemptId(),
+                ApplyScriptData.SECOND_PRACTICE_CORRECT_DERIVATIVE,
+                ApplyScriptData.SECOND_PRACTICE_CORRECT_CANONICAL, null);
+        assertEquals(LearningStage.INDEPENDENT_TEST, practicePass.interaction().stage(),
+                "only the current cycle's conclusive Apply Practice PASS can reopen Independent testing");
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST, practicePass.interaction().attemptPurpose());
+        assertEquals(2, harness.flowStore().allEvidence().size(),
+                "the understanding Evidence and the assisted Practice Evidence are both accepted");
+        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                practicePass.interaction().flowId(), practicePass.interaction().interactionVersion(),
+                UUID.randomUUID(), practicePass.interaction().attemptId(),
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+        assertEquals(3, harness.flowStore().allEvidence().size());
+        assertEquals(1, harness.flowStore().unfinishedReviewsFor(LEARNER_ID).size(),
+                "the post-remediation Independent pass rejoins the established Review 1 cadence");
+    }
+
     private static String invalidLadderJson() {
         return HintScriptData.ladderReadyJson(
                 HintScriptData.H4_SCAFFOLD, HintScriptData.H5_LEARNER_CONTENT,
@@ -1188,6 +1460,18 @@ class LearningFlowGraphContractTest {
                 explained.interaction().flowId(), explained.interaction().interactionVersion(), UUID.randomUUID());
     }
 
+    /**
+     * Runs the Diagnostic fail through the Explain teaching boundary, the
+     * fresh Practice boundary, and an H5 answer reveal, so the learner stands
+     * at the anchored Teach-back task boundary.
+     */
+    private static ApplyFlowResult.Boundary reachTeachBackBoundary(Harness harness) {
+        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        return (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(),
+                practice.interaction().attemptId(), true, UUID.randomUUID());
+    }
+
     private static String practiceTaskJson() {
         return ApplyScriptData.taskReadyJson(
                 ApplyScriptData.PRACTICE_TASK_TEXT, ApplyScriptData.PRACTICE_EXPECTED_EXPRESSION);
@@ -1213,6 +1497,19 @@ class LearningFlowGraphContractTest {
 
     private static ResponseAssessment inconclusiveJudgment() {
         return ApplyScriptData.responseAssessment(FinalExpressionJudgment.INCONCLUSIVE, RationaleJudgment.INCONCLUSIVE);
+    }
+
+    private static TaskVerificationVerdict passVerdict() {
+        return new TaskVerificationVerdict(
+                TaskVerificationVerdict.SCHEMA,
+                TaskVerificationVerdict.Verdict.PASS,
+                Map.of(
+                        "answer_clarity", TaskVerificationVerdict.CheckResult.PASS,
+                        "rubric_alignment", TaskVerificationVerdict.CheckResult.PASS,
+                        "source_grounding", TaskVerificationVerdict.CheckResult.PASS,
+                        "anchor_grounding", TaskVerificationVerdict.CheckResult.PASS,
+                        "learner_boundary", TaskVerificationVerdict.CheckResult.PASS),
+                List.of());
     }
 
     private Harness harness(
@@ -1266,6 +1563,38 @@ class LearningFlowGraphContractTest {
             ScriptedExplainGenerationModel explainGeneration,
             ScriptedHintGenerationModel hintGeneration
     ) {
+        return harness(generation, verifier, assessment, verification, explainGeneration, hintGeneration,
+                new ScriptedTeachBackGenerationModel(List.of(TeachBackScriptData.taskReadyJson())),
+                new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.passAssessment())),
+                new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())));
+    }
+
+    private Harness harness(
+            ScriptedApplyGenerationModel generation,
+            ScriptedTaskVerifier verifier,
+            ScriptedAssessmentModel assessment,
+            ScriptedResponseVerificationModel verification,
+            ScriptedExplainGenerationModel explainGeneration,
+            ScriptedHintGenerationModel hintGeneration,
+            ScriptedTeachBackGenerationModel teachBackGeneration,
+            ScriptedTeachBackAssessmentModel teachBackAssessment
+    ) {
+        return harness(generation, verifier, assessment, verification, explainGeneration, hintGeneration,
+                teachBackGeneration, teachBackAssessment,
+                new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())));
+    }
+
+    private Harness harness(
+            ScriptedApplyGenerationModel generation,
+            ScriptedTaskVerifier verifier,
+            ScriptedAssessmentModel assessment,
+            ScriptedResponseVerificationModel verification,
+            ScriptedExplainGenerationModel explainGeneration,
+            ScriptedHintGenerationModel hintGeneration,
+            ScriptedTeachBackGenerationModel teachBackGeneration,
+            ScriptedTeachBackAssessmentModel teachBackAssessment,
+            ScriptedTeachBackTaskVerifier teachBackVerifier
+    ) {
         InMemoryArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
         InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK);
         ReviewTaskScheduler reviewScheduler = new ReviewTaskScheduler(flowStore);
@@ -1283,12 +1612,18 @@ class LearningFlowGraphContractTest {
                 artifacts, flowStore, ExplainApplyFixture.explainContext());
         HintFlow hintFlow = new HintFlow(
                 hintGeneration, artifacts, PracticeApplyFixture.practiceContext().conceptSourcePack());
+        TeachBackFlow teachBackFlow = new TeachBackFlow(
+                new TeachBackProfileExecutor(
+                        ReferenceBundles.teachBackStack(), teachBackGeneration, teachBackVerifier, artifacts),
+                artifacts, flowStore, practiceFlow, teachBackAssessment,
+                TeachBackApplyFixture.teachBackContext(), CLOCK);
         LearningStateGraph graph = new LearningStateGraph(
                 artifacts, flowStore, diagnosticFlow, independentFlow, practiceFlow,
-                explainFlow, hintFlow, CLOCK);
+                explainFlow, hintFlow, teachBackFlow, CLOCK);
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
                 artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), CLOCK);
-        return new Harness(artifacts, flowStore, generation, hintGeneration, useCase, graph, explainGeneration);
+        return new Harness(artifacts, flowStore, generation, hintGeneration, useCase, graph,
+                explainGeneration, teachBackGeneration, teachBackAssessment, teachBackFlow);
     }
 
     private record Harness(
@@ -1298,7 +1633,10 @@ class LearningFlowGraphContractTest {
             ScriptedHintGenerationModel hintGeneration,
             LearningFlowCommandUseCase useCase,
             LearningStateGraph graph,
-            ScriptedExplainGenerationModel explainGeneration
+            ScriptedExplainGenerationModel explainGeneration,
+            ScriptedTeachBackGenerationModel teachBackGeneration,
+            ScriptedTeachBackAssessmentModel teachBackAssessment,
+            TeachBackFlow teachBackFlow
     ) {
         LearningFlowCommandUseCase newUseCase() {
             return new LearningFlowCommandUseCase(
