@@ -189,6 +189,7 @@ public interface ApplyFlowMapper {
     @Insert("""
             INSERT INTO sources (source_pack_id, version, passages, created_at)
             VALUES (#{sourcePackId}, #{version}, CAST(#{passagesJson} AS JSONB), #{createdAt})
+            ON CONFLICT (source_pack_id) DO NOTHING
             """)
     void insertSource(
             @Param("sourcePackId") String sourcePackId,

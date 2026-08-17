@@ -154,6 +154,15 @@ class LearningFlowPostgresSuccessPathTest {
     }
 
     @Test
+    void startingAnotherFlowReusesTheImmutableReferenceSourcePack() {
+        useCase.start(UUID.randomUUID(), UUID.randomUUID());
+        useCase.start(UUID.randomUUID(), UUID.randomUUID());
+
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM sources", Integer.class));
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM flows", Integer.class));
+    }
+
+    @Test
     void aRestartRecoversTheCommittedSuccessPathAndTheReviewCadenceContinues() {
         UUID learnerId = UUID.randomUUID();
         ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());

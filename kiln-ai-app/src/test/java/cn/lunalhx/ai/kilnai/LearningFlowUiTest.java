@@ -52,7 +52,9 @@ class LearningFlowUiTest {
             assertFalse(diagnostic.contains("openstax"), "source identities must not reach the UI");
             assertFalse(diagnostic.contains("fingerprint"), "fingerprints must not reach the UI");
 
-            page.fill("#derivative", "12*x^2-6*x+7");
+            page.fill("#derivative", "f'(x) = 12x²−6x+7");
+            assertTrue(page.inputValue("#canonical").equals("12*x^2-6*x+7"),
+                    "the UI must submit the learner-confirmed canonical expression");
             page.click("#submit");
             page.waitForFunction("() => document.getElementById('task').textContent.includes('设 g(x)')");
             String independent = page.innerText("#view");

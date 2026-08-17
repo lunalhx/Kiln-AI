@@ -15,6 +15,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
@@ -58,7 +59,7 @@ import java.util.function.Function;
  */
 public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifierPort,
         AssessmentPort, ResponseVerificationPort, HintGenerationPort,
-        TeachBackGenerationPort, TeachBackTaskVerifierPort, TeachBackAssessmentPort,
+        ExplainGenerationPort, TeachBackGenerationPort, TeachBackTaskVerifierPort, TeachBackAssessmentPort,
         PedagogyPort, ClarificationClassifierPort {
 
     private static final String JSON_ONLY = "Return JSON only. Do not add commentary, markdown, or fields outside the contract.";
@@ -286,7 +287,7 @@ public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifie
 
     @Override
     public String generate(ModelProfile profile, String compiledSystemPrompt, String executionContextJson) {
-        return complete(profile, strong(profile), compiledSystemPrompt, executionContextJson);
+        return extractJson(complete(profile, strong(profile), compiledSystemPrompt, executionContextJson));
     }
 
     @Override

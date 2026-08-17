@@ -30,9 +30,12 @@
   <div id="task"></div>
   <div id="teaching"></div>
   <div id="notice"></div>
-  <div class="row">
-    <label>答案 <input id="derivative" size="36" disabled></label>
-  </div>
+    <div class="row">
+      <label>答案 <input id="derivative" size="36" disabled></label>
+    </div>
+    <div class="row">
+      <label>确认表达式 <input id="canonical" size="36" disabled></label>
+    </div>
   <div class="row">
     <label>理由（可选）<textarea id="rationale" rows="2" cols="36" disabled></textarea></label>
   </div>
@@ -62,6 +65,7 @@
     const teaching = document.getElementById('teaching');
     const notice = document.getElementById('notice');
     const derivative = document.getElementById('derivative');
+    const canonical = document.getElementById('canonical');
     const rationale = document.getElementById('rationale');
     const start = document.getElementById('start');
     const refresh = document.getElementById('refresh');
@@ -83,9 +87,11 @@
       flow = data;
       view.textContent = JSON.stringify(data, null, 2);
       error.textContent = '';
+      start.disabled = false;
       const events = data.allowedEvents || [];
       const answerable = events.includes('answer_submitted');
       derivative.disabled = !answerable;
+      canonical.disabled = !answerable;
       rationale.disabled = !answerable;
       submit.disabled = !answerable;
       hint.disabled = !events.includes('hint_requested');
@@ -149,12 +155,24 @@
     };
 
     start.onclick = async () => {
-      const response = await fetch('/api/learning/flows', {
-        method: 'POST', headers: headers(key()),
-        body: JSON.stringify({ learnerId })
-      });
-      if (!response.ok) { return showError(response); }
-      render(await response.json());
+      start.disabled = true;
+      error.textContent = '';
+      notice.textContent = '正在准备诊断题目，请稍候……';
+      try {
+        const response = await fetch('/api/learning/flows', {
+          method: 'POST', headers: headers(key()),
+          body: JSON.stringify({ learnerId })
+        });
+        if (!response.ok) {
+          await showError(response);
+          start.disabled = false;
+          return;
+        }
+        render(await response.json());
+      } catch (exception) {
+        start.disabled = false;
+        error.textContent = '开始诊断失败，请检查服务连接后重试。';
+      }
     };
 
     refresh.onclick = async () => {
@@ -167,9 +185,26 @@
     submit.onclick = () => command({
       command: 'answer_submitted',
       rawAnswer: derivative.value,
-      confirmedCanonical: derivative.value,
+      confirmedCanonical: canonical.value,
       rationale: rationale.value || null
     });
+
+    const canonicalize = (raw) => {
+      const superscripts = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4',
+        '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' };
+      let value = raw
+        .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, character => '^' + superscripts[character])
+        .replace(/−/g, '-')
+        .replace(/[×·]/g, '*')
+        .replace(/′/g, "'")
+        .replace(/^f\s*'\s*\(\s*x\s*\)\s*=\s*/, '');
+      value = value.replace(/(\d)([a-zA-Z])/g, '$1*$2');
+      return value.trim().replace(/\s+/g, ' ');
+    };
+
+    derivative.oninput = () => {
+      canonical.value = canonicalize(derivative.value);
+    };
 
     hint.onclick = () => command({ command: 'hint_requested', answerRequested: false });
     answer.onclick = () => command({ command: 'hint_requested', answerRequested: true });

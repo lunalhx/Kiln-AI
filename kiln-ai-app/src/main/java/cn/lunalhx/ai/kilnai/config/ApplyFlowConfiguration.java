@@ -48,6 +48,7 @@ import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -62,7 +63,7 @@ import java.time.Clock;
 public class ApplyFlowConfiguration {
 
     @Bean
-    @ConditionalOnMissingBean(OperatorModelProfilePort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     OperatorModelProfilePort failClosedOperatorModelProfile() {
         return () -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE,
@@ -71,7 +72,7 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(ApplyGenerationPort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     ApplyGenerationPort failClosedApplyGeneration() {
         return (profile, compiledSystemPrompt, executionContextJson) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "apply generation adapter is not configured");
@@ -79,7 +80,7 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(HintGenerationPort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     HintGenerationPort failClosedHintGeneration() {
         return (profile, compiledSystemPrompt, executionContextJson) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "hint generation adapter is not configured");
@@ -87,7 +88,7 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(TeachBackGenerationPort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     TeachBackGenerationPort failClosedTeachBackGeneration() {
         return (profile, compiledSystemPrompt, executionContextJson) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "teach-back generation adapter is not configured");
@@ -95,7 +96,7 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(TeachBackTaskVerifierPort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     TeachBackTaskVerifierPort failClosedTeachBackTaskVerifier() {
         return (profile, taskPackage, context) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "teach-back task verifier adapter is not configured");
@@ -103,7 +104,7 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(TeachBackAssessmentPort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     TeachBackAssessmentPort failClosedTeachBackAssessment() {
         return (profile, context) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "teach-back assessment adapter is not configured");
@@ -111,7 +112,7 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(TaskVerifierPort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     TaskVerifierPort failClosedApplyTaskVerifier() {
         return (profile, taskPackage, context) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "apply task verifier adapter is not configured");
@@ -119,7 +120,7 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(AssessmentPort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     AssessmentPort failClosedApplyAssessment() {
         return (profile, context) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "apply assessment adapter is not configured");
@@ -127,7 +128,7 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(ResponseVerificationPort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     ResponseVerificationPort failClosedApplyResponseVerification() {
         return (profile, context) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "apply response verification adapter is not configured");
@@ -135,7 +136,7 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(ExplainGenerationPort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     ExplainGenerationPort failClosedExplainGeneration() {
         return (profile, compiledSystemPrompt, executionContextJson) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "explain generation adapter is not configured");
@@ -143,7 +144,7 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(PedagogyPort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     PedagogyPort failClosedPedagogy() {
         return (profile, compiledSystemPrompt, executionContextJson) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "pedagogy adapter is not configured");
@@ -151,7 +152,7 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(ClarificationClassifierPort.class)
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     ClarificationClassifierPort failClosedClarificationClassifier() {
         return (profile, message, taskText) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "clarification classifier adapter is not configured");
