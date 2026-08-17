@@ -18,6 +18,17 @@ public final class TeachBackProfile {
     public static final String PROFILE_ID = "teach-back@1.0.0";
 
     /**
+     * The frozen Teach-back stack: exactly one reference Action Bundle and
+     * the shared immutable {@code subject.calculus-notation@1.0.0} (spec:
+     * each new Profile composes exactly one reference Action Bundle with a
+     * new immutable subject bundle).
+     */
+    public static final List<String> FIXED_STACK = List.of(
+            "teach-back.anchored-explanation@1.0.0",
+            "subject.calculus-notation@1.0.0"
+    );
+
+    /**
      * The three mandatory Task Rubric dimensions of a Teach-back task. All
      * three must pass for a Teach-back pass; a clearly missing or wrong
      * dimension fails; an unreliable or disputed dimension is Inconclusive.

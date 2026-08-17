@@ -28,6 +28,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
@@ -42,6 +43,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintGenerationDraft;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
+import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalAnswer;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
@@ -304,20 +306,24 @@ class LearningFlowGraphContractTest {
     }
 
     @Test
-    void aReviewPurposeAttemptIsIgnoredAsWrongPurposeWithoutEvaluation() {
+    void aReviewSubmissionWithoutAStartedReviewCreatesNoEvidenceAndNoMilestoneChange() {
         Harness harness = harness();
         ApplyDeliveryResult reviewDelivery = reviewDelivery(harness);
         assertInstanceOf(ApplyDeliveryResult.Delivered.class, reviewDelivery);
         UUID reviewAttemptId = ((ApplyDeliveryResult.Delivered) reviewDelivery).attempt().attemptId();
         ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.SubmissionIgnored wrongPurpose = (ApplyFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
+        ApplyFlowResult.Boundary submitted = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), reviewAttemptId,
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        assertEquals(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE, wrongPurpose.reason());
-        assertEquals(AttemptStatus.OPEN,
-                harness.artifacts().findAttempt(reviewAttemptId).orElseThrow().status(),
-                "a wrong-purpose submission must never close the attempt");
-        assertTrue(harness.flowStore().allEvidence().isEmpty());
+        assertEquals(InteractionKind.TRANSITION, submitted.interaction().kind(),
+                "the unrouted Review submission stops at the safe terminal transition");
+        assertEquals(ReviewSubmissionFlow.SAFE_END_MESSAGE, submitted.interaction().learnerMessage());
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "a Review submission without a started Review must never create Evidence");
+        ConceptProgress progress =
+                new ConceptProgressProjector().projectFor(harness.flowStore(), LEARNER_ID, CONCEPT_ID);
+        assertEquals(MasteryMilestone.UNASSESSED, progress.currentMilestone(),
+                "an unbound Review submission must not change any Milestone");
     }
 
     @Test
@@ -2764,6 +2770,238 @@ class LearningFlowGraphContractTest {
     }
 
     @Test
+    void aFlowControlOnAnOpenAttemptAbandonsItWithoutAssessmentOrEvidenceAndReplaysTheLeaveTransition() {
+        Harness harness = harness();
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        UUID diagnosticAttemptId = started.interaction().attemptId();
+        assertEquals(InteractionKind.TASK, started.interaction().kind(),
+                "an open task boundary is the task union member");
+
+        UUID leaveKey = UUID.randomUUID();
+        ApplyFlowResult.Boundary left = (ApplyFlowResult.Boundary) harness.useCase().flowControlRequested(
+                started.interaction().flowId(), 1, leaveKey);
+        ApplyFlowInteraction interaction = left.interaction();
+        assertEquals(2, interaction.interactionVersion());
+        assertEquals(InteractionKind.TRANSITION, interaction.kind(),
+                "the explicit leave must project the transition union member");
+        assertEquals(FlowStatus.TERMINAL, interaction.status());
+        assertEquals(LearningStateGraph.FLOW_LEAVE_MESSAGE, interaction.learnerMessage());
+        assertNull(interaction.learnerProjection());
+        assertNull(interaction.teachingProjection());
+        assertNull(interaction.assistanceConsent());
+        TaskAttempt abandoned = harness.artifacts().findAttempt(diagnosticAttemptId).orElseThrow();
+        assertEquals(AttemptStatus.ABANDONED, abandoned.status(),
+                "ADR-0015: an explicit leave closes the open attempt as Abandoned");
+        assertNull(abandoned.submission(), "an abandoned attempt carries no submission");
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "an abandoned attempt creates no Learning Evidence");
+        assertEquals(0, harness.artifacts().assessmentsFor(diagnosticAttemptId).size(),
+                "an abandoned attempt is never assessed");
+
+        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().flowControlRequested(
+                started.interaction().flowId(), 1, leaveKey);
+        assertEquals(left.interaction(), replay.interaction(),
+                "a replayed leave key must return the original committed transition");
+        assertEquals(2, harness.flowStore().latestInteraction(started.interaction().flowId())
+                .orElseThrow().interactionVersion(),
+                "a replayed leave must not advance the flow again");
+
+        ApplyFlowResult later = harness.useCase().submitAnswer(
+                started.interaction().flowId(), 2, UUID.randomUUID(), diagnosticAttemptId,
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        assertTrue(later instanceof ApplyFlowResult.SubmissionIgnored,
+                "a submission against the abandoned attempt must never be evaluated");
+        assertTrue(harness.flowStore().allEvidence().isEmpty());
+    }
+
+    @Test
+    void aFlowControlOnATeachingBoundaryLeavesTheFlowWithoutTouchingState() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
+        assertEquals(InteractionKind.TEACHING, explained.interaction().kind(),
+                "the Explain boundary is the teaching union member");
+        assertNull(explained.interaction().attemptId(), "a teaching boundary holds no Attempt");
+
+        ApplyFlowResult.Boundary left = (ApplyFlowResult.Boundary) harness.useCase().flowControlRequested(
+                started.interaction().flowId(), 2, UUID.randomUUID());
+        assertEquals(InteractionKind.TRANSITION, left.interaction().kind());
+        assertEquals(LearningStateGraph.FLOW_LEAVE_MESSAGE, left.interaction().learnerMessage());
+        assertEquals(3, left.interaction().interactionVersion());
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "leaving a teaching boundary must never create Evidence");
+        assertEquals(3, harness.flowStore().latestCheckpoint(started.interaction().flowId())
+                        .orElseThrow().interactionVersion(),
+                "the leave boundary must be a committed checkpoint");
+    }
+
+    @Test
+    void aFlowControlOnAnOpenIndependentAttemptCreatesNoEvidenceAndPreservesTheMilestones() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION))),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment())));
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        UUID independentAttemptId = transitioned.interaction().attemptId();
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST, transitioned.interaction().attemptPurpose());
+
+        ApplyFlowResult.Boundary left = (ApplyFlowResult.Boundary) harness.useCase().flowControlRequested(
+                started.interaction().flowId(), 2, UUID.randomUUID());
+        assertEquals(InteractionKind.TRANSITION, left.interaction().kind());
+        TaskAttempt abandoned = harness.artifacts().findAttempt(independentAttemptId).orElseThrow();
+        assertEquals(AttemptStatus.ABANDONED, abandoned.status());
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "an abandoned Independent attempt must not create Independent Evidence");
+        ConceptProgress progress =
+                new ConceptProgressProjector().projectFor(harness.flowStore(), LEARNER_ID, CONCEPT_ID);
+        assertEquals(MasteryMilestone.UNASSESSED, progress.currentMilestone(),
+                "abandoning an open attempt must not change any Milestone");
+        assertEquals(MasteryMilestone.UNASSESSED, progress.highestMilestoneReached());
+    }
+
+    @Test
+    void aFlowControlDuringAStartedReviewCancelsTheReviewAndPreservesEvidenceAndMilestones() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION))),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment(), conclusivePracticeJudgment())));
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+        assertEquals(1, harness.flowStore().allEvidence().size(),
+                "the Independent pass accepts exactly one Evidence before the leave");
+        ReviewTask review = harness.flowStore().unfinishedReviewsFor(LEARNER_ID).get(0);
+        harness.flowStore().markDueReviewsDue(
+                CLOCK.instant().plus(ReviewTaskScheduler.FIRST_REVIEW_DELAY));
+        ReviewStartResult.Boundary reviewBoundary = (ReviewStartResult.Boundary) harness.reviewStartFlow().start(
+                review.reviewId(), UUID.randomUUID());
+        UUID reviewAttemptId = reviewBoundary.interaction().attemptId();
+        assertEquals(InteractionKind.TASK, reviewBoundary.interaction().kind());
+
+        ApplyFlowResult.Boundary left = (ApplyFlowResult.Boundary) harness.useCase().flowControlRequested(
+                started.interaction().flowId(), reviewBoundary.interaction().interactionVersion(),
+                UUID.randomUUID());
+        assertEquals(InteractionKind.TRANSITION, left.interaction().kind());
+        assertEquals(LearningStateGraph.FLOW_LEAVE_MESSAGE, left.interaction().learnerMessage());
+        TaskAttempt abandoned = harness.artifacts().findAttempt(reviewAttemptId).orElseThrow();
+        assertEquals(AttemptStatus.ABANDONED, abandoned.status(),
+                "leaving a started Review abandons its open Attempt");
+        assertEquals(ReviewTaskStatus.CANCELLED,
+                harness.flowStore().findReview(review.reviewId()).orElseThrow().status(),
+                "a left Review must be cancelled and never stay bound to an abandoned Attempt");
+        assertTrue(harness.flowStore().unfinishedReviewsFor(LEARNER_ID).isEmpty());
+        assertEquals(1, harness.flowStore().allEvidence().size(),
+                "leaving a Review must create no Review Evidence");
+        ConceptProgress progress =
+                new ConceptProgressProjector().projectFor(harness.flowStore(), LEARNER_ID, CONCEPT_ID);
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.currentMilestone(),
+                "leaving must preserve the accepted Independent milestone");
+        assertEquals(MasteryMilestone.INDEPENDENT, progress.highestMilestoneReached());
+    }
+
+    @Test
+    void theAssistanceConsentBoundaryCarriesTheConsentUnionMember() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION))),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment())));
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+                started.interaction().flowId(), 2, transitioned.interaction().attemptId(),
+                "为什么幂法则适用？", UUID.randomUUID());
+        assertEquals(InteractionKind.ASSISTANCE_CONSENT, consented.interaction().kind(),
+                "the assistance-consent warning is the consent union member");
+        assertNotNull(consented.interaction().assistanceConsent());
+        assertNull(consented.interaction().learnerProjection());
+        assertNull(consented.interaction().teachingProjection());
+    }
+
+    @Test
+    void aStartedReviewSubmissionAdvancesTheCadenceThroughTheClosedCommandSurface() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION))),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment(), conclusivePracticeJudgment(),
+                        conclusivePracticeJudgment())));
+        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+        assertEquals(FlowStatus.TERMINAL, completed.interaction().status());
+        ReviewTask review = harness.flowStore().unfinishedReviewsFor(LEARNER_ID).get(0);
+        harness.flowStore().markDueReviewsDue(
+                CLOCK.instant().plus(ReviewTaskScheduler.FIRST_REVIEW_DELAY));
+        ReviewStartResult.Boundary reviewBoundary = (ReviewStartResult.Boundary) harness.reviewStartFlow().start(
+                review.reviewId(), UUID.randomUUID());
+        assertEquals(AttemptPurpose.REVIEW, reviewBoundary.interaction().attemptPurpose());
+
+        UUID reviewKey = UUID.randomUUID();
+        ApplyFlowResult.Boundary reviewDone = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), reviewBoundary.interaction().interactionVersion(), reviewKey,
+                reviewBoundary.interaction().attemptId(),
+                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
+        assertEquals(FlowStatus.TERMINAL, reviewDone.interaction().status());
+        assertEquals(InteractionKind.TRANSITION, reviewDone.interaction().kind());
+        assertTrue(reviewDone.interaction().learnerMessage().contains("复习已完成"));
+        assertEquals(2, harness.flowStore().allEvidence().size(),
+                "the Review pass accepts exactly one Review Evidence record");
+        List<ReviewTask> remaining = harness.flowStore().unfinishedReviewsFor(LEARNER_ID);
+        assertEquals(1, remaining.size(), "the cadence advances to exactly one successor");
+        assertEquals(2, remaining.get(0).reviewNumber());
+        assertEquals(ReviewTaskStatus.SCHEDULED, remaining.get(0).status());
+
+        ApplyFlowResult.Boundary replayed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), reviewBoundary.interaction().interactionVersion(), reviewKey,
+                reviewBoundary.interaction().attemptId(),
+                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
+        assertEquals(reviewDone.interaction(), replayed.interaction(),
+                "a replayed Review submission key must return the original committed interaction");
+        assertEquals(2, harness.flowStore().allEvidence().size(),
+                "a replayed Review submission must never stack Evidence");
+    }
+
+    @Test
     void clarificationAndAssistanceCommandsAreIgnoredForWrongOrClosedAttempts() {
         Harness harness = harness();
         ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
@@ -3116,9 +3354,12 @@ class LearningFlowGraphContractTest {
                 TeachBackApplyFixture.teachBackContext(), clock);
         ReviewStartFlow reviewStartFlow = new ReviewStartFlow(
                 executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), clock);
+        ReviewSubmissionFlow reviewSubmissionFlow = new ReviewSubmissionFlow(
+                artifacts, flowStore, assessment, verification, reviewScheduler, executor, flowStore,
+                ReviewApplyFixture.reviewContext(), clock);
         LearningStateGraph graph = new LearningStateGraph(
                 artifacts, flowStore, flowStore, diagnosticFlow, independentFlow, practiceFlow,
-                explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
+                reviewSubmissionFlow, explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
         OperatorModelProfilePort profilePort = () -> ScriptedModelProfile.PROFILE;
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
                 artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort, clock);

@@ -75,7 +75,7 @@ class BundleLoaderTest {
 
         String expected;
         try (InputStream stream = getClass().getClassLoader()
-                .getResourceAsStream("skills/apply.task-first/SKILL.md")) {
+                .getResourceAsStream("skills/apply.task-first@0.1.0/SKILL.md")) {
             expected = ApplyHash.sha256Hex(stream.readAllBytes());
         }
         assertEquals(expected, bundle.contentHash());

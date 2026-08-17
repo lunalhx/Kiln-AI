@@ -71,6 +71,14 @@ public interface ArtifactStore {
      */
     AttemptCloseOutcome closeAttempt(UUID attemptId, TaskSubmission submission);
 
+    /**
+     * Atomically closes one open attempt as Abandoned when the learner
+     * explicitly leaves the Learning Flow (ADR-0015). No submission,
+     * Assessment, or Evidence ever results, and an already-closed or unknown
+     * attempt returns the matching closed outcome without writing anything.
+     */
+    AttemptCloseOutcome abandonAttempt(UUID attemptId);
+
     Optional<HintLadder> findLadder(UUID attemptId);
 
     /**

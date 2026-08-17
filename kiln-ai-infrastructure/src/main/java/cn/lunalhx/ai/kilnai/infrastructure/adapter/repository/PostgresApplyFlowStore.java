@@ -10,6 +10,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLevel;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
+import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
@@ -85,6 +86,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 UUID.randomUUID(),
                 interaction.flowId(),
                 interaction.interactionVersion(),
+                interaction.kind().name(),
                 interaction.status().name(),
                 interaction.stage().name(),
                 interaction.attemptId(),
@@ -118,6 +120,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     @Override
     public Optional<ApplyFlowInteraction> latestInteraction(UUID flowId) {
         return mapper.latestInteraction(flowId).map(row -> new ApplyFlowInteraction(
+                InteractionKind.valueOf(row.kind()),
                 row.flowId(),
                 row.interactionVersion(),
                 FlowStatus.valueOf(row.status()),
@@ -401,7 +404,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 bind.taskPackage().privateAssessorProjection().solutionFingerprint().value(),
                 bind.startedAt());
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
-                bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
+                InteractionKind.TASK, bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
                 bind.taskPackage().learnerProjection(), null, null, null, null);
         insertBoundary(bind.flowId(), bind.interactionVersion(), interaction,
@@ -456,10 +459,10 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         }
         ApplyFlowInteraction interaction = replacement == null
                 ? new ApplyFlowInteraction(
-                        review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
+                        InteractionKind.UNAVAILABLE, review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
                         LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null, null, null)
                 : new ApplyFlowInteraction(
-                        review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
+                        InteractionKind.TASK, review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                         LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
                         replacementProjection, bind.learnerMessage(), null, null, null);
         insertBoundary(review.flowId(), bind.interactionVersion(), interaction,
@@ -479,6 +482,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 UUID.randomUUID(),
                 interaction.flowId(),
                 interaction.interactionVersion(),
+                interaction.kind().name(),
                 interaction.status().name(),
                 interaction.stage().name(),
                 interaction.attemptId(),
@@ -744,6 +748,27 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                     .orElseGet(() -> new AttemptCloseOutcome(AttemptCloseOutcome.Result.NOT_FOUND, null));
         }
         return new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, closed);
+    }
+
+    @Override
+    @Transactional
+    public AttemptCloseOutcome abandonAttempt(UUID attemptId) {
+        TaskAttempt current = findAttempt(attemptId).orElse(null);
+        if (current == null) {
+            return new AttemptCloseOutcome(AttemptCloseOutcome.Result.NOT_FOUND, null);
+        }
+        AttemptCloseOutcome outcome = current.abandon(clock.instant());
+        if (outcome.result() != AttemptCloseOutcome.Result.CLOSED) {
+            return outcome;
+        }
+        TaskAttempt abandoned = outcome.attempt();
+        int updated = mapper.abandonOpenAttempt(attemptId, abandoned.closedAt());
+        if (updated == 0) {
+            return findAttempt(attemptId)
+                    .map(latest -> new AttemptCloseOutcome(AttemptCloseOutcome.Result.ALREADY_CLOSED, latest))
+                    .orElseGet(() -> new AttemptCloseOutcome(AttemptCloseOutcome.Result.NOT_FOUND, null));
+        }
+        return new AttemptCloseOutcome(AttemptCloseOutcome.Result.CLOSED, abandoned);
     }
 
     @Override

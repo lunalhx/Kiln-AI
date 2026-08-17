@@ -10,6 +10,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.DiagnosticSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.IndependentSubmissionResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
@@ -90,11 +91,13 @@ public final class ApplyFlowUseCase {
                     ApplyDeliveryResult delivery = diagnosticFlow.startDiagnostic(flowId, profile);
                     ApplyFlowInteraction interaction = switch (delivery) {
                         case ApplyDeliveryResult.Delivered delivered -> new ApplyFlowInteraction(
-                                flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
+                                InteractionKind.TASK, flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT,
+                                LearningStage.DIAGNOSTIC,
                                 delivered.attempt().attemptId(), delivered.attempt().purpose(),
                                 delivered.learnerProjection(), null, null, null, null);
                         case ApplyDeliveryResult.Unavailable unavailable -> new ApplyFlowInteraction(
-                                flowId, 1, FlowStatus.TERMINAL, LearningStage.DIAGNOSTIC,
+                                InteractionKind.UNAVAILABLE, flowId, 1, FlowStatus.TERMINAL,
+                                LearningStage.DIAGNOSTIC,
                                 null, null, null, unavailable.learnerMessage(), null, null, null);
                     };
                     commitBoundary(interaction, idempotencyKey, hash);
@@ -274,6 +277,7 @@ public final class ApplyFlowUseCase {
     ) {
         FlowStatus status = learnerProjection == null ? FlowStatus.TERMINAL : FlowStatus.AWAITING_LEARNER_INPUT;
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
+                learnerProjection == null ? InteractionKind.TRANSITION : InteractionKind.TASK,
                 latest.flowId(), latest.interactionVersion() + 1, status, stage,
                 attemptId, purpose, learnerProjection, learnerMessage, null, null, null);
         commitBoundary(interaction, idempotencyKey, hash);

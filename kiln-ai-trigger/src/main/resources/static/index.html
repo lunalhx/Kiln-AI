@@ -2,30 +2,52 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>Kiln-AI Apply</title>
+  <title>Kiln-AI 学习练习</title>
   <style>
-    body { font-family: sans-serif; max-width: 720px; margin: 2rem auto; }
+    body { font-family: sans-serif; max-width: 760px; margin: 2rem auto; }
     button, input, textarea { margin: 0.25rem 0; padding: 0.4rem 0.6rem; }
     pre { background: #f4f4f4; padding: 1rem; white-space: pre-wrap; }
-    #task { font-size: 1.1rem; margin: 0.75rem 0; }
+    #task { font-size: 1.1rem; margin: 0.75rem 0; white-space: pre-wrap; }
     #error { color: #b00020; white-space: pre-wrap; }
+    #notice { color: #b26a00; margin: 0.5rem 0; white-space: pre-wrap; }
+    #teaching { border-left: 4px solid #1a7f37; padding-left: 0.75rem; margin: 0.75rem 0; white-space: pre-wrap; }
+    .row { margin: 0.4rem 0; }
     .reviews { margin-top: 1rem; }
     .review { border: 1px solid #ddd; padding: 0.5rem 0.75rem; margin: 0.4rem 0; }
     .review .upcoming { color: #555; }
     .review .ready { color: #1a7f37; font-weight: 600; }
     .review .resumable { color: #b26a00; font-weight: 600; }
-    #notice { color: #b26a00; margin: 0.5rem 0; white-space: pre-wrap; }
   </style>
 </head>
 <body>
-  <h1>Kiln-AI Apply 练习</h1>
-  <button id="start">开始诊断</button>
-  <button id="refresh" disabled>刷新</button>
+  <h1>Kiln-AI 学习练习</h1>
+  <div class="row">
+    <button id="start">开始诊断</button>
+    <button id="refresh" disabled>刷新</button>
+    <button id="leave" disabled>离开本流程</button>
+    <button id="retry" disabled>重试</button>
+  </div>
   <div id="task"></div>
+  <div id="teaching"></div>
   <div id="notice"></div>
-  <label>f'(x) <input id="derivative" size="36" disabled></label>
-  <label>理由（可选）<textarea id="rationale" rows="2" cols="36" disabled></textarea></label>
-  <button id="submit" disabled>提交答案</button>
+  <div class="row">
+    <label>答案 <input id="derivative" size="36" disabled></label>
+  </div>
+  <div class="row">
+    <label>理由（可选）<textarea id="rationale" rows="2" cols="36" disabled></textarea></label>
+  </div>
+  <div class="row">
+    <button id="submit" disabled>提交答案</button>
+    <button id="hint" disabled>请求提示</button>
+    <button id="answer" disabled>请求完整解答</button>
+    <button id="continue" disabled>继续</button>
+    <button id="accept-help" disabled>接受帮助</button>
+    <button id="refuse-help" disabled>拒绝帮助</button>
+  </div>
+  <div class="row">
+    <label>澄清提问 <textarea id="clarify" rows="2" cols="36"></textarea></label>
+    <button id="clarify-send" disabled>发送</button>
+  </div>
   <pre id="error"></pre>
   <pre id="view"></pre>
   <div id="reviews" class="reviews"></div>
@@ -33,47 +55,148 @@
     const learnerId = localStorage.getItem('kiln.learnerId') || crypto.randomUUID();
     localStorage.setItem('kiln.learnerId', learnerId);
     let flow = null;
+    let lastRequest = null;
     const view = document.getElementById('view');
     const error = document.getElementById('error');
     const task = document.getElementById('task');
+    const teaching = document.getElementById('teaching');
+    const notice = document.getElementById('notice');
     const derivative = document.getElementById('derivative');
     const rationale = document.getElementById('rationale');
     const start = document.getElementById('start');
-    const submit = document.getElementById('submit');
     const refresh = document.getElementById('refresh');
+    const leave = document.getElementById('leave');
+    const retry = document.getElementById('retry');
+    const submit = document.getElementById('submit');
+    const hint = document.getElementById('hint');
+    const answer = document.getElementById('answer');
+    const cont = document.getElementById('continue');
+    const acceptHelp = document.getElementById('accept-help');
+    const refuseHelp = document.getElementById('refuse-help');
+    const clarify = document.getElementById('clarify');
+    const clarifySend = document.getElementById('clarify-send');
     const reviews = document.getElementById('reviews');
-    const notice = document.getElementById('notice');
     const key = () => crypto.randomUUID();
-    const headers = () => ({ 'Content-Type': 'application/json', 'Idempotency-Key': key() });
-    const show = (data) => {
+    const headers = (k) => ({ 'Content-Type': 'application/json', 'Idempotency-Key': k });
+
+    const render = (data) => {
+      flow = data;
       view.textContent = JSON.stringify(data, null, 2);
       error.textContent = '';
+      const events = data.allowedEvents || [];
+      const answerable = events.includes('answer_submitted');
+      derivative.disabled = !answerable;
+      rationale.disabled = !answerable;
+      submit.disabled = !answerable;
+      hint.disabled = !events.includes('hint_requested');
+      answer.disabled = !events.includes('hint_requested');
+      cont.disabled = !events.includes('continue_requested');
+      acceptHelp.disabled = !events.includes('assistance_decided');
+      refuseHelp.disabled = !events.includes('assistance_decided');
+      clarifySend.disabled = !events.includes('clarification_asked');
+      leave.disabled = !events.includes('flow_control_requested');
+      retry.disabled = data.kind !== 'unavailable' || !lastRequest;
+      refresh.disabled = false;
+      task.textContent = '';
+      teaching.textContent = '';
+      notice.textContent = data.learnerMessage || '';
       if (data.task) {
         task.textContent = data.task.taskText;
-        derivative.disabled = false;
-        rationale.disabled = false;
-        submit.disabled = false;
-      } else {
-        task.textContent = '';
-        derivative.disabled = true;
-        rationale.disabled = true;
-        submit.disabled = true;
       }
-      notice.textContent = data.task ? (data.learnerMessage || '') : '';
-      if (!data.task) {
+      if (data.teaching) {
+        const example = data.teaching.workedExample;
+        teaching.textContent = data.teaching.principleSummary + '\n\n例题：' + example.problem
+          + '\n' + example.steps.map((step, index) => (index + 1) + '. ' + step.expression
+            + '（' + step.ruleReference + '）' + step.explanation).join('\n')
+          + '\n结果：' + example.finalResult;
+      }
+      if (data.consent) {
+        notice.textContent = data.consent.warning;
+      }
+      if (data.kind === 'transition' || data.kind === 'unavailable') {
         task.textContent = data.learnerMessage || '';
       }
       if (data.status === 'TERMINAL') {
         loadReviews();
       }
     };
+
     const showError = async (response) => {
-      const body = await response.json();
-      error.textContent = response.status + ' ' + JSON.stringify(body);
+      let body = '';
+      try { body = JSON.stringify(await response.json()); } catch (e) { body = response.statusText; }
+      error.textContent = response.status + ' ' + body;
       view.textContent = JSON.stringify(flow, null, 2);
     };
+
+    const send = async (body) => {
+      const k = key();
+      lastRequest = { url: '/api/learning/flows/' + flow.flowId + '/commands', idempotencyKey: k, body };
+      const response = await fetch(lastRequest.url, {
+        method: 'POST', headers: headers(k), body: JSON.stringify(body)
+      });
+      if (!response.ok) {
+        if (response.status === 409 || response.status === 422) { lastRequest = null; }
+        return showError(response);
+      }
+      lastRequest = null;
+      render(await response.json());
+    };
+
+    const command = (body) => {
+      body.interactionVersion = flow.interactionVersion;
+      if (flow.attemptId && !body.attemptId) { body.attemptId = flow.attemptId; }
+      send(body);
+    };
+
+    start.onclick = async () => {
+      const response = await fetch('/api/learning/flows', {
+        method: 'POST', headers: headers(key()),
+        body: JSON.stringify({ learnerId })
+      });
+      if (!response.ok) { return showError(response); }
+      render(await response.json());
+    };
+
+    refresh.onclick = async () => {
+      if (!flow) { return; }
+      const response = await fetch('/api/learning/flows/' + flow.flowId);
+      if (!response.ok) { return showError(response); }
+      render(await response.json());
+    };
+
+    submit.onclick = () => command({
+      command: 'answer_submitted',
+      rawAnswer: derivative.value,
+      confirmedCanonical: derivative.value,
+      rationale: rationale.value || null
+    });
+
+    hint.onclick = () => command({ command: 'hint_requested', answerRequested: false });
+    answer.onclick = () => command({ command: 'hint_requested', answerRequested: true });
+    cont.onclick = () => command({ command: 'continue_requested' });
+    acceptHelp.onclick = () => command({ command: 'assistance_decided', accept: true });
+    refuseHelp.onclick = () => command({ command: 'assistance_decided', accept: false });
+    leave.onclick = () => command({ command: 'flow_control_requested' });
+
+    clarifySend.onclick = () => {
+      const message = clarify.value.trim();
+      if (!message) { return; }
+      clarify.value = '';
+      command({ command: 'clarification_asked', message });
+    };
+
+    retry.onclick = async () => {
+      if (!lastRequest) { return; }
+      const response = await fetch(lastRequest.url, {
+        method: 'POST', headers: headers(lastRequest.idempotencyKey), body: JSON.stringify(lastRequest.body)
+      });
+      if (!response.ok) { return showError(response); }
+      lastRequest = null;
+      render(await response.json());
+    };
+
     const loadReviews = async () => {
-      const response = await fetch('/api/apply/reviews?learnerId=' + encodeURIComponent(learnerId));
+      const response = await fetch('/api/review-tasks?learnerId=' + encodeURIComponent(learnerId));
       if (!response.ok) { return; }
       const items = await response.json();
       reviews.textContent = '';
@@ -106,47 +229,16 @@
         reviews.appendChild(entry);
       });
     };
+
     const startReview = async (reviewId) => {
-      const response = await fetch('/api/apply/reviews/' + reviewId + '/start', {
-        method: 'POST', headers: headers()
+      const response = await fetch('/api/review-tasks/' + reviewId + '/start', {
+        method: 'POST', headers: headers(key())
       });
       if (!response.ok) { return showError(response); }
-      flow = await response.json();
-      show(flow);
-      refresh.disabled = false;
+      render(await response.json());
       loadReviews();
     };
-    start.onclick = async () => {
-      const response = await fetch('/api/apply/flows', {
-        method: 'POST', headers: headers(),
-        body: JSON.stringify({ learnerId })
-      });
-      if (!response.ok) { return showError(response); }
-      flow = await response.json();
-      show(flow);
-      refresh.disabled = false;
-    };
-    refresh.onclick = async () => {
-      const response = await fetch('/api/apply/flows/' + flow.flowId);
-      if (!response.ok) { return showError(response); }
-      flow = await response.json();
-      show(flow);
-    };
-    submit.onclick = async () => {
-      const response = await fetch('/api/apply/flows/' + flow.flowId + '/submissions', {
-        method: 'POST', headers: headers(),
-        body: JSON.stringify({
-          interactionVersion: flow.interactionVersion,
-          attemptId: flow.attemptId,
-          rawDerivative: derivative.value,
-          confirmedCanonical: derivative.value,
-          rationale: rationale.value || null
-        })
-      });
-      if (!response.ok) { return showError(response); }
-      flow = await response.json();
-      show(flow);
-    };
+
     loadReviews();
   </script>
 </body>

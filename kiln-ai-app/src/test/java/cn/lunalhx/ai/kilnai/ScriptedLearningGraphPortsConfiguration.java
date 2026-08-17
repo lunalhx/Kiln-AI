@@ -12,6 +12,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
@@ -58,6 +59,12 @@ public class ScriptedLearningGraphPortsConfiguration {
 
     @Bean
     @Primary
+    OperatorModelProfilePort scriptedOperatorModelProfile() {
+        return ScriptedApplyPortsConfiguration::scriptedModelProfile;
+    }
+
+    @Bean
+    @Primary
     ApplyGenerationPort scriptedApplyGeneration() {
         return (profile, compiledSystemPrompt, executionContextJson) -> {
             if (failNextApplyGeneration) {
@@ -70,9 +77,15 @@ public class ScriptedLearningGraphPortsConfiguration {
                     case 1 -> ScriptedApplyPortsConfiguration.taskReadyJson(
                             ScriptedApplyPortsConfiguration.REVIEW_TASK,
                             ScriptedApplyPortsConfiguration.REVIEW_EXPECTED);
-                    default -> ScriptedApplyPortsConfiguration.taskReadyJson(
+                    case 2 -> ScriptedApplyPortsConfiguration.taskReadyJson(
                             ScriptedApplyPortsConfiguration.REVIEW_TASK_2,
                             ScriptedApplyPortsConfiguration.REVIEW_EXPECTED_2);
+                    case 3 -> ScriptedApplyPortsConfiguration.taskReadyJson(
+                            ScriptedApplyPortsConfiguration.REVIEW_TASK_3,
+                            ScriptedApplyPortsConfiguration.REVIEW_EXPECTED_3);
+                    default -> ScriptedApplyPortsConfiguration.taskReadyJson(
+                            ScriptedApplyPortsConfiguration.REVIEW_TASK_4,
+                            ScriptedApplyPortsConfiguration.REVIEW_EXPECTED_4);
                 };
             }
             if (executionContextJson.contains("\"attempt_purpose\":\"practice\"")) {

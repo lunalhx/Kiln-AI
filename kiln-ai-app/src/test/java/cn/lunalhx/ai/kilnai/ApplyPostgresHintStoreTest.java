@@ -10,6 +10,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintGenerationDraft;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintView;
+import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorFacts;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorProjection;
@@ -146,7 +147,8 @@ class ApplyPostgresHintStoreTest {
                 FlowStatus.READY, LearningStage.LEARNING_AND_PRACTICE, PROFILE,
                 Instant.parse("2026-08-15T00:00:00Z")));
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
-                flowId, 3, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.LEARNING_AND_PRACTICE,
+                InteractionKind.TASK, flowId, 3, FlowStatus.AWAITING_LEARNER_INPUT,
+                LearningStage.LEARNING_AND_PRACTICE,
                 attempt.attemptId(), AttemptPurpose.PRACTICE,
                 practicePackage.learnerProjection(),
                 null,

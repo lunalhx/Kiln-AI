@@ -18,12 +18,14 @@ import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.TeachBackApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
@@ -150,9 +152,12 @@ class FrozenModelRuntimeContractTest {
                             artifacts),
                     artifacts, flowStore, new ScriptedTeachBackAssessmentModel(List.of()),
                     TeachBackApplyFixture.teachBackContext(), Clock.systemUTC());
+            ReviewSubmissionFlow reviewFlow = new ReviewSubmissionFlow(
+                    artifacts, flowStore, assessment, verification, scheduler, executor, flowStore,
+                    ReviewApplyFixture.reviewContext(), Clock.systemUTC());
             LearningStateGraph graph = new LearningStateGraph(
                     artifacts, flowStore, flowStore, diagnosticFlow, independentFlow, practiceFlow,
-                    explainFlow, hintFlow, teachBackFlow,
+                    reviewFlow, explainFlow, hintFlow, teachBackFlow,
                     new ScriptedPedagogyModel(), new ScriptedClarificationClassifier(),
                     Clock.systemUTC());
             useCase = new LearningFlowCommandUseCase(

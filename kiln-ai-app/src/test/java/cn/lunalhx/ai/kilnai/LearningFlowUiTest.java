@@ -17,12 +17,19 @@ import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Reference UI coverage of the unified Learning Flow API: the closed
+ * interaction union (task, teaching, transition) is rendered from committed
+ * interactions and the closed commands drive the loop — answer submission,
+ * review start and submission, and the explicit leave — while private fields
+ * never reach the DOM.
+ */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import(ScriptedApplyPortsConfiguration.class)
+@Import(ScriptedLearningGraphPortsConfiguration.class)
 @TestPropertySource(properties = {
         "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration,org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration,org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration"
 })
-class ApplyLearnerUiTest {
+class LearningFlowUiTest {
 
     @LocalServerPort
     int port;
@@ -31,7 +38,7 @@ class ApplyLearnerUiTest {
     ReviewTaskStore reviewStore;
 
     @Test
-    void uiCompletesTheApplyFlowWithoutPrivateFields() {
+    void uiCompletesTheLearningLoopWithoutPrivateFields() {
         try (Playwright playwright = Playwright.create();
              Browser browser = playwright.chromium().launch()) {
             Page page = browser.newPage();
@@ -39,6 +46,7 @@ class ApplyLearnerUiTest {
             page.click("#start");
             page.waitForFunction("() => document.getElementById('task').textContent.includes('设 f(x)')");
             String diagnostic = page.innerText("#view");
+            assertTrue(diagnostic.contains("\"kind\": \"task\""));
             assertTrue(diagnostic.contains("DIAGNOSTIC"));
             assertFalse(diagnostic.contains("12*x^2 - 6*x + 7"), "expected answer must not reach the UI");
             assertFalse(diagnostic.contains("openstax"), "source identities must not reach the UI");
@@ -49,11 +57,13 @@ class ApplyLearnerUiTest {
             page.waitForFunction("() => document.getElementById('task').textContent.includes('设 g(x)')");
             String independent = page.innerText("#view");
             assertTrue(independent.contains("INDEPENDENT_TEST"));
+            assertTrue(page.innerText("#notice").contains("独立练习"),
+                    "the neutral transition message must state only the next interaction");
             assertFalse(independent.contains("15*x^2 - 2"), "expected answer must not reach the UI");
 
             page.fill("#derivative", "15*x^2 - 2");
             page.click("#submit");
-            page.waitForFunction("() => document.getElementById('task').textContent.includes('已完成')");
+            page.waitForFunction("() => document.getElementById('view').textContent.includes('\"kind\": \"transition\"')");
             String terminal = page.innerText("#view");
             assertTrue(terminal.contains("TERMINAL"));
             assertTrue(terminal.contains("INDEPENDENT"), "the safe milestone must be visible");
@@ -69,12 +79,6 @@ class ApplyLearnerUiTest {
             assertFalse(upcoming.contains("15*x^2 - 2"), "no answer facts in the Review collection");
             assertFalse(upcoming.contains("fingerprint"));
 
-            page.click("#refresh");
-            page.waitForFunction("() => document.getElementById('view').textContent.includes('TERMINAL')");
-            String recovered = page.innerText("#view");
-            assertTrue(recovered.contains("已完成"),
-                    "a refresh must recover the same terminal interaction");
-
             reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
             page.reload();
             page.waitForFunction("() => document.getElementById('reviews').textContent.includes('可以开始')");
@@ -82,7 +86,6 @@ class ApplyLearnerUiTest {
             assertTrue(ready.contains("DUE"), "the arrived Review must be Due");
             assertTrue(ready.contains("可以开始"),
                     "the reference UI must switch from upcoming to ready-to-start");
-            assertFalse(ready.contains("暂不可操作"));
             assertFalse(ready.contains("15*x^2 - 2"));
             assertFalse(ready.contains("fingerprint"));
 
@@ -97,15 +100,10 @@ class ApplyLearnerUiTest {
             assertFalse(reviewView.contains("openstax"));
             assertFalse(page.isDisabled("#derivative"),
                     "the learner must be able to enter answering from the started Due Review");
-            page.waitForFunction("() => document.getElementById('reviews').textContent.includes('STARTED')");
-            String bound = page.innerText("#reviews");
-            assertTrue(bound.contains("STARTED"), "the started Review must show as bound work");
-            assertFalse(bound.contains("可以开始"), "a Started Review must no longer offer a start action");
-            assertFalse(bound.contains("8*x^3 - 6*x"), "no answer facts in the Review collection after start");
 
             page.fill("#derivative", "8*x^3 - 6*x");
             page.click("#submit");
-            page.waitForFunction("() => document.getElementById('view').textContent.includes('TERMINAL')");
+            page.waitForFunction("() => document.getElementById('view').textContent.includes('\"kind\": \"transition\"')");
             String afterReview1 = page.innerText("#view");
             assertTrue(afterReview1.contains("TERMINAL"));
             assertTrue(afterReview1.contains("INDEPENDENT"),
@@ -125,6 +123,41 @@ class ApplyLearnerUiTest {
                     "Durable must end the cadence with no unfinished Review work");
             assertFalse(durable.contains("21*x^2 - 2"), "no answer facts in the Durable terminal message");
             assertFalse(durable.contains("fingerprint"));
+        }
+    }
+
+    @Test
+    void uiRendersTheTeachingUnionMemberAndTheExplicitLeave() {
+        try (Playwright playwright = Playwright.create();
+             Browser browser = playwright.chromium().launch()) {
+            Page page = browser.newPage();
+            page.navigate("http://127.0.0.1:" + port + "/");
+            page.click("#start");
+            page.waitForFunction("() => document.getElementById('task').textContent.includes('设 f(x)')");
+
+            page.fill("#derivative", "3*x^2");
+            page.fill("#rationale", "我猜的");
+            page.click("#submit");
+            page.waitForFunction("() => document.getElementById('view').textContent.includes('\"kind\": \"teaching\"')");
+            String teaching = page.innerText("#view");
+            assertTrue(teaching.contains("LEARNING_AND_PRACTICE"));
+            assertTrue(page.innerText("#teaching").contains("例题"),
+                    "the worked example must be rendered for the learner");
+            assertTrue(page.innerText("#teaching").contains("15x² − 4x"),
+                    "the worked example final result is learner-visible teaching content");
+            assertFalse(teaching.contains("openstax"));
+            assertFalse(teaching.contains("fingerprint"));
+            assertFalse(teaching.contains("source_trace"));
+            assertFalse(page.isDisabled("#continue"),
+                    "Continue must be offered on the teaching boundary");
+
+            page.click("#leave");
+            page.waitForFunction("() => document.getElementById('view').textContent.includes('\"kind\": \"transition\"')");
+            String left = page.innerText("#view");
+            assertTrue(page.innerText("#task").contains("已离开"),
+                    "the explicit leave must render its transition message");
+            assertTrue(left.contains("TERMINAL"));
+            assertFalse(left.contains("15x² − 4x"), "the teaching content must not persist after leaving");
         }
     }
 

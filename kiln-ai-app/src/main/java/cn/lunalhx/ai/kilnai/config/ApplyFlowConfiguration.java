@@ -2,16 +2,24 @@ package cn.lunalhx.ai.kilnai.config;
 
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.TeachBackApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
@@ -23,6 +31,14 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfile;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfile;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningFlowCommandUseCase;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningStateGraph;
+import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPort;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewCollectionUseCase;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewDueTransitionUseCase;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
@@ -30,6 +46,7 @@ import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.BundleLoader;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.SkillBundleSource;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -118,6 +135,30 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean(ExplainGenerationPort.class)
+    ExplainGenerationPort failClosedExplainGeneration() {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
+            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "explain generation adapter is not configured");
+        };
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(PedagogyPort.class)
+    PedagogyPort failClosedPedagogy() {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
+            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "pedagogy adapter is not configured");
+        };
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(ClarificationClassifierPort.class)
+    ClarificationClassifierPort failClosedClarificationClassifier() {
+        return (profile, message, taskText) -> {
+            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "clarification classifier adapter is not configured");
+        };
+    }
+
+    @Bean
     BundleStack applyBundleStack() {
         BundleLoader loader = new BundleLoader();
         return new BundleStack(ApplyProfile.FIXED_STACK.stream()
@@ -127,13 +168,128 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
+    BundleStack explainBundleStack() {
+        BundleLoader loader = new BundleLoader();
+        return new BundleStack(ExplainProfile.FIXED_STACK.stream()
+                .map(loader::load)
+                .map(SkillBundleSource::toBundle)
+                .toList());
+    }
+
+    @Bean
+    BundleStack teachBackBundleStack() {
+        BundleLoader loader = new BundleLoader();
+        return new BundleStack(TeachBackProfile.FIXED_STACK.stream()
+                .map(loader::load)
+                .map(SkillBundleSource::toBundle)
+                .toList());
+    }
+
+    @Bean
     ApplyProfileExecutor applyProfileExecutor(
-            BundleStack stack,
+            @Qualifier("applyBundleStack") BundleStack stack,
             ApplyGenerationPort generationPort,
             TaskVerifierPort verifierPort,
             ArtifactStore artifactStore
     ) {
         return new ApplyProfileExecutor(stack, generationPort, verifierPort, artifactStore);
+    }
+
+    @Bean
+    ExplainProfileExecutor explainProfileExecutor(
+            @Qualifier("explainBundleStack") BundleStack stack,
+            ExplainGenerationPort generationPort
+    ) {
+        return new ExplainProfileExecutor(stack, generationPort);
+    }
+
+    @Bean
+    ExplainFlow explainFlow(
+            ExplainProfileExecutor executor,
+            ArtifactStore artifactStore,
+            LearningFlowStore flowStore
+    ) {
+        return new ExplainFlow(executor, artifactStore, flowStore, ExplainApplyFixture.explainContext());
+    }
+
+    @Bean
+    HintFlow hintFlow(
+            HintGenerationPort generationPort,
+            ArtifactStore artifactStore
+    ) {
+        return new HintFlow(generationPort, artifactStore,
+                PracticeApplyFixture.practiceContext().conceptSourcePack());
+    }
+
+    @Bean
+    PracticeSubmissionFlow practiceSubmissionFlow(
+            ApplyProfileExecutor executor,
+            ArtifactStore artifactStore,
+            LearningFlowStore flowStore,
+            AssessmentPort assessmentPort,
+            ResponseVerificationPort verificationPort,
+            Clock clock
+    ) {
+        return new PracticeSubmissionFlow(
+                executor, artifactStore, flowStore, assessmentPort, verificationPort,
+                PracticeApplyFixture.practiceContext(), IndependentApplyFixture.independentContext(), clock);
+    }
+
+    @Bean
+    TeachBackProfileExecutor teachBackProfileExecutor(
+            @Qualifier("teachBackBundleStack") BundleStack stack,
+            TeachBackGenerationPort generationPort,
+            TeachBackTaskVerifierPort verifierPort,
+            ArtifactStore artifactStore
+    ) {
+        return new TeachBackProfileExecutor(stack, generationPort, verifierPort, artifactStore);
+    }
+
+    @Bean
+    TeachBackFlow teachBackFlow(
+            TeachBackProfileExecutor executor,
+            ArtifactStore artifactStore,
+            LearningFlowStore flowStore,
+            TeachBackAssessmentPort assessmentPort,
+            Clock clock
+    ) {
+        return new TeachBackFlow(
+                executor, artifactStore, flowStore, assessmentPort,
+                TeachBackApplyFixture.teachBackContext(), clock);
+    }
+
+    @Bean
+    LearningStateGraph learningStateGraph(
+            ArtifactStore artifactStore,
+            LearningFlowStore flowStore,
+            ReviewTaskStore reviewStore,
+            DiagnosticFlow diagnosticFlow,
+            IndependentSubmissionFlow independentFlow,
+            PracticeSubmissionFlow practiceFlow,
+            ReviewSubmissionFlow reviewFlow,
+            ExplainFlow explainFlow,
+            HintFlow hintFlow,
+            TeachBackFlow teachBackFlow,
+            PedagogyPort pedagogyPort,
+            ClarificationClassifierPort clarificationClassifier,
+            Clock clock
+    ) {
+        return new LearningStateGraph(
+                artifactStore, flowStore, reviewStore, diagnosticFlow, independentFlow, practiceFlow,
+                reviewFlow, explainFlow, hintFlow, teachBackFlow, pedagogyPort, clarificationClassifier, clock);
+    }
+
+    @Bean
+    LearningFlowCommandUseCase learningFlowCommandUseCase(
+            ArtifactStore artifactStore,
+            LearningFlowStore flowStore,
+            LearningStateGraph graph,
+            OperatorModelProfilePort modelProfilePort,
+            Clock clock
+    ) {
+        return new LearningFlowCommandUseCase(
+                artifactStore, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                modelProfilePort, clock);
     }
 
     @Bean

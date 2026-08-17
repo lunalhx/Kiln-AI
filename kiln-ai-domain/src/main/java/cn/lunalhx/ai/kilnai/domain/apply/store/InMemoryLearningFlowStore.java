@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.store;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
@@ -341,7 +342,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         reviews.put(bind.reviewId(), claimed.withOpenAttempt(attempt.attemptId()));
         recordTaskExposure(bind.flowId(), bind.taskPackage());
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
-                bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
+                InteractionKind.TASK, bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
                 bind.taskPackage().learnerProjection(), null, null, null, null);
         commitBoundary(interaction,
@@ -377,10 +378,10 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         reviews.put(bind.reviewId(), review.withOpenAttempt(openAttemptId));
         ApplyFlowInteraction interaction = replacement == null
                 ? new ApplyFlowInteraction(
-                        review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
+                        InteractionKind.UNAVAILABLE, review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
                         LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null, null, null)
                 : new ApplyFlowInteraction(
-                        review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
+                        InteractionKind.TASK, review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                         LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
                         replacementProjection, bind.learnerMessage(), null, null, null);
         commitBoundary(interaction,

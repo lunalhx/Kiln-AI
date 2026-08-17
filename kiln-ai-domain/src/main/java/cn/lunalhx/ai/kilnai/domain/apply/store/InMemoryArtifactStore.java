@@ -118,6 +118,20 @@ public final class InMemoryArtifactStore implements ArtifactStore {
     }
 
     @Override
+    public synchronized AttemptCloseOutcome abandonAttempt(UUID attemptId) {
+        Objects.requireNonNull(attemptId, "attemptId must not be null");
+        TaskAttempt current = attempts.get(attemptId);
+        if (current == null) {
+            return new AttemptCloseOutcome(AttemptCloseOutcome.Result.NOT_FOUND, null);
+        }
+        AttemptCloseOutcome outcome = current.abandon(clock.instant());
+        if (outcome.result() == AttemptCloseOutcome.Result.CLOSED) {
+            attempts.put(attemptId, outcome.attempt());
+        }
+        return outcome;
+    }
+
+    @Override
     public synchronized Optional<HintLadder> findLadder(UUID attemptId) {
         return Optional.ofNullable(ladders.get(attemptId));
     }

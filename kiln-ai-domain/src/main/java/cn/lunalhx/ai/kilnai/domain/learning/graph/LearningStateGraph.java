@@ -5,6 +5,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
@@ -13,15 +14,18 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceConsentView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
+import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptConversionOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.DiagnosticSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.IndependentSubmissionResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PracticeSubmissionResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
@@ -103,12 +107,20 @@ public final class LearningStateGraph {
     public static final String CLARIFICATION_EXPLAIN_MESSAGE =
             "以下是针对您疑问的讲解，之后请继续完成当前题目。";
 
+    /**
+     * The learner-visible message of an explicit leave (ADR-0015): any open
+     * Attempt is closed as Abandoned without submission, Assessment, or
+     * Evidence, and the Flow stops at a terminal transition boundary.
+     */
+    public static final String FLOW_LEAVE_MESSAGE = "已离开本次学习，未作答的题目已放弃。";
+
     private final ArtifactStore artifactStore;
     private final LearningFlowStore flowStore;
     private final ReviewTaskStore reviewStore;
     private final DiagnosticFlow diagnosticFlow;
     private final IndependentSubmissionFlow independentFlow;
     private final PracticeSubmissionFlow practiceFlow;
+    private final ReviewSubmissionFlow reviewFlow;
     private final ExplainFlow explainFlow;
     private final HintFlow hintFlow;
     private final TeachBackFlow teachBackFlow;
@@ -124,6 +136,7 @@ public final class LearningStateGraph {
             DiagnosticFlow diagnosticFlow,
             IndependentSubmissionFlow independentFlow,
             PracticeSubmissionFlow practiceFlow,
+            ReviewSubmissionFlow reviewFlow,
             ExplainFlow explainFlow,
             HintFlow hintFlow,
             TeachBackFlow teachBackFlow,
@@ -137,6 +150,7 @@ public final class LearningStateGraph {
         this.diagnosticFlow = Objects.requireNonNull(diagnosticFlow, "diagnosticFlow must not be null");
         this.independentFlow = Objects.requireNonNull(independentFlow, "independentFlow must not be null");
         this.practiceFlow = Objects.requireNonNull(practiceFlow, "practiceFlow must not be null");
+        this.reviewFlow = Objects.requireNonNull(reviewFlow, "reviewFlow must not be null");
         this.explainFlow = Objects.requireNonNull(explainFlow, "explainFlow must not be null");
         this.hintFlow = Objects.requireNonNull(hintFlow, "hintFlow must not be null");
         this.teachBackFlow = Objects.requireNonNull(teachBackFlow, "teachBackFlow must not be null");
@@ -158,11 +172,11 @@ public final class LearningStateGraph {
         ApplyDeliveryResult delivery = diagnosticFlow.startDiagnostic(flowId, profile);
         ApplyFlowInteraction interaction = switch (delivery) {
             case ApplyDeliveryResult.Delivered delivered -> new ApplyFlowInteraction(
-                    flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
+                    InteractionKind.TASK, flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
                     delivered.attempt().attemptId(), delivered.attempt().purpose(),
                     delivered.learnerProjection(), null, null, null, null);
             case ApplyDeliveryResult.Unavailable unavailable -> new ApplyFlowInteraction(
-                    flowId, 1, FlowStatus.TERMINAL, LearningStage.DIAGNOSTIC,
+                    InteractionKind.UNAVAILABLE, flowId, 1, FlowStatus.TERMINAL, LearningStage.DIAGNOSTIC,
                     null, null, null, unavailable.learnerMessage(), null, null, null);
         };
         return commitBoundary(interaction, idempotencyKey, requestHash);
@@ -200,6 +214,8 @@ public final class LearningStateGraph {
             case DIAGNOSTIC -> submitDiagnostic(state, attemptId, rawDerivative, confirmedCanonical, rationale,
                     idempotencyKey, requestHash);
             case INDEPENDENT_TEST -> submitIndependent(state, attemptId, rawDerivative, confirmedCanonical, rationale,
+                    idempotencyKey, requestHash);
+            case REVIEW -> submitReview(state, attemptId, rawDerivative, confirmedCanonical, rationale,
                     idempotencyKey, requestHash);
             case PRACTICE -> isTeachBackAttempt(attemptId)
                     ? submitTeachBack(state, attemptId, rawDerivative, confirmedCanonical,
@@ -289,7 +305,7 @@ public final class LearningStateGraph {
             case HintResult.Unavailable unavailable -> boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, attemptId, AttemptPurpose.PRACTICE,
                     projectionOf(attemptId), unavailable.learnerMessage(), null,
-                    idempotencyKey, requestHash);
+                    InteractionKind.TASK, idempotencyKey, requestHash);
             case HintResult.Ignored ignored -> new ApplyFlowResult.HintIgnored(ignored.reason());
         };
     }
@@ -404,6 +420,45 @@ public final class LearningStateGraph {
     }
 
     /**
+     * The Graph Run of a flow-control-requested command: the learner
+     * explicitly leaves the Flow (ADR-0015). Any open Attempt is closed as
+     * Abandoned first — no submission, Assessment, or Evidence, and no
+     * Mastery Milestone change — and a STARTED Review whose open Attempt was
+     * abandoned is cancelled so it never stays bound to a closed Attempt. The
+     * run then stops at a terminal transition boundary carrying only the
+     * leave message; a network disconnect or ordinary delay is never an
+     * explicit Flow Control Requested event and leaves the attempt open.
+     */
+    public ApplyFlowResult flowControlRequested(
+            UUID flowId,
+            int interactionVersion,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        LearningState state = LearningState.rehydrate(flowStore, flowId);
+        if (state.latestInteraction().interactionVersion() != interactionVersion) {
+            throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+        }
+        UUID attemptId = state.latestInteraction().attemptId();
+        if (attemptId != null) {
+            artifactStore.findAttempt(attemptId)
+                    .filter(TaskAttempt::isOpen)
+                    .ifPresent(attempt -> {
+                        AttemptCloseOutcome abandoned = artifactStore.abandonAttempt(attempt.attemptId());
+                        if (abandoned.result() == AttemptCloseOutcome.Result.CLOSED
+                                && attempt.purpose() == AttemptPurpose.REVIEW) {
+                            reviewStore.cancelStartedReview(
+                                    state.flow().learnerId(), state.flow().conceptId(), clock.instant());
+                        }
+                    });
+        }
+        return boundary(
+                state, state.latestInteraction().stage(), null, null, null,
+                FLOW_LEAVE_MESSAGE, null, InteractionKind.TRANSITION, idempotencyKey, requestHash);
+    }
+
+    /**
      * The accepted assistance conversion: the temporary Explain teaching
      * content is generated, gated, and persisted before any durable mutation,
      * and only a delivered artifact converts the Attempt and cancels the
@@ -464,7 +519,7 @@ public final class LearningStateGraph {
             return boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, attempt.attemptId(), attempt.purpose(),
                     projectionOf(attempt), unavailable.learnerMessage(), null,
-                    idempotencyKey, requestHash);
+                    InteractionKind.TASK, idempotencyKey, requestHash);
         }
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered) delivery;
         Optional<TaskAttempt> extended = artifactStore.appendAssistance(attempt.attemptId(), recordedClarification());
@@ -531,7 +586,7 @@ public final class LearningStateGraph {
     ) {
         return boundary(
                 state, state.latestInteraction().stage(), attempt.attemptId(), attempt.purpose(),
-                projectionOf(attempt), learnerMessage, null, idempotencyKey, requestHash);
+                projectionOf(attempt), learnerMessage, null, InteractionKind.TASK, idempotencyKey, requestHash);
     }
 
     /**
@@ -547,7 +602,8 @@ public final class LearningStateGraph {
             String requestHash
     ) {
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
-                state.flow().flowId(), state.latestInteraction().interactionVersion() + 1,
+                InteractionKind.ASSISTANCE_CONSENT, state.flow().flowId(),
+                state.latestInteraction().interactionVersion() + 1,
                 FlowStatus.AWAITING_LEARNER_INPUT, state.latestInteraction().stage(),
                 attempt.attemptId(), attempt.purpose(), null, null, null, null,
                 new AssistanceConsentView(CONSENT_WARNING_MESSAGE, attempt.attemptId(), attempt.purpose()));
@@ -574,7 +630,8 @@ public final class LearningStateGraph {
         if (attempt.isOpen()) {
             return boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, attempt.attemptId(), attempt.purpose(),
-                    projectionOf(attempt), null, revealed.hint(), idempotencyKey, requestHash);
+                    projectionOf(attempt), null, revealed.hint(), InteractionKind.TASK,
+                    idempotencyKey, requestHash);
         }
         // The H5 reveal closes the attempt as Solution Revealed and becomes
         // the most recently exposed eligible Teach-back anchor; the graph
@@ -630,11 +687,11 @@ public final class LearningStateGraph {
             case DiagnosticSubmissionResult.Passed passed -> boundary(
                     state, LearningStage.INDEPENDENT_TEST, passed.independentAttempt().attemptId(),
                     passed.independentAttempt().purpose(), passed.independentLearnerProjection(),
-                    passed.neutralTransitionMessage(), null, idempotencyKey, requestHash);
+                    passed.neutralTransitionMessage(), null, InteractionKind.TASK, idempotencyKey, requestHash);
             case DiagnosticSubmissionResult.Inconclusive inconclusive -> boundary(
                     state, LearningStage.INDEPENDENT_TEST, inconclusive.independentAttempt().attemptId(),
                     inconclusive.independentAttempt().purpose(), inconclusive.independentLearnerProjection(),
-                    inconclusive.neutralTransitionMessage(), null, idempotencyKey, requestHash);
+                    inconclusive.neutralTransitionMessage(), null, InteractionKind.TASK, idempotencyKey, requestHash);
             // A failed submitted Diagnostic stays closed and is never
             // retroactively converted. The Workflow Guard derives the legal
             // remediation actions from committed state and the Pedagogy Agent
@@ -644,7 +701,7 @@ public final class LearningStateGraph {
                             null, idempotencyKey, requestHash);
             case DiagnosticSubmissionResult.IndependentUnavailable unavailable -> boundary(
                     state, LearningStage.DIAGNOSTIC, null, null, null, unavailable.learnerMessage(), null,
-                    idempotencyKey, requestHash);
+                    InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
             case DiagnosticSubmissionResult.NotSubmittable notSubmittable ->
                     new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
             case DiagnosticSubmissionResult.Ignored ignored ->
@@ -666,7 +723,7 @@ public final class LearningStateGraph {
         return switch (result) {
             case IndependentSubmissionResult.EvidenceAccepted accepted -> boundary(
                     state, LearningStage.INDEPENDENT_TEST, null, null, null,
-                    accepted.learnerMessage(), null, idempotencyKey, requestHash);
+                    accepted.learnerMessage(), null, InteractionKind.TRANSITION, idempotencyKey, requestHash);
             // A conclusive no-hint Independent failure: accept exactly one
             // fail Evidence (only after the chosen remediation node's
             // generation succeeds), drop Current Milestone to Learning, and
@@ -684,7 +741,7 @@ public final class LearningStateGraph {
                             idempotencyKey, requestHash);
             case IndependentSubmissionResult.NoEvidence noEvidence -> boundary(
                     state, LearningStage.INDEPENDENT_TEST, null, null, null,
-                    noEvidence.learnerMessage(), null, idempotencyKey, requestHash);
+                    noEvidence.learnerMessage(), null, InteractionKind.TRANSITION, idempotencyKey, requestHash);
             case IndependentSubmissionResult.NotSubmittable notSubmittable ->
                     new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
             case IndependentSubmissionResult.Ignored ignored ->
@@ -709,10 +766,53 @@ public final class LearningStateGraph {
             case ApplyDeliveryResult.Delivered delivered -> boundary(
                     state, LearningStage.INDEPENDENT_TEST, delivered.attempt().attemptId(),
                     delivered.attempt().purpose(), delivered.learnerProjection(),
-                    learnerMessage, null, idempotencyKey, requestHash);
+                    learnerMessage, null, InteractionKind.TASK, idempotencyKey, requestHash);
             case ApplyDeliveryResult.Unavailable unavailable -> boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), null, idempotencyKey, requestHash);
+                    unavailable.learnerMessage(), null, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
+        };
+    }
+
+    /**
+     * The Review node of one submission: the flow closes and assesses the
+     * Attempt and advances the cadence exactly once. A conclusive pass or
+     * fail accepts exactly one Review Evidence record and stops at the safe
+     * terminal transition; an Inconclusive judgment creates no Evidence and
+     * the store durably binds the verified replacement (or the neutral
+     * continuation when none could be prepared). A duplicate or unclosed
+     * submission never creates Evidence.
+     */
+    private ApplyFlowResult submitReview(
+            LearningState state,
+            UUID attemptId,
+            String rawDerivative,
+            String confirmedCanonical,
+            String rationale,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        ReviewSubmissionResult result = reviewFlow.submitReview(
+                state.flow(), idempotencyKey, requestHash, attemptId, rawDerivative, confirmedCanonical, rationale);
+        return switch (result) {
+            case ReviewSubmissionResult.EvidenceAccepted accepted -> boundary(
+                    state, LearningStage.DELAYED_REVIEW, null, null, null,
+                    accepted.learnerMessage(), null, InteractionKind.TRANSITION, idempotencyKey, requestHash);
+            case ReviewSubmissionResult.FailureEvidenceAccepted failed -> boundary(
+                    state, LearningStage.DELAYED_REVIEW, null, null, null,
+                    failed.learnerMessage(), null, InteractionKind.TRANSITION, idempotencyKey, requestHash);
+            case ReviewSubmissionResult.NoEvidence noEvidence -> boundary(
+                    state, LearningStage.DELAYED_REVIEW, null, null, null,
+                    noEvidence.learnerMessage(), null, InteractionKind.TRANSITION, idempotencyKey, requestHash);
+            // The inconclusive replacement boundary was committed atomically
+            // by the Review store itself (task or neutral continuation).
+            case ReviewSubmissionResult.ReplacementBound bound ->
+                    new ApplyFlowResult.Boundary(bound.interaction());
+            case ReviewSubmissionResult.ReplacementUnavailable unavailable ->
+                    new ApplyFlowResult.Boundary(unavailable.interaction());
+            case ReviewSubmissionResult.NotSubmittable notSubmittable ->
+                    new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
+            case ReviewSubmissionResult.Ignored ignored ->
+                    new ApplyFlowResult.SubmissionIgnored(ignored.reason());
         };
     }
 
@@ -791,7 +891,7 @@ public final class LearningStateGraph {
                     routeTeachBackDecision(state, assessed, idempotencyKey, requestHash);
             case TeachBackSubmissionResult.Unavailable unavailable -> boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), null, idempotencyKey, requestHash);
+                    unavailable.learnerMessage(), null, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
             case TeachBackSubmissionResult.Ignored ignored ->
                     new ApplyFlowResult.SubmissionIgnored(ignored.reason());
             case TeachBackSubmissionResult.NotSubmittable notSubmittable ->
@@ -927,7 +1027,7 @@ public final class LearningStateGraph {
             }
             case ExplainDeliveryResult.Unavailable unavailable -> boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), null, idempotencyKey, requestHash);
+                    unavailable.learnerMessage(), null, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
         };
     }
 
@@ -955,11 +1055,11 @@ public final class LearningStateGraph {
                 yield boundary(
                         state, LearningStage.LEARNING_AND_PRACTICE, delivered.attempt().attemptId(),
                         delivered.attempt().purpose(), delivered.learnerProjection(),
-                        decision.learnerMessage(), hint, idempotencyKey, requestHash);
+                        decision.learnerMessage(), hint, InteractionKind.TASK, idempotencyKey, requestHash);
             }
             case ApplyDeliveryResult.Unavailable unavailable -> boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), hint, idempotencyKey, requestHash);
+                    unavailable.learnerMessage(), hint, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
         };
     }
 
@@ -987,11 +1087,11 @@ public final class LearningStateGraph {
                 yield boundary(
                         state, LearningStage.LEARNING_AND_PRACTICE, delivered.attempt().attemptId(),
                         delivered.attempt().purpose(), delivered.learnerProjection(),
-                        decision.learnerMessage(), hint, idempotencyKey, requestHash);
+                        decision.learnerMessage(), hint, InteractionKind.TASK, idempotencyKey, requestHash);
             }
             case TeachBackDeliveryResult.Unavailable unavailable -> boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), hint, idempotencyKey, requestHash);
+                    unavailable.learnerMessage(), hint, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
         };
     }
 
@@ -1020,11 +1120,11 @@ public final class LearningStateGraph {
                 yield boundary(
                         state, LearningStage.INDEPENDENT_TEST, delivered.attempt().attemptId(),
                         delivered.attempt().purpose(), delivered.learnerProjection(),
-                        decision.learnerMessage(), hint, idempotencyKey, requestHash);
+                        decision.learnerMessage(), hint, InteractionKind.TASK, idempotencyKey, requestHash);
             }
             case ApplyDeliveryResult.Unavailable unavailable -> boundary(
                     state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), hint, idempotencyKey, requestHash);
+                    unavailable.learnerMessage(), hint, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
         };
     }
 
@@ -1046,7 +1146,8 @@ public final class LearningStateGraph {
         TaskAttempt attempt = open.get();
         return boundary(
                 state, LearningStage.LEARNING_AND_PRACTICE, attempt.attemptId(), attempt.purpose(),
-                projectionOf(attempt), RESUME_PRACTICE_MESSAGE, null, idempotencyKey, requestHash);
+                projectionOf(attempt), RESUME_PRACTICE_MESSAGE, null, InteractionKind.TASK,
+                idempotencyKey, requestHash);
     }
 
     /**
@@ -1148,12 +1249,13 @@ public final class LearningStateGraph {
             LearnerProjection learnerProjection,
             String learnerMessage,
             HintView hint,
+            InteractionKind kind,
             UUID idempotencyKey,
             String requestHash
     ) {
         FlowStatus status = learnerProjection == null ? FlowStatus.TERMINAL : FlowStatus.AWAITING_LEARNER_INPUT;
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
-                state.flow().flowId(), state.latestInteraction().interactionVersion() + 1, status, stage,
+                kind, state.flow().flowId(), state.latestInteraction().interactionVersion() + 1, status, stage,
                 attemptId, purpose, learnerProjection, learnerMessage, null, hint, null);
         return commitBoundary(interaction, idempotencyKey, requestHash);
     }
@@ -1171,7 +1273,8 @@ public final class LearningStateGraph {
             String requestHash
     ) {
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
-                state.flow().flowId(), state.latestInteraction().interactionVersion() + 1,
+                InteractionKind.TEACHING, state.flow().flowId(),
+                state.latestInteraction().interactionVersion() + 1,
                 FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.LEARNING_AND_PRACTICE,
                 null, null, null, learnerMessage, teachingProjection, null, null);
         return commitBoundary(interaction, idempotencyKey, requestHash);

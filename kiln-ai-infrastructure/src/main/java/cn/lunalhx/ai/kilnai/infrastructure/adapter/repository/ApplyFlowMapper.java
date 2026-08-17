@@ -38,10 +38,10 @@ public interface ApplyFlowMapper {
 
     @Insert("""
             INSERT INTO interactions (
-                id, flow_id, interaction_version, status, stage, attempt_id, attempt_purpose,
+                id, flow_id, interaction_version, kind, status, stage, attempt_id, attempt_purpose,
                 learner_projection, learner_message, teaching_projection, hint, assistance_consent, created_at
             ) VALUES (
-                #{id}, #{flowId}, #{interactionVersion}, #{status}, #{stage}, #{attemptId},
+                #{id}, #{flowId}, #{interactionVersion}, #{kind}, #{status}, #{stage}, #{attemptId},
                 #{attemptPurpose}, CAST(#{learnerProjectionJson} AS JSONB), #{learnerMessage},
                 CAST(#{teachingProjectionJson} AS JSONB), CAST(#{hintJson} AS JSONB),
                 CAST(#{assistanceConsentJson} AS JSONB), #{createdAt}
@@ -51,7 +51,7 @@ public interface ApplyFlowMapper {
     void insertInteraction(InteractionRow row);
 
     @Select("""
-            SELECT id, flow_id, interaction_version, status, stage, attempt_id, attempt_purpose,
+            SELECT id, flow_id, interaction_version, kind, status, stage, attempt_id, attempt_purpose,
                    learner_projection::text AS learner_projection_json, learner_message,
                    teaching_projection::text AS teaching_projection_json,
                    hint::text AS hint_json,
@@ -287,6 +287,21 @@ public interface ApplyFlowMapper {
             @Param("attemptId") UUID attemptId,
             @Param("closedAt") Instant closedAt,
             @Param("submissionJson") String submissionJson
+    );
+
+    /**
+     * Closes one open attempt as Abandoned when the learner explicitly leaves
+     * the Learning Flow (ADR-0015); the open-status guard makes a replay or a
+     * racing abandon a no-op.
+     */
+    @Update("""
+            UPDATE attempts
+            SET status = 'ABANDONED', closed_at = #{closedAt}
+            WHERE id = #{attemptId} AND status = 'OPEN'
+            """)
+    int abandonOpenAttempt(
+            @Param("attemptId") UUID attemptId,
+            @Param("closedAt") Instant closedAt
     );
 
     /**
@@ -630,6 +645,7 @@ public interface ApplyFlowMapper {
             UUID id,
             UUID flowId,
             int interactionVersion,
+            String kind,
             String status,
             String stage,
             UUID attemptId,

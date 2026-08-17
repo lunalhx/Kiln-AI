@@ -1,7 +1,6 @@
 package cn.lunalhx.ai.kilnai.api.dto;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -17,6 +16,6 @@ public record ReviewTaskView(
         int reviewNumber,
         Instant dueAt,
         boolean startable,
-        ApplyFlowResponse.ProgressView progress
+        LearningFlowResponse.ProgressView progress
 ) {
 }

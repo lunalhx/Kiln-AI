@@ -18,17 +18,18 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Reference UI coverage of the Inconclusive Review continuation states: the
- * system-uncertainty notice accompanies the replacement task, and a Review
- * whose replacement could not be prepared is clearly shown as resumable —
- * never as a learner failure — and continued through the same start action.
+ * Reference UI coverage of the Inconclusive Review continuation states over
+ * the unified Learning Flow API: the system-uncertainty notice accompanies
+ * the replacement task, and a Review whose replacement could not be prepared
+ * is clearly shown as resumable — never as a learner failure — and continued
+ * through the same start action.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import(InconclusiveReviewPortsConfiguration.class)
+@Import(InconclusiveReviewGraphPortsConfiguration.class)
 @TestPropertySource(properties = {
         "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration,org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration,org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration"
 })
-class ApplyReviewReplacementUiTest {
+class LearningFlowReviewReplacementUiTest {
 
     @LocalServerPort
     int port;
@@ -37,7 +38,7 @@ class ApplyReviewReplacementUiTest {
     ReviewTaskStore reviewStore;
 
     @Autowired
-    InconclusiveReviewPortsConfiguration ports;
+    InconclusiveReviewGraphPortsConfiguration ports;
 
     @Test
     void uiShowsTheSystemUncertaintyNoticeAndContinuesWithTheReplacementTask() {
@@ -80,8 +81,13 @@ class ApplyReviewReplacementUiTest {
             ports.failNextReviewGeneration();
             page.fill("#derivative", "x^2^3");
             page.click("#submit");
-            page.waitForFunction("() => document.getElementById('reviews').textContent.includes('可继续')");
+            page.waitForFunction("() => document.getElementById('view').textContent.includes('\"kind\": \"unavailable\"')");
+            String unavailable = page.innerText("#view");
+            assertTrue(page.innerText("#notice").contains("未能确定"),
+                    "the neutral unavailable message must be shown");
+            assertFalse(unavailable.contains("失败"));
 
+            page.waitForFunction("() => document.getElementById('reviews').textContent.includes('可继续')");
             String reviews = page.innerText("#reviews");
             assertTrue(reviews.contains("系统未能确定上次结果，可继续"),
                     "the Review must be clearly shown as continuable, not failed");

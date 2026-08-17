@@ -103,6 +103,25 @@ public record TaskAttempt(
     }
 
     /**
+     * Closes an open attempt as {@link AttemptStatus#ABANDONED} when the
+     * learner explicitly leaves the flow (ADR-0015). The attempt's responses,
+     * Assistance Trace, and Task Package identity remain auditable, but it is
+     * not assessed, produces no Learning Evidence, and changes no Mastery
+     * Milestone; its exposed Task Package is never reopened for later
+     * evidence.
+     */
+    public AttemptCloseOutcome abandon(Instant now) {
+        Objects.requireNonNull(now, "now must not be null");
+        if (!isOpen()) {
+            return new AttemptCloseOutcome(AttemptCloseOutcome.Result.ALREADY_CLOSED, this);
+        }
+        return new AttemptCloseOutcome(
+                AttemptCloseOutcome.Result.CLOSED,
+                new TaskAttempt(attemptId, taskPackageId, purpose, AttemptStatus.ABANDONED, openedAt, now,
+                        null, assistanceTrace));
+    }
+
+    /**
      * The append-only copy of this attempt with one more exposed assistance
      * entry. H1-H4 exposures keep the attempt open; the caller closes it
      * explicitly for H5.

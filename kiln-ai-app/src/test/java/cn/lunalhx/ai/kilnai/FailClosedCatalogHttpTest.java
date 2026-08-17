@@ -32,7 +32,7 @@ class FailClosedCatalogHttpTest {
         HttpHeaders headers = new HttpHeaders();
         headers.add("Idempotency-Key", UUID.randomUUID().toString());
         ResponseEntity<Map> response = http.exchange(
-                "/api/apply/flows",
+                "/api/learning/flows",
                 HttpMethod.POST,
                 new HttpEntity<>(Map.of("learnerId", UUID.randomUUID()), headers),
                 Map.class

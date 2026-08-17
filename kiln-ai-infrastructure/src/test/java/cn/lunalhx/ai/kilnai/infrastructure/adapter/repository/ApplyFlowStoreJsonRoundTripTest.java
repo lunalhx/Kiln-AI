@@ -12,6 +12,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLevel;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintView;
+import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalAnswer;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorFacts;
@@ -127,7 +128,7 @@ class ApplyFlowStoreJsonRoundTripTest {
 
         UUID flowId = UUID.randomUUID();
         ApplyFlowInteraction interaction = new ApplyFlowInteraction(
-                flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
+                InteractionKind.TASK, flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
                 openAttempt.attemptId(), AttemptPurpose.DIAGNOSTIC, projection, null, null, null, null);
         assertEquals(interaction, roundTrip(interaction));
 
@@ -141,7 +142,8 @@ class ApplyFlowStoreJsonRoundTripTest {
                 List.of(ApplyLearnerEvent.CONTINUE_REQUESTED, ApplyLearnerEvent.CLARIFICATION_ASKED,
                         ApplyLearnerEvent.FLOW_CONTROL));
         ApplyFlowInteraction teachingInteraction = new ApplyFlowInteraction(
-                flowId, 2, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.LEARNING_AND_PRACTICE,
+                InteractionKind.TEACHING, flowId, 2, FlowStatus.AWAITING_LEARNER_INPUT,
+                LearningStage.LEARNING_AND_PRACTICE,
                 null, null, null, null, teaching, null, null);
         assertEquals(teachingInteraction, roundTrip(teachingInteraction));
 

@@ -23,7 +23,9 @@ public final class BundleLoader {
         }
         String bundleId = pinnedId.substring(0, at);
         String version = pinnedId.substring(at + 1);
-        String resourcePath = "skills/" + bundleId + "/SKILL.md";
+        // Each immutable release version lives at its own resource path, so
+        // two versions of one Bundle id coexist without ambiguity.
+        String resourcePath = "skills/" + pinnedId + "/SKILL.md";
         byte[] fullContent;
         try (InputStream stream = BundleLoader.class.getClassLoader().getResourceAsStream(resourcePath)) {
             if (stream == null) {

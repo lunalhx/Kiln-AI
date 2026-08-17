@@ -193,6 +193,28 @@ public final class LearningFlowCommandUseCase {
                         idempotencyKey, hash));
     }
 
+    /**
+     * The flow-control-requested command of the closed learning command
+     * surface: the learner explicitly leaves the Flow. Any open Attempt is
+     * closed as Abandoned (ADR-0015) — no submission, Assessment, Evidence,
+     * or Milestone change — and the run stops at the terminal leave
+     * transition boundary. The command reuses the shared idempotency-replay
+     * boundary, so a replayed leave always returns its original committed
+     * transition.
+     */
+    public ApplyFlowResult flowControlRequested(
+            UUID flowId,
+            int interactionVersion,
+            UUID idempotencyKey
+    ) {
+        requireUuidKey(idempotencyKey);
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        String hash = ApplyHash.sha256HexDelimited("flow-control", flowId, interactionVersion);
+        return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
+                interaction -> new ApplyFlowResult.Boundary(interaction),
+                () -> graph.flowControlRequested(flowId, interactionVersion, idempotencyKey, hash));
+    }
+
     private void saveSourcePack() {
         ApplyExecutionContext.ConceptSourcePack pack = diagnosticContext.conceptSourcePack();
         artifactStore.saveSource(new SourceArtifact(pack.id(), pack.version(), pack.passages()));

@@ -9,14 +9,18 @@ import java.util.UUID;
 
 /**
  * The durable learner-visible interaction of one Apply Learning Flow at one
- * Learner Interaction Boundary. It carries the open Task Attempt awaiting a
- * submission, a teaching interaction with its learner-visible teaching
- * projection, the learner-visible view of the last exposed hint level, an
- * assistance-consent request over an open Independent or Review attempt, or
- * a terminal message; it never carries private assessor projections, expected
+ * Learner Interaction Boundary. Its closed {@link InteractionKind} declares
+ * which one of the union shapes the interaction carries — an open Task
+ * Attempt awaiting a submission, a teaching interaction with its
+ * learner-visible teaching projection, an assistance-consent request over an
+ * open Independent or Review attempt, a message-only transition, or the
+ * neutral unavailable boundary of a failed node. The learner-visible view of
+ * the last exposed hint level rides on the task shape of an open Apply
+ * Practice Attempt. It never carries private assessor projections, expected
  * answers, unexposed hint levels, source traces, or Fingerprints.
  */
 public record ApplyFlowInteraction(
+        InteractionKind kind,
         UUID flowId,
         int interactionVersion,
         FlowStatus status,
@@ -31,6 +35,7 @@ public record ApplyFlowInteraction(
 ) {
 
     public ApplyFlowInteraction {
+        Objects.requireNonNull(kind, "kind must not be null");
         Objects.requireNonNull(flowId, "flowId must not be null");
         Objects.requireNonNull(status, "status must not be null");
         Objects.requireNonNull(stage, "stage must not be null");

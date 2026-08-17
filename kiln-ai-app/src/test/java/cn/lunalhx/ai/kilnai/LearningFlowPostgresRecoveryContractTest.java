@@ -6,6 +6,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
@@ -543,9 +544,12 @@ class LearningFlowPostgresRecoveryContractTest {
                         teachBackGeneration, teachBackVerifier, flowStore),
                 flowStore, flowStore, teachBackAssessment,
                 TeachBackApplyFixture.teachBackContext(), clock);
+        ReviewSubmissionFlow reviewSubmissionFlow = new ReviewSubmissionFlow(
+                flowStore, flowStore, assessmentPort, verificationPort, scheduler, executor, flowStore,
+                ReviewApplyFixture.reviewContext(), clock);
         LearningStateGraph graph = new LearningStateGraph(
                 flowStore, flowStore, flowStore, diagnosticFlow, independentFlow, practiceFlow,
-                explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
+                reviewSubmissionFlow, explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
         return new LearningFlowCommandUseCase(
                 flowStore, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
                 (cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort) () -> new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile(

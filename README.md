@@ -4,13 +4,15 @@ Kiln-AI is an AI learning system designed to help users develop durable, transfe
 
 ## Current Slice
 
-The repository ships one end-to-end product path: the **Apply** Teaching Node Profile reference. A learner receives a bounded, no-hint task in `zh-CN`, submits a mathematical answer, and — when the task is a fresh Independent Test — can produce Independent Learning Evidence only after deterministic checks and isolated model assessment.
+The repository ships one end-to-end product path: the **Learning/Practice reference**. A learner is diagnosed on a bounded, no-hint task in `zh-CN`, and a demonstrated gap leads through the guarded loop — Explain teaching, fresh Apply Practice with a five-level Hint Ladder, and anchored Teach-back — before a fresh Independent Test can be reopened. A passing Diagnostic routes through a neutral transition to a fresh Independent Test; a post-remediation Independent pass produces Independent Learning Evidence and schedules the Delayed Review cadence (1, 3, 7, 21 days).
 
 The flow is:
 
-`Apply Diagnostic -> neutral transition after pass -> fresh equivalent Apply Independent Test -> task verification -> assessment and verification -> Independent Evidence`
+`Apply Diagnostic -> (neutral transition after pass) -> fresh equivalent Apply Independent Test -> task verification -> assessment and verification -> Independent Evidence`
 
-The five first-party Skill Bundles (`apply.task-first`, `reasoning.rule-application`, `representation.formal-expression`, `verification.structured-task-contract`, `subject.calculus-notation`) are frozen, versioned, and immutable; only the Action Bundle contributes draft fields. The Apply Profile compiles an immutable English system prompt and receives execution data as a closed `apply_execution_context/v1` JSON object.
+and a failed Diagnostic enters `Explain -> Apply Practice (Hints) -> Teach-back -> fresh Independent Test` under the deterministic Workflow Guard and the bounded Pedagogy Agent.
+
+The five first-party Skill Bundles (`apply.task-first`, `reasoning.rule-application`, `representation.formal-expression`, `verification.structured-task-contract`, `subject.calculus-notation`) are frozen, versioned, and immutable; the Explain, Hint, and Teach-back reference stacks add one Action Bundle each over the shared immutable `subject.calculus-notation@1.0.0`. Only the Action Bundle contributes draft fields. Each Profile compiles an immutable English system prompt and receives execution data as a closed JSON object.
 
 RAG, ingestion, authentication, Learner Memory, and the other four Teaching Node Profiles (Explain, Retrieve, Teach-back, Hint) are intentionally out of scope for this slice.
 
@@ -68,14 +70,14 @@ An ArchUnit test in `kiln-ai-domain` prevents the domain from depending on Sprin
 
 Flyway applies the Learning Flow schema automatically. The learner UI is served at `http://localhost:8080/`.
 
-## Try The Apply Flow
+## Try The Learning Flow
 
-The learner UI at `/` walks through the whole flow. The same flow is available over HTTP:
+The learner UI at `/` walks through the whole flow. The same flow is available over the unified Learning Flow API:
 
 Start a Diagnostic task:
 
 ```bash
-curl -X POST http://localhost:8080/api/apply/flows \
+curl -X POST http://localhost:8080/api/learning/flows \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: <uuid>' \
   -d '{"learnerId": "<uuid>"}'
@@ -84,19 +86,19 @@ curl -X POST http://localhost:8080/api/apply/flows \
 Submit the Diagnostic answer (the response returns a fresh Independent Test on a neutral transition):
 
 ```bash
-curl -X POST http://localhost:8080/api/apply/flows/<flowId>/submissions \
+curl -X POST http://localhost:8080/api/learning/flows/<flowId>/commands \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: <uuid>' \
-  -d '{"interactionVersion": 1, "attemptId": "<attemptId>", "rawDerivative": "12x²−6x+7", "confirmedCanonical": "12*x^2-6*x+7", "rationale": null}'
+  -d '{"command": "answer_submitted", "interactionVersion": 1, "attemptId": "<attemptId>", "rawAnswer": "12x²−6x+7", "confirmedCanonical": "12*x^2-6*x+7", "rationale": null}'
 ```
 
-Query the latest interaction at any time:
+Every learner command is one closed discriminator — `answer_submitted`, `hint_requested`, `clarification_asked`, `assistance_decided`, `continue_requested`, or `flow_control_requested` — and carries the expected `interactionVersion` (plus `attemptId` when it targets an open Attempt). Query the latest committed interaction at any time:
 
 ```bash
-curl http://localhost:8080/api/apply/flows/<flowId>
+curl http://localhost:8080/api/learning/flows/<flowId>
 ```
 
-Learner responses never contain expected answers, source identities, Fingerprints, or execution traces.
+The response exposes one closed committed-interaction union — `task`, `teaching`, `assistance_consent`, `transition`, or `unavailable` — with the closed command names the learner may issue against it. Due Review Tasks live under `/api/review-tasks`. Learner responses never contain expected answers, source identities, Fingerprints, or execution traces.
 
 ## Verification
 
