@@ -1,12 +1,12 @@
 package cn.lunalhx.ai.kilnai;
 
-import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningFlowCommandUseCase;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
@@ -68,7 +68,7 @@ class ApplyPostgresReviewReplacementTest {
     JdbcTemplate jdbc;
 
     @Autowired
-    ApplyFlowUseCase useCase;
+    LearningFlowCommandUseCase useCase;
 
     @Autowired
     ArtifactStore artifacts;
@@ -104,7 +104,7 @@ class ApplyPostgresReviewReplacementTest {
         UUID submitKey = UUID.randomUUID();
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) reviewStart.start(
                 due.reviewId(), UUID.randomUUID());
-        ApplyFlowResult.Boundary replaced = (ApplyFlowResult.Boundary) useCase.submit(
+        LearningFlowResult.Boundary replaced = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, started.interaction().interactionVersion(), submitKey,
                 started.interaction().attemptId(),
                 "x^2^3", "x^2^3", null);
@@ -133,7 +133,7 @@ class ApplyPostgresReviewReplacementTest {
 
         assertEquals(replaced.interaction(), useCase.query(flowId),
                 "query must recover the exact replacement interaction");
-        ApplyFlowResult.Boundary replayed = (ApplyFlowResult.Boundary) useCase.submit(
+        LearningFlowResult.Boundary replayed = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, started.interaction().interactionVersion(), submitKey,
                 started.interaction().attemptId(),
                 "x^2^3", "x^2^3", null);
@@ -144,7 +144,7 @@ class ApplyPostgresReviewReplacementTest {
         assertThrows(ApplicationException.class, () -> reviewStart.start(due.reviewId(), UUID.randomUUID()),
                 "a Started Review with an open Attempt is never startable again");
 
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) useCase.submit(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, replaced.interaction().interactionVersion(), UUID.randomUUID(),
                 replaced.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.REVIEW_EXPECTED_2,
@@ -169,7 +169,7 @@ class ApplyPostgresReviewReplacementTest {
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) reviewStart.start(
                 due.reviewId(), UUID.randomUUID());
         ports.failNextReviewGeneration();
-        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) useCase.submit(
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 "x^2^3", "x^2^3", null);
@@ -201,7 +201,7 @@ class ApplyPostgresReviewReplacementTest {
                 "a second resume with a new key must conflict without a duplicate replacement");
         assertEquals(4, artifacts.allPackages().size());
 
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) useCase.submit(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, resumed.interaction().interactionVersion(), UUID.randomUUID(),
                 resumed.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.REVIEW_EXPECTED_2,
@@ -214,12 +214,12 @@ class ApplyPostgresReviewReplacementTest {
     }
 
     private UUID completeIndependentPass(UUID learnerId) {
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
         UUID flowId = started.interaction().flowId();
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) useCase.submit(
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
-        useCase.submit(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+        useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         return flowId;

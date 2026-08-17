@@ -7,7 +7,6 @@ import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.TeachBackApplyFixture;
-import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
@@ -362,20 +361,5 @@ public class ApplyFlowConfiguration {
         return new ReviewSubmissionFlow(
                 artifactStore, flowStore, assessmentPort, verificationPort, reviewScheduler,
                 executor, reviewStore, ReviewApplyFixture.reviewContext(), clock);
-    }
-
-    @Bean
-    ApplyFlowUseCase applyFlowUseCase(
-            ArtifactStore artifactStore,
-            LearningFlowStore flowStore,
-            DiagnosticFlow diagnosticFlow,
-            IndependentSubmissionFlow independentFlow,
-            ReviewSubmissionFlow reviewFlow,
-            OperatorModelProfilePort modelProfilePort,
-            Clock clock
-    ) {
-        return new ApplyFlowUseCase(
-                artifactStore, flowStore, diagnosticFlow, independentFlow, reviewFlow,
-                DiagnosticApplyFixture.diagnosticContext(), modelProfilePort, clock);
     }
 }

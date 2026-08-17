@@ -1,26 +1,26 @@
 package cn.lunalhx.ai.kilnai.domain.apply.model;
 
 /**
- * The closed result of one Apply flow command. A successful state transition
- * returns the new durable {@link ApplyFlowInteraction}; deterministic
+ * The closed result of one Learning Flow command. A successful state transition
+ * returns the new durable {@link LearningFlowInteraction}; deterministic
  * submission rejections and ignore outcomes carry only the closed reason and
  * never advance the flow.
  */
-public sealed interface ApplyFlowResult
-        permits ApplyFlowResult.Boundary,
-        ApplyFlowResult.SubmissionRejected,
-        ApplyFlowResult.SubmissionIgnored,
-        ApplyFlowResult.HintIgnored,
-        ApplyFlowResult.ClarificationIgnored,
-        ApplyFlowResult.AssistanceIgnored {
+public sealed interface LearningFlowResult
+        permits LearningFlowResult.Boundary,
+        LearningFlowResult.SubmissionRejected,
+        LearningFlowResult.SubmissionIgnored,
+        LearningFlowResult.HintIgnored,
+        LearningFlowResult.ClarificationIgnored,
+        LearningFlowResult.AssistanceIgnored {
 
-    record Boundary(ApplyFlowInteraction interaction) implements ApplyFlowResult {
+    record Boundary(LearningFlowInteraction interaction) implements LearningFlowResult {
     }
 
-    record SubmissionRejected(SubmissionRejectionReason reason) implements ApplyFlowResult {
+    record SubmissionRejected(SubmissionRejectionReason reason) implements LearningFlowResult {
     }
 
-    record SubmissionIgnored(SubmissionIgnoreReason reason) implements ApplyFlowResult {
+    record SubmissionIgnored(SubmissionIgnoreReason reason) implements LearningFlowResult {
     }
 
     /**
@@ -29,7 +29,7 @@ public sealed interface ApplyFlowResult
      * Teach-back), or an already-closed Practice attempt. Nothing is exposed
      * and the interaction never advances.
      */
-    record HintIgnored(SubmissionIgnoreReason reason) implements ApplyFlowResult {
+    record HintIgnored(SubmissionIgnoreReason reason) implements LearningFlowResult {
     }
 
     /**
@@ -38,7 +38,7 @@ public sealed interface ApplyFlowResult
      * already-closed attempt. Nothing is classified, answered, or recorded,
      * and the interaction never advances.
      */
-    record ClarificationIgnored(SubmissionIgnoreReason reason) implements ApplyFlowResult {
+    record ClarificationIgnored(SubmissionIgnoreReason reason) implements LearningFlowResult {
     }
 
     /**
@@ -47,6 +47,6 @@ public sealed interface ApplyFlowResult
      * that is already Practice. Nothing is converted, recorded, or cancelled,
      * and the interaction never advances.
      */
-    record AssistanceIgnored(SubmissionIgnoreReason reason) implements ApplyFlowResult {
+    record AssistanceIgnored(SubmissionIgnoreReason reason) implements LearningFlowResult {
     }
 }

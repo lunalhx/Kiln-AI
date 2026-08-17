@@ -14,7 +14,7 @@ import java.util.UUID;
 public sealed interface ReviewStartResult
         permits ReviewStartResult.Boundary, ReviewStartResult.Unavailable {
 
-    record Boundary(ApplyFlowInteraction interaction) implements ReviewStartResult {
+    record Boundary(LearningFlowInteraction interaction) implements ReviewStartResult {
         public Boundary {
             Objects.requireNonNull(interaction, "interaction must not be null");
         }

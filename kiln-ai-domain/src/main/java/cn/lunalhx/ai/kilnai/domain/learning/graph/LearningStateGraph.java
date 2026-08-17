@@ -7,10 +7,10 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceConsentView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
@@ -166,16 +166,16 @@ public final class LearningStateGraph {
      * task and the run stops at the first Learner Interaction Boundary — or at
      * a terminal unavailable boundary when no task can be prepared.
      */
-    public ApplyFlowResult start(UUID flowId, ModelProfile profile, UUID idempotencyKey, String requestHash) {
+    public LearningFlowResult start(UUID flowId, ModelProfile profile, UUID idempotencyKey, String requestHash) {
         Objects.requireNonNull(flowId, "flowId must not be null");
         Objects.requireNonNull(profile, "profile must not be null");
         ApplyDeliveryResult delivery = diagnosticFlow.startDiagnostic(flowId, profile);
-        ApplyFlowInteraction interaction = switch (delivery) {
-            case ApplyDeliveryResult.Delivered delivered -> new ApplyFlowInteraction(
+        LearningFlowInteraction interaction = switch (delivery) {
+            case ApplyDeliveryResult.Delivered delivered -> new LearningFlowInteraction(
                     InteractionKind.TASK, flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
                     delivered.attempt().attemptId(), delivered.attempt().purpose(),
                     delivered.learnerProjection(), null, null, null, null);
-            case ApplyDeliveryResult.Unavailable unavailable -> new ApplyFlowInteraction(
+            case ApplyDeliveryResult.Unavailable unavailable -> new LearningFlowInteraction(
                     InteractionKind.UNAVAILABLE, flowId, 1, FlowStatus.TERMINAL, LearningStage.DIAGNOSTIC,
                     null, null, null, unavailable.learnerMessage(), null, null, null);
         };
@@ -188,7 +188,7 @@ public final class LearningStateGraph {
      * through the single legal Apply node for the Attempt's purpose, and stop
      * at the next committed Learner Interaction Boundary.
      */
-    public ApplyFlowResult submitAnswer(
+    public LearningFlowResult submitAnswer(
             UUID flowId,
             int interactionVersion,
             UUID attemptId,
@@ -208,7 +208,7 @@ public final class LearningStateGraph {
                 .map(TaskAttempt::purpose)
                 .orElse(null);
         if (purpose == null) {
-            return new ApplyFlowResult.SubmissionIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+            return new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
         }
         return switch (purpose) {
             case DIAGNOSTIC -> submitDiagnostic(state, attemptId, rawDerivative, confirmedCanonical, rationale,
@@ -222,7 +222,7 @@ public final class LearningStateGraph {
                             idempotencyKey, requestHash)
                     : submitPractice(state, attemptId, rawDerivative, confirmedCanonical, rationale,
                             idempotencyKey, requestHash);
-            default -> new ApplyFlowResult.SubmissionIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+            default -> new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         };
     }
 
@@ -249,7 +249,7 @@ public final class LearningStateGraph {
      * selects the next teaching node. Continue on any other boundary is
      * ignored without state change.
      */
-    public ApplyFlowResult continueRequested(
+    public LearningFlowResult continueRequested(
             UUID flowId,
             int interactionVersion,
             UUID idempotencyKey,
@@ -261,7 +261,7 @@ public final class LearningStateGraph {
             throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
         }
         if (state.latestInteraction().teachingProjection() == null) {
-            return new ApplyFlowResult.SubmissionIgnored(SubmissionIgnoreReason.CONTINUE_NOT_LEGAL);
+            return new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.CONTINUE_NOT_LEGAL);
         }
         Decision decision = decide(state, WorkflowGuard.DecisionContext.EXPLAIN_COMPLETED, continueFacts(state));
         return executeMove(state, decision, null, idempotencyKey, requestHash);
@@ -281,7 +281,7 @@ public final class LearningStateGraph {
      * are never legal for Diagnostic, Independent, Review, or Teach-back
      * Attempts.
      */
-    public ApplyFlowResult requestHint(
+    public LearningFlowResult requestHint(
             UUID flowId,
             int interactionVersion,
             UUID attemptId,
@@ -297,7 +297,7 @@ public final class LearningStateGraph {
         }
         Optional<TaskAttempt> maybeAttempt = artifactStore.findAttempt(attemptId);
         if (maybeAttempt.isEmpty()) {
-            return new ApplyFlowResult.HintIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+            return new LearningFlowResult.HintIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
         }
         HintResult result = hintFlow.requestHint(state.flow().modelProfile(), maybeAttempt.get(), answerRequested, idempotencyKey);
         return switch (result) {
@@ -306,7 +306,7 @@ public final class LearningStateGraph {
                     state, LearningStage.LEARNING_AND_PRACTICE, attemptId, AttemptPurpose.PRACTICE,
                     projectionOf(attemptId), unavailable.learnerMessage(), null,
                     InteractionKind.TASK, idempotencyKey, requestHash);
-            case HintResult.Ignored ignored -> new ApplyFlowResult.HintIgnored(ignored.reason());
+            case HintResult.Ignored ignored -> new LearningFlowResult.HintIgnored(ignored.reason());
         };
     }
 
@@ -323,7 +323,7 @@ public final class LearningStateGraph {
      * conversion, recording, or teaching content. Diagnostic and Teach-back
      * attempts never take the clarification command.
      */
-    public ApplyFlowResult clarificationAsked(
+    public LearningFlowResult clarificationAsked(
             UUID flowId,
             int interactionVersion,
             UUID attemptId,
@@ -340,14 +340,14 @@ public final class LearningStateGraph {
         }
         Optional<TaskAttempt> maybeAttempt = artifactStore.findAttempt(attemptId);
         if (maybeAttempt.isEmpty()) {
-            return new ApplyFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+            return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
         }
         TaskAttempt attempt = maybeAttempt.get();
         if (!attempt.isOpen()) {
-            return new ApplyFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+            return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
         if (isTeachBackAttempt(attemptId) || attempt.purpose() == AttemptPurpose.DIAGNOSTIC) {
-            return new ApplyFlowResult.ClarificationIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+            return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         }
         ClarificationClassification classification =
                 clarificationGate.classify(state.flow().modelProfile(), message, taskTextOf(attempt));
@@ -357,7 +357,7 @@ public final class LearningStateGraph {
                 case PRACTICE -> deliverClarificationExplain(state, attempt, idempotencyKey, requestHash);
                 case INDEPENDENT_TEST, REVIEW ->
                         consentBoundary(state, attempt, idempotencyKey, requestHash);
-                default -> new ApplyFlowResult.ClarificationIgnored(
+                default -> new LearningFlowResult.ClarificationIgnored(
                         SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
             };
         };
@@ -379,7 +379,7 @@ public final class LearningStateGraph {
      * the trace is never appended twice and the command never 409s a
      * committed half.
      */
-    public ApplyFlowResult assistanceDecided(
+    public LearningFlowResult assistanceDecided(
             UUID flowId,
             int interactionVersion,
             UUID attemptId,
@@ -395,14 +395,14 @@ public final class LearningStateGraph {
         }
         Optional<TaskAttempt> maybeAttempt = artifactStore.findAttempt(attemptId);
         if (maybeAttempt.isEmpty()) {
-            return new ApplyFlowResult.AssistanceIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+            return new LearningFlowResult.AssistanceIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
         }
         TaskAttempt attempt = maybeAttempt.get();
         if (!attempt.isOpen()) {
-            return new ApplyFlowResult.AssistanceIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+            return new LearningFlowResult.AssistanceIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
         if (isTeachBackAttempt(attemptId) || attempt.purpose() == AttemptPurpose.DIAGNOSTIC) {
-            return new ApplyFlowResult.AssistanceIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+            return new LearningFlowResult.AssistanceIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         }
         if (attempt.purpose() == AttemptPurpose.PRACTICE) {
             // An open Practice attempt is either the retried half of a
@@ -411,7 +411,7 @@ public final class LearningStateGraph {
             // never undo a committed one-way conversion.
             return accept
                     ? acceptAssistance(state, attempt, idempotencyKey, requestHash)
-                    : new ApplyFlowResult.AssistanceIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+                    : new LearningFlowResult.AssistanceIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         }
         if (!accept) {
             return taskBoundary(state, attempt, ASSISTANCE_REFUSED_MESSAGE, idempotencyKey, requestHash);
@@ -429,7 +429,7 @@ public final class LearningStateGraph {
      * leave message; a network disconnect or ordinary delay is never an
      * explicit Flow Control Requested event and leaves the attempt open.
      */
-    public ApplyFlowResult flowControlRequested(
+    public LearningFlowResult flowControlRequested(
             UUID flowId,
             int interactionVersion,
             UUID idempotencyKey,
@@ -467,7 +467,7 @@ public final class LearningStateGraph {
      * retried acceptance whose conversion already committed — resumes the
      * same teaching boundary without appending the trace again.
      */
-    private ApplyFlowResult acceptAssistance(
+    private LearningFlowResult acceptAssistance(
             LearningState state,
             TaskAttempt attempt,
             UUID idempotencyKey,
@@ -481,7 +481,7 @@ public final class LearningStateGraph {
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered) delivery;
         AttemptConversionOutcome conversion = artifactStore.convertToPractice(attempt.attemptId(), recordedClarification());
         if (conversion instanceof AttemptConversionOutcome.Ignored ignored) {
-            return new ApplyFlowResult.AssistanceIgnored(ignored.reason());
+            return new LearningFlowResult.AssistanceIgnored(ignored.reason());
         }
         if (attempt.purpose() == AttemptPurpose.REVIEW) {
             reviewStore.cancelStartedReview(
@@ -507,7 +507,7 @@ public final class LearningStateGraph {
      * Continue command. A failed generation appends nothing and keeps the
      * open Attempt at a safe retry boundary.
      */
-    private ApplyFlowResult deliverClarificationExplain(
+    private LearningFlowResult deliverClarificationExplain(
             LearningState state,
             TaskAttempt attempt,
             UUID idempotencyKey,
@@ -524,7 +524,7 @@ public final class LearningStateGraph {
         ExplainDeliveryResult.Delivered delivered = (ExplainDeliveryResult.Delivered) delivery;
         Optional<TaskAttempt> extended = artifactStore.appendAssistance(attempt.attemptId(), recordedClarification());
         if (extended.isEmpty()) {
-            return new ApplyFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+            return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
         flowStore.recordAnchor(state.flow().flowId(),
                 new TeachBackAnchor(
@@ -557,7 +557,7 @@ public final class LearningStateGraph {
      * Attempt, and the run stops at the same task boundary. No Teaching Node
      * Profile is loaded and the Attempt's purpose is untouched.
      */
-    private ApplyFlowResult answerProcedurally(
+    private LearningFlowResult answerProcedurally(
             LearningState state,
             TaskAttempt attempt,
             UUID idempotencyKey,
@@ -568,7 +568,7 @@ public final class LearningStateGraph {
                 AssistanceTraceEntry.clarification(AssistanceTraceEntry.AssistanceKind.PROCEDURAL_CLARIFICATION,
                         clock.instant())));
         if (extended.isEmpty()) {
-            return new ApplyFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+            return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
         return taskBoundary(state, attempt, answer, idempotencyKey, requestHash);
     }
@@ -577,7 +577,7 @@ public final class LearningStateGraph {
         return projectionOf(attempt).taskText();
     }
 
-    private ApplyFlowResult taskBoundary(
+    private LearningFlowResult taskBoundary(
             LearningState state,
             TaskAttempt attempt,
             String learnerMessage,
@@ -595,13 +595,13 @@ public final class LearningStateGraph {
      * one-way conversion consequence. No teaching content, trace entry, or
      * conversion ever precedes this boundary (ADR-0014).
      */
-    private ApplyFlowResult consentBoundary(
+    private LearningFlowResult consentBoundary(
             LearningState state,
             TaskAttempt attempt,
             UUID idempotencyKey,
             String requestHash
     ) {
-        ApplyFlowInteraction interaction = new ApplyFlowInteraction(
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
                 InteractionKind.ASSISTANCE_CONSENT, state.flow().flowId(),
                 state.latestInteraction().interactionVersion() + 1,
                 FlowStatus.AWAITING_LEARNER_INPUT, state.latestInteraction().stage(),
@@ -610,7 +610,7 @@ public final class LearningStateGraph {
         return commitBoundary(interaction, idempotencyKey, requestHash);
     }
 
-    private ApplyFlowResult revealBoundary(
+    private LearningFlowResult revealBoundary(
             LearningState state,
             HintResult.Revealed revealed,
             UUID idempotencyKey,
@@ -667,7 +667,7 @@ public final class LearningStateGraph {
         return artifactStore.findPackage(attempt.taskPackageId()).orElseThrow();
     }
 
-    private ApplyFlowResult submitDiagnostic(
+    private LearningFlowResult submitDiagnostic(
             LearningState state,
             UUID attemptId,
             String rawDerivative,
@@ -703,13 +703,13 @@ public final class LearningStateGraph {
                     state, LearningStage.DIAGNOSTIC, null, null, null, unavailable.learnerMessage(), null,
                     InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
             case DiagnosticSubmissionResult.NotSubmittable notSubmittable ->
-                    new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
+                    new LearningFlowResult.SubmissionRejected(notSubmittable.reason());
             case DiagnosticSubmissionResult.Ignored ignored ->
-                    new ApplyFlowResult.SubmissionIgnored(ignored.reason());
+                    new LearningFlowResult.SubmissionIgnored(ignored.reason());
         };
     }
 
-    private ApplyFlowResult submitIndependent(
+    private LearningFlowResult submitIndependent(
             LearningState state,
             UUID attemptId,
             String rawDerivative,
@@ -743,9 +743,9 @@ public final class LearningStateGraph {
                     state, LearningStage.INDEPENDENT_TEST, null, null, null,
                     noEvidence.learnerMessage(), null, InteractionKind.TRANSITION, idempotencyKey, requestHash);
             case IndependentSubmissionResult.NotSubmittable notSubmittable ->
-                    new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
+                    new LearningFlowResult.SubmissionRejected(notSubmittable.reason());
             case IndependentSubmissionResult.Ignored ignored ->
-                    new ApplyFlowResult.SubmissionIgnored(ignored.reason());
+                    new LearningFlowResult.SubmissionIgnored(ignored.reason());
         };
     }
 
@@ -755,7 +755,7 @@ public final class LearningStateGraph {
      * or a terminal unavailable boundary when no task can be prepared. No
      * Evidence and no milestone change on either path.
      */
-    private ApplyFlowResult deliverIndependentReplacement(
+    private LearningFlowResult deliverIndependentReplacement(
             LearningState state,
             String learnerMessage,
             UUID idempotencyKey,
@@ -782,7 +782,7 @@ public final class LearningStateGraph {
      * continuation when none could be prepared). A duplicate or unclosed
      * submission never creates Evidence.
      */
-    private ApplyFlowResult submitReview(
+    private LearningFlowResult submitReview(
             LearningState state,
             UUID attemptId,
             String rawDerivative,
@@ -806,13 +806,13 @@ public final class LearningStateGraph {
             // The inconclusive replacement boundary was committed atomically
             // by the Review store itself (task or neutral continuation).
             case ReviewSubmissionResult.ReplacementBound bound ->
-                    new ApplyFlowResult.Boundary(bound.interaction());
+                    new LearningFlowResult.Boundary(bound.interaction());
             case ReviewSubmissionResult.ReplacementUnavailable unavailable ->
-                    new ApplyFlowResult.Boundary(unavailable.interaction());
+                    new LearningFlowResult.Boundary(unavailable.interaction());
             case ReviewSubmissionResult.NotSubmittable notSubmittable ->
-                    new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
+                    new LearningFlowResult.SubmissionRejected(notSubmittable.reason());
             case ReviewSubmissionResult.Ignored ignored ->
-                    new ApplyFlowResult.SubmissionIgnored(ignored.reason());
+                    new LearningFlowResult.SubmissionIgnored(ignored.reason());
         };
     }
 
@@ -826,7 +826,7 @@ public final class LearningStateGraph {
      * succeeds, so a failed generation leaves no Evidence and a retry
      * recovers the original outcome.
      */
-    private ApplyFlowResult submitPractice(
+    private LearningFlowResult submitPractice(
             LearningState state,
             UUID attemptId,
             String rawDerivative,
@@ -841,13 +841,13 @@ public final class LearningStateGraph {
             case PracticeSubmissionResult.PracticeAssessed assessed ->
                     routePracticeDecision(state, assessed, idempotencyKey, requestHash);
             case PracticeSubmissionResult.NotSubmittable notSubmittable ->
-                    new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
+                    new LearningFlowResult.SubmissionRejected(notSubmittable.reason());
             case PracticeSubmissionResult.Ignored ignored ->
-                    new ApplyFlowResult.SubmissionIgnored(ignored.reason());
+                    new LearningFlowResult.SubmissionIgnored(ignored.reason());
         };
     }
 
-    private ApplyFlowResult routePracticeDecision(
+    private LearningFlowResult routePracticeDecision(
             LearningState state,
             PracticeSubmissionResult.PracticeAssessed assessed,
             UUID idempotencyKey,
@@ -876,7 +876,7 @@ public final class LearningStateGraph {
      * judgment creates no Evidence and the single legal move is a fresh
      * Teach-back replacement over the same anchor.
      */
-    private ApplyFlowResult submitTeachBack(
+    private LearningFlowResult submitTeachBack(
             LearningState state,
             UUID attemptId,
             String rawText,
@@ -893,13 +893,13 @@ public final class LearningStateGraph {
                     state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
                     unavailable.learnerMessage(), null, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
             case TeachBackSubmissionResult.Ignored ignored ->
-                    new ApplyFlowResult.SubmissionIgnored(ignored.reason());
+                    new LearningFlowResult.SubmissionIgnored(ignored.reason());
             case TeachBackSubmissionResult.NotSubmittable notSubmittable ->
-                    new ApplyFlowResult.SubmissionRejected(notSubmittable.reason());
+                    new LearningFlowResult.SubmissionRejected(notSubmittable.reason());
         };
     }
 
-    private ApplyFlowResult routeTeachBackDecision(
+    private LearningFlowResult routeTeachBackDecision(
             LearningState state,
             TeachBackSubmissionResult.TeachBackAssessed assessed,
             UUID idempotencyKey,
@@ -959,7 +959,7 @@ public final class LearningStateGraph {
      * generation, gating, and verification succeed, so a failed generation
      * leaves no Evidence and the command can be retried.
      */
-    private ApplyFlowResult executeMove(
+    private LearningFlowResult executeMove(
             LearningState state,
             Decision decision,
             AcceptedLearningEvidence evidence,
@@ -986,9 +986,9 @@ public final class LearningStateGraph {
      * Returns the already-submitted ignore outcome when a concurrent or
      * replayed command already accepted Evidence for the same Attempt.
      */
-    private Optional<ApplyFlowResult> acceptEvidenceOrIgnore(AcceptedLearningEvidence evidence) {
+    private Optional<LearningFlowResult> acceptEvidenceOrIgnore(AcceptedLearningEvidence evidence) {
         if (evidence != null && !flowStore.acceptEvidence(evidence)) {
-            return Optional.of(new ApplyFlowResult.SubmissionIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED));
+            return Optional.of(new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED));
         }
         return Optional.empty();
     }
@@ -1001,7 +1001,7 @@ public final class LearningStateGraph {
      * Attempt, Assessment, or Evidence. The delivered worked example becomes
      * the most recently exposed eligible Teach-back anchor.
      */
-    private ApplyFlowResult deliverExplainMove(
+    private LearningFlowResult deliverExplainMove(
             LearningState state,
             Decision decision,
             AcceptedLearningEvidence evidence,
@@ -1017,7 +1017,7 @@ public final class LearningStateGraph {
                                 TeachBackAnchor.TeachBackAnchorKind.EXPLAIN_WORKED_EXAMPLE,
                                 delivered.artifact().artifactId(),
                                 clock.instant()));
-                Optional<ApplyFlowResult> rejected = acceptEvidenceOrIgnore(evidence);
+                Optional<LearningFlowResult> rejected = acceptEvidenceOrIgnore(evidence);
                 if (rejected.isPresent()) {
                     yield rejected.get();
                 }
@@ -1037,7 +1037,7 @@ public final class LearningStateGraph {
      * be prepared. An optional reveal hint (H5 continuation) is projected on
      * the same boundary.
      */
-    private ApplyFlowResult deliverApplyPracticeMove(
+    private LearningFlowResult deliverApplyPracticeMove(
             LearningState state,
             Decision decision,
             AcceptedLearningEvidence evidence,
@@ -1048,7 +1048,7 @@ public final class LearningStateGraph {
         ApplyDeliveryResult delivery = practiceFlow.deliverPractice(state.flow().flowId(), state.flow().modelProfile());
         return switch (delivery) {
             case ApplyDeliveryResult.Delivered delivered -> {
-                Optional<ApplyFlowResult> rejected = acceptEvidenceOrIgnore(evidence);
+                Optional<LearningFlowResult> rejected = acceptEvidenceOrIgnore(evidence);
                 if (rejected.isPresent()) {
                     yield rejected.get();
                 }
@@ -1069,7 +1069,7 @@ public final class LearningStateGraph {
      * An optional reveal hint (H5 continuation) is projected on the same
      * boundary.
      */
-    private ApplyFlowResult deliverTeachBackMove(
+    private LearningFlowResult deliverTeachBackMove(
             LearningState state,
             Decision decision,
             AcceptedLearningEvidence evidence,
@@ -1080,7 +1080,7 @@ public final class LearningStateGraph {
         TeachBackDeliveryResult delivery = teachBackFlow.deliverTeachBack(state.flow().flowId(), state.flow().modelProfile());
         return switch (delivery) {
             case TeachBackDeliveryResult.Delivered delivered -> {
-                Optional<ApplyFlowResult> rejected = acceptEvidenceOrIgnore(evidence);
+                Optional<LearningFlowResult> rejected = acceptEvidenceOrIgnore(evidence);
                 if (rejected.isPresent()) {
                     yield rejected.get();
                 }
@@ -1102,7 +1102,7 @@ public final class LearningStateGraph {
      * unavailable boundary when no task can be prepared. An optional reveal
      * hint (H5 continuation) is projected on the same boundary.
      */
-    private ApplyFlowResult deliverIndependentMove(
+    private LearningFlowResult deliverIndependentMove(
             LearningState state,
             Decision decision,
             AcceptedLearningEvidence evidence,
@@ -1113,7 +1113,7 @@ public final class LearningStateGraph {
         ApplyDeliveryResult delivery = practiceFlow.deliverIndependent(state.flow().flowId(), state.flow().modelProfile());
         return switch (delivery) {
             case ApplyDeliveryResult.Delivered delivered -> {
-                Optional<ApplyFlowResult> rejected = acceptEvidenceOrIgnore(evidence);
+                Optional<LearningFlowResult> rejected = acceptEvidenceOrIgnore(evidence);
                 if (rejected.isPresent()) {
                     yield rejected.get();
                 }
@@ -1134,14 +1134,14 @@ public final class LearningStateGraph {
      * without generating anything. If the open Attempt is no longer present
      * in committed state, the Continue is ignored without state change.
      */
-    private ApplyFlowResult resumeOpenPractice(
+    private LearningFlowResult resumeOpenPractice(
             LearningState state,
             UUID idempotencyKey,
             String requestHash
     ) {
         Optional<TaskAttempt> open = openPracticeAttempt(state);
         if (open.isEmpty()) {
-            return new ApplyFlowResult.SubmissionIgnored(SubmissionIgnoreReason.CONTINUE_NOT_LEGAL);
+            return new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.CONTINUE_NOT_LEGAL);
         }
         TaskAttempt attempt = open.get();
         return boundary(
@@ -1241,7 +1241,7 @@ public final class LearningStateGraph {
         }
     }
 
-    private ApplyFlowResult.Boundary boundary(
+    private LearningFlowResult.Boundary boundary(
             LearningState state,
             LearningStage stage,
             UUID attemptId,
@@ -1254,7 +1254,7 @@ public final class LearningStateGraph {
             String requestHash
     ) {
         FlowStatus status = learnerProjection == null ? FlowStatus.TERMINAL : FlowStatus.AWAITING_LEARNER_INPUT;
-        ApplyFlowInteraction interaction = new ApplyFlowInteraction(
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
                 kind, state.flow().flowId(), state.latestInteraction().interactionVersion() + 1, status, stage,
                 attemptId, purpose, learnerProjection, learnerMessage, null, hint, null);
         return commitBoundary(interaction, idempotencyKey, requestHash);
@@ -1265,14 +1265,14 @@ public final class LearningStateGraph {
      * pauses awaiting learner input with the learner-visible teaching
      * projection, no Task Attempt, and the decision's learner message.
      */
-    private ApplyFlowResult.Boundary teachingBoundary(
+    private LearningFlowResult.Boundary teachingBoundary(
             LearningState state,
             TeachingProjection teachingProjection,
             String learnerMessage,
             UUID idempotencyKey,
             String requestHash
     ) {
-        ApplyFlowInteraction interaction = new ApplyFlowInteraction(
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
                 InteractionKind.TEACHING, state.flow().flowId(),
                 state.latestInteraction().interactionVersion() + 1,
                 FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.LEARNING_AND_PRACTICE,
@@ -1286,17 +1286,17 @@ public final class LearningStateGraph {
      * persist atomically, so a replay always returns the original result and a
      * restart resumes exactly from this point.
      */
-    private ApplyFlowResult.Boundary commitBoundary(
-            ApplyFlowInteraction interaction,
+    private LearningFlowResult.Boundary commitBoundary(
+            LearningFlowInteraction interaction,
             UUID idempotencyKey,
             String requestHash
     ) {
         flowStore.commitBoundary(
                 interaction,
-                new ApplyCheckpoint(UUID.randomUUID(), interaction.flowId(),
+                new LearningCheckpoint(UUID.randomUUID(), interaction.flowId(),
                         interaction.interactionVersion(), clock.instant()),
                 new ProcessedCommand(idempotencyKey, requestHash, interaction.flowId(),
                         interaction, clock.instant()));
-        return new ApplyFlowResult.Boundary(interaction);
+        return new LearningFlowResult.Boundary(interaction);
     }
 }

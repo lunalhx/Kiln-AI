@@ -27,8 +27,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorProjection;
@@ -71,9 +71,9 @@ class FrozenModelRuntimeContractTest {
     void theFlowFreezesTheModelProfileAndTheArtifactTraceRecordsTheFrozenRuntime() {
         Harness harness = new Harness(new ScriptedApplyGenerationModel(List.of(
                 ApplyScriptData.taskReadyJson("设 p(x) = 3x²，求 p'(x)。", "6*x"))));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase()
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase()
                 .start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowInteraction interaction = started.interaction();
+        LearningFlowInteraction interaction = started.interaction();
 
         LearningFlowStore.FlowRecord flow = harness.flowStore()
                 .findFlow(interaction.flowId()).orElseThrow();
@@ -106,7 +106,7 @@ class FrozenModelRuntimeContractTest {
         Harness harness = new Harness(new ScriptedApplyGenerationModel(List.of(
                 "{}",
                 ApplyScriptData.taskReadyJson("设 p(x) = 3x²，求 p'(x)。", "6*x"))));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase()
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase()
                 .start(LEARNER_ID, UUID.randomUUID());
 
         TaskPackage package_ = harness.artifacts().allPackages().get(0);

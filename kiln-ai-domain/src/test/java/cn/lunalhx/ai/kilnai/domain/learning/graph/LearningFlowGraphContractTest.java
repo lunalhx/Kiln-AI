@@ -31,11 +31,11 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
@@ -120,8 +120,8 @@ class LearningFlowGraphContractTest {
     void startCommitsTheFirstInteractionBoundaryWithCheckpointAndCommand() {
         Harness harness = harness();
         UUID key = UUID.randomUUID();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, key);
-        ApplyFlowInteraction interaction = started.interaction();
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, key);
+        LearningFlowInteraction interaction = started.interaction();
         assertEquals(1, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.DIAGNOSTIC, interaction.stage());
@@ -140,7 +140,7 @@ class LearningFlowGraphContractTest {
         SourceArtifact source = harness.artifacts().findSource("openstax-calculus-v1-3.3").orElseThrow();
         assertEquals("1.0.0", source.version());
         assertEquals(interaction, harness.flowStore().latestInteraction(interaction.flowId()).orElseThrow());
-        ApplyCheckpoint checkpoint = harness.flowStore().latestCheckpoint(interaction.flowId()).orElseThrow();
+        LearningCheckpoint checkpoint = harness.flowStore().latestCheckpoint(interaction.flowId()).orElseThrow();
         assertEquals(1, checkpoint.interactionVersion(), "the first boundary must commit a checkpoint");
         assertEquals(interaction, harness.flowStore().findCommand(key).orElseThrow().response(),
                 "the start command must be persisted with its original result");
@@ -150,8 +150,8 @@ class LearningFlowGraphContractTest {
     void aReplayedStartReturnsTheOriginalInteractionWithoutASecondAttempt() {
         Harness harness = harness();
         UUID key = UUID.randomUUID();
-        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, key);
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, key);
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, key);
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, key);
         assertEquals(first.interaction(), replay.interaction());
         assertEquals(1, harness.artifacts().allPackages().size(),
                 "a replayed start must never create a second Task Package or Attempt");
@@ -163,7 +163,7 @@ class LearningFlowGraphContractTest {
     void aReusedKeyWithADifferentPayloadConflicts() {
         Harness harness = harness();
         UUID key = UUID.randomUUID();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, key);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, key);
         ApplicationException conflict = assertThrows(ApplicationException.class,
                 () -> harness.useCase().start(UUID.randomUUID(), key));
         assertEquals(ErrorCode.CONFLICT, conflict.errorCode());
@@ -177,13 +177,13 @@ class LearningFlowGraphContractTest {
     @Test
     void aPassingDiagnosticMovesThroughTheNeutralTransitionToAFreshIndependentBoundary() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         UUID submitKey = UUID.randomUUID();
         UUID diagnosticAttemptId = started.interaction().attemptId();
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, submitKey, diagnosticAttemptId,
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        ApplyFlowInteraction interaction = transitioned.interaction();
+        LearningFlowInteraction interaction = transitioned.interaction();
         assertEquals(2, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.INDEPENDENT_TEST, interaction.stage());
@@ -205,12 +205,12 @@ class LearningFlowGraphContractTest {
     @Test
     void aReplayedDiagnosticSubmissionReturnsTheOriginalInteractionWithoutASecondEvaluation() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         UUID submitKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, submitKey, started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, submitKey, started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         assertEquals(first.interaction(), replay.interaction(), "a replayed key must return the original result");
@@ -222,16 +222,16 @@ class LearningFlowGraphContractTest {
     @Test
     void anIndependentPassAcceptsExactlyOneEvidenceAndSchedulesReviewOne() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
         UUID submitKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, submitKey, independentAttemptId,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
-        ApplyFlowInteraction interaction = completed.interaction();
+        LearningFlowInteraction interaction = completed.interaction();
         assertEquals(3, interaction.interactionVersion());
         assertEquals(FlowStatus.TERMINAL, interaction.status());
         assertEquals(IndependentSubmissionFlow.INDEPENDENT_COMPLETE_MESSAGE, interaction.learnerMessage());
@@ -264,16 +264,16 @@ class LearningFlowGraphContractTest {
     @Test
     void aReplayedIndependentSubmissionReturnsTheOriginalInteractionWithoutASecondEvaluationOrEvidence() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
         UUID submitKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, submitKey, independentAttemptId,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, submitKey, independentAttemptId,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
         assertEquals(first.interaction(), replay.interaction());
@@ -286,14 +286,14 @@ class LearningFlowGraphContractTest {
     @Test
     void aCommittedOutcomeResubmittedWithANewKeyIsIgnoredWithoutASecondEvaluationOrReview() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
         harness.useCase().submitAnswer(started.interaction().flowId(), 2, UUID.randomUUID(), independentAttemptId,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
-        ApplyFlowResult.SubmissionIgnored duplicate = (ApplyFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
+        LearningFlowResult.SubmissionIgnored duplicate = (LearningFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 3, UUID.randomUUID(), independentAttemptId,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
         assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED, duplicate.reason());
@@ -311,8 +311,8 @@ class LearningFlowGraphContractTest {
         ApplyDeliveryResult reviewDelivery = reviewDelivery(harness);
         assertInstanceOf(ApplyDeliveryResult.Delivered.class, reviewDelivery);
         UUID reviewAttemptId = ((ApplyDeliveryResult.Delivered) reviewDelivery).attempt().attemptId();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary submitted = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary submitted = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), reviewAttemptId,
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         assertEquals(InteractionKind.TRANSITION, submitted.interaction().kind(),
@@ -329,20 +329,20 @@ class LearningFlowGraphContractTest {
     @Test
     void aFreshInstanceResumesFromTheCommittedCheckpointAndReplaysExactlyOnce() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         LearningFlowCommandUseCase fresh = harness.newUseCase();
         assertEquals(transitioned.interaction(), fresh.query(started.interaction().flowId()),
                 "a fresh instance must recover the latest interaction and checkpoint exactly");
         UUID submitKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) fresh.submitAnswer(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) fresh.submitAnswer(
                 started.interaction().flowId(), 2, submitKey, transitioned.interaction().attemptId(),
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
         assertEquals(3, completed.interaction().interactionVersion());
         assertEquals(1, harness.flowStore().allEvidence().size());
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) fresh.submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) fresh.submitAnswer(
                 started.interaction().flowId(), 2, submitKey, transitioned.interaction().attemptId(),
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
         assertEquals(completed.interaction(), replay.interaction());
@@ -353,8 +353,8 @@ class LearningFlowGraphContractTest {
     @Test
     void aCrashBetweenClosingAndCommittingResumesFromTheSavedAttempt() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
@@ -366,7 +366,7 @@ class LearningFlowGraphContractTest {
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "the crash must leave the closed Attempt without committed Evidence");
         UUID retryKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, retryKey, independentAttemptId,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
         assertEquals(3, recovered.interaction().interactionVersion());
@@ -374,7 +374,7 @@ class LearningFlowGraphContractTest {
                 "the retry must resume the evaluation of the saved submission exactly once");
         assertEquals(1, harness.flowStore().unfinishedReviewsFor(LEARNER_ID).size(),
                 "the resumed transition must still schedule Review 1");
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, retryKey, independentAttemptId,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
         assertEquals(recovered.interaction(), replay.interaction());
@@ -384,7 +384,7 @@ class LearningFlowGraphContractTest {
     @Test
     void aStaleInteractionVersionConflictsAndDoesNotAdvance() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         ApplicationException conflict = assertThrows(ApplicationException.class, () -> harness.useCase().submitAnswer(
                 started.interaction().flowId(), 0, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null));
@@ -399,8 +399,8 @@ class LearningFlowGraphContractTest {
         ApplicationException missing = assertThrows(ApplicationException.class, () -> harness.useCase().submitAnswer(
                 UUID.randomUUID(), 1, UUID.randomUUID(), UUID.randomUUID(), "x", "x", null));
         assertEquals(ErrorCode.FLOW_NOT_FOUND, missing.errorCode());
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.SubmissionIgnored unknownAttempt = (ApplyFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.SubmissionIgnored unknownAttempt = (LearningFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), UUID.randomUUID(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         assertEquals(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND, unknownAttempt.reason());
@@ -411,9 +411,9 @@ class LearningFlowGraphContractTest {
     @Test
     void aRejectedSubmissionLeavesTheAttemptOpenAndDoesNotAdvanceTheInteraction() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         UUID attemptId = started.interaction().attemptId();
-        ApplyFlowResult.SubmissionRejected rejected = (ApplyFlowResult.SubmissionRejected) harness.useCase().submitAnswer(
+        LearningFlowResult.SubmissionRejected rejected = (LearningFlowResult.SubmissionRejected) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), attemptId,
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL + " + 1", null);
         assertEquals(SubmissionRejectionReason.CONFIRMATION_MISMATCH, rejected.reason());
@@ -421,7 +421,7 @@ class LearningFlowGraphContractTest {
                 "a rejected submission must leave the attempt open for correction");
         assertEquals(1, harness.flowStore().latestInteraction(started.interaction().flowId())
                 .orElseThrow().interactionVersion());
-        ApplyFlowResult.Boundary corrected = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary corrected = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), attemptId,
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         assertEquals(2, corrected.interaction().interactionVersion(),
@@ -431,11 +431,11 @@ class LearningFlowGraphContractTest {
     @Test
     void aClosedDiagnosticAttemptWithANewKeyIsIgnoredWithoutASecondEvaluation() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         UUID diagnosticAttemptId = started.interaction().attemptId();
         harness.useCase().submitAnswer(started.interaction().flowId(), 1, UUID.randomUUID(), diagnosticAttemptId,
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        ApplyFlowResult.SubmissionIgnored duplicate = (ApplyFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
+        LearningFlowResult.SubmissionIgnored duplicate = (LearningFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, UUID.randomUUID(), diagnosticAttemptId,
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED, duplicate.reason());
@@ -452,11 +452,11 @@ class LearningFlowGraphContractTest {
                         ApplyScriptData.taskReadyJson(), practiceTaskJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
-        ApplyFlowInteraction interaction = explained.interaction();
+        LearningFlowInteraction interaction = explained.interaction();
         assertEquals(2, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
@@ -488,9 +488,9 @@ class LearningFlowGraphContractTest {
         assertEquals(1, harness.flowStore().exposedTaskFingerprints(interaction.flowId()).size(),
                 "Explain must not record a task fingerprint");
 
-        ApplyFlowResult.Boundary practice = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+        LearningFlowResult.Boundary practice = (LearningFlowResult.Boundary) harness.useCase().continueRequested(
                 interaction.flowId(), interaction.interactionVersion(), UUID.randomUUID());
-        ApplyFlowInteraction practiceInteraction = practice.interaction();
+        LearningFlowInteraction practiceInteraction = practice.interaction();
         assertEquals(3, practiceInteraction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, practiceInteraction.status());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, practiceInteraction.stage());
@@ -518,12 +518,12 @@ class LearningFlowGraphContractTest {
                 new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson(), practiceTaskJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         UUID failKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, failKey, started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, failKey, started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(first.interaction(), replay.interaction(), "a replayed key must return the original result");
@@ -541,15 +541,15 @@ class LearningFlowGraphContractTest {
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         UUID continueKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().continueRequested(
                 explained.interaction().flowId(), 2, continueKey);
         assertEquals(3, first.interaction().interactionVersion());
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().continueRequested(
                 explained.interaction().flowId(), 2, continueKey);
         assertEquals(first.interaction(), replay.interaction());
         assertEquals(2, harness.generation().calls().size(),
@@ -561,8 +561,8 @@ class LearningFlowGraphContractTest {
     @Test
     void aContinueOnANonTeachingBoundaryIsIgnoredWithoutStateChange() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.SubmissionIgnored ignored = (ApplyFlowResult.SubmissionIgnored) harness.useCase()
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.SubmissionIgnored ignored = (LearningFlowResult.SubmissionIgnored) harness.useCase()
                 .continueRequested(started.interaction().flowId(), 1, UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.CONTINUE_NOT_LEGAL, ignored.reason());
         assertEquals(1, harness.flowStore().latestInteraction(started.interaction().flowId())
@@ -579,8 +579,8 @@ class LearningFlowGraphContractTest {
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
                 new ScriptedResponseVerificationModel(List.of()),
                 new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainSourceGapJson())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(2, unavailable.interaction().interactionVersion());
@@ -592,7 +592,7 @@ class LearningFlowGraphContractTest {
                 "a Source Gap must create no Practice Package");
         assertTrue(harness.flowStore().allEvidence().isEmpty());
         assertEquals(0, harness.flowStore().exposedExampleFingerprints(started.interaction().flowId()).size());
-        ApplyFlowResult.SubmissionIgnored continueIgnored = (ApplyFlowResult.SubmissionIgnored) harness.useCase()
+        LearningFlowResult.SubmissionIgnored continueIgnored = (LearningFlowResult.SubmissionIgnored) harness.useCase()
                 .continueRequested(unavailable.interaction().flowId(), 2, UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.CONTINUE_NOT_LEGAL, continueIgnored.reason());
         assertEquals(2, harness.flowStore().latestInteraction(started.interaction().flowId())
@@ -608,8 +608,8 @@ class LearningFlowGraphContractTest {
                 new ScriptedResponseVerificationModel(List.of()),
                 new ScriptedExplainGenerationModel(List.of(
                         "{not valid json", "{not valid json")));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(FlowStatus.TERMINAL, unavailable.interaction().status());
@@ -630,12 +630,12 @@ class LearningFlowGraphContractTest {
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment(),
                         conclusivePracticeJudgment(), conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary independent = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary independent = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
-        ApplyFlowInteraction interaction = independent.interaction();
+        LearningFlowInteraction interaction = independent.interaction();
         assertEquals(4, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.INDEPENDENT_TEST, interaction.stage(),
@@ -659,7 +659,7 @@ class LearningFlowGraphContractTest {
         assertEquals(MasteryMilestone.LEARNING, progress.currentMilestone(),
                 "a Practice pass raises the Concept to Learning without pretending Independent");
         UUID submitKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 interaction.flowId(), 4, submitKey, interaction.attemptId(),
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
         assertEquals(5, completed.interaction().interactionVersion());
@@ -685,12 +685,12 @@ class LearningFlowGraphContractTest {
                 new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
                 ScriptedPedagogyModel.scripted(
                         TeachingAction.EXPLAIN, TeachingAction.APPLY_PRACTICE, TeachingAction.APPLY_PRACTICE));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary replacement = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
-        ApplyFlowInteraction interaction = replacement.interaction();
+        LearningFlowInteraction interaction = replacement.interaction();
         assertEquals(4, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
@@ -718,12 +718,12 @@ class LearningFlowGraphContractTest {
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment(), inconclusiveJudgment())),
                 new ScriptedResponseVerificationModel(List.of(inconclusiveJudgment())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary replacement = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
-        ApplyFlowInteraction interaction = replacement.interaction();
+        LearningFlowInteraction interaction = replacement.interaction();
         assertEquals(4, interaction.interactionVersion());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
         assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
@@ -754,14 +754,14 @@ class LearningFlowGraphContractTest {
                 ScriptedPedagogyModel.scripted(
                         TeachingAction.EXPLAIN, TeachingAction.APPLY_PRACTICE,
                         TeachingAction.APPLY_PRACTICE, TeachingAction.INDEPENDENT_TEST));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
-        ApplyFlowResult.Boundary afterFail = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary afterFail = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practice.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, afterFail.interaction().stage(),
                 "a conclusive fail must not make the Independent Test legal");
         assertEquals(AttemptPurpose.PRACTICE, afterFail.interaction().attemptPurpose());
-        ApplyFlowResult.Boundary afterPass = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary afterPass = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 afterFail.interaction().flowId(), 4, UUID.randomUUID(), afterFail.interaction().attemptId(),
                 ApplyScriptData.SECOND_PRACTICE_CORRECT_DERIVATIVE,
                 ApplyScriptData.SECOND_PRACTICE_CORRECT_CANONICAL, null);
@@ -782,13 +782,13 @@ class LearningFlowGraphContractTest {
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment(), conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
         UUID submitKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, submitKey, practiceAttemptId,
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, submitKey, practiceAttemptId,
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
         assertEquals(first.interaction(), replay.interaction(), "a replayed key must return the original result");
@@ -808,12 +808,12 @@ class LearningFlowGraphContractTest {
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment(), conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary independent = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary independent = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
-        ApplyFlowResult.SubmissionIgnored duplicate = (ApplyFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
+        LearningFlowResult.SubmissionIgnored duplicate = (LearningFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
                 independent.interaction().flowId(), 4, UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED, duplicate.reason());
@@ -835,7 +835,7 @@ class LearningFlowGraphContractTest {
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment(), conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
         harness.artifacts().closeAttempt(practiceAttemptId,
                 new TaskSubmission(
@@ -845,14 +845,14 @@ class LearningFlowGraphContractTest {
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "the crash must leave the closed Attempt without committed Evidence");
         UUID retryKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, retryKey, practiceAttemptId,
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
         assertEquals(4, recovered.interaction().interactionVersion());
         assertEquals(LearningStage.INDEPENDENT_TEST, recovered.interaction().stage());
         assertEquals(1, harness.flowStore().allEvidence().size(),
                 "the retry must resume the evaluation of the saved submission exactly once");
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, retryKey, practiceAttemptId,
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
         assertEquals(recovered.interaction(), replay.interaction());
@@ -869,9 +869,9 @@ class LearningFlowGraphContractTest {
                         ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment(),
                         conclusivePracticeJudgment(), conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
         assertEquals(4, unavailable.interaction().interactionVersion());
@@ -879,7 +879,7 @@ class LearningFlowGraphContractTest {
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "a failed follow-up generation must not accept Practice Evidence");
         assertEquals(3, harness.generation().calls().size());
-        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 unavailable.interaction().flowId(), 4, UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
         assertEquals(5, recovered.interaction().interactionVersion());
@@ -896,7 +896,7 @@ class LearningFlowGraphContractTest {
         Harness harness = harness(generation, new ScriptedTaskVerifier(List.of()),
                 new ScriptedAssessmentModel(List.of()));
         UUID startKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, startKey);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, startKey);
         assertEquals(1, started.interaction().interactionVersion());
         assertEquals(FlowStatus.TERMINAL, started.interaction().status());
         assertEquals("暂时无法准备一道可验证的题目。请稍后重试。", started.interaction().learnerMessage());
@@ -910,15 +910,15 @@ class LearningFlowGraphContractTest {
     @Test
     void aNoHintIndependentFailAcceptsExactlyOneFailEvidenceAndStartsRemediation() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
-        ApplyFlowResult.Boundary remediated = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary remediated = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, UUID.randomUUID(), independentAttemptId,
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
-        ApplyFlowInteraction interaction = remediated.interaction();
+        LearningFlowInteraction interaction = remediated.interaction();
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status(),
                 "a no-hint Independent FAIL must not end the flow: remediation begins");
         assertNotNull(interaction.teachingProjection(),
@@ -944,16 +944,16 @@ class LearningFlowGraphContractTest {
     @Test
     void aReplayedIndependentFailReturnsTheOriginalRemediationBoundaryWithoutASecondFailEvidence() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
         UUID failKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, failKey, independentAttemptId,
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, failKey, independentAttemptId,
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
         assertEquals(first.interaction(), replay.interaction(), "a replayed key must return the original result");
@@ -968,14 +968,14 @@ class LearningFlowGraphContractTest {
     @Test
     void aCommittedIndependentFailResubmittedWithANewKeyIsIgnoredAndNeverRunsRemediationTwice() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
         harness.useCase().submitAnswer(started.interaction().flowId(), 2, UUID.randomUUID(), independentAttemptId,
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
-        ApplyFlowResult.SubmissionIgnored duplicate = (ApplyFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
+        LearningFlowResult.SubmissionIgnored duplicate = (LearningFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 3, UUID.randomUUID(), independentAttemptId,
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
         assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED, duplicate.reason());
@@ -988,8 +988,8 @@ class LearningFlowGraphContractTest {
     @Test
     void aCrashBetweenClosingAndCommittingAnIndependentFailResumesExactlyOnce() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
@@ -1001,7 +1001,7 @@ class LearningFlowGraphContractTest {
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "the crash must leave the closed Attempt without committed Evidence");
         UUID retryKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, retryKey, independentAttemptId,
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
         assertEquals(3, recovered.interaction().interactionVersion());
@@ -1009,7 +1009,7 @@ class LearningFlowGraphContractTest {
                 "the retry must resume the remediation Explain of the saved submission");
         assertEquals(1, harness.flowStore().allEvidence().size(),
                 "the retry must accept the fail Evidence exactly once");
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, retryKey, independentAttemptId,
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
         assertEquals(recovered.interaction(), replay.interaction());
@@ -1029,17 +1029,17 @@ class LearningFlowGraphContractTest {
                 new ScriptedAssessmentModel(List.of(ApplyScriptData.responseAssessment(
                         FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.CLEARLY_CONTRADICTORY))),
                 new ScriptedResponseVerificationModel(List.of()));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
-        ApplyFlowResult.Boundary replacement = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, UUID.randomUUID(), independentAttemptId,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.CONTRADICTORY_RATIONALE);
-        ApplyFlowInteraction interaction = replacement.interaction();
+        LearningFlowInteraction interaction = replacement.interaction();
         assertEquals(3, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.INDEPENDENT_TEST, interaction.stage(),
@@ -1072,15 +1072,15 @@ class LearningFlowGraphContractTest {
                         FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_PROVIDED))),
                 new ScriptedResponseVerificationModel(List.of(ApplyScriptData.responseAssessment(
                         FinalExpressionJudgment.NOT_EQUIVALENT, RationaleJudgment.NOT_PROVIDED))));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
-        ApplyFlowResult.Boundary replacement = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, UUID.randomUUID(), independentAttemptId,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
-        ApplyFlowInteraction interaction = replacement.interaction();
+        LearningFlowInteraction interaction = replacement.interaction();
         assertEquals(3, interaction.interactionVersion());
         assertEquals(LearningStage.INDEPENDENT_TEST, interaction.stage(),
                 "an Inconclusive Independent judgment must deliver a fresh verified Independent replacement");
@@ -1116,15 +1116,15 @@ class LearningFlowGraphContractTest {
                 new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.passAssessment())),
                 new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
                 new ScriptedPedagogyModel());
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary independent = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary independent = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
         assertEquals(LearningStage.INDEPENDENT_TEST, independent.interaction().stage(),
                 "the first qualifying practice pass makes the fresh Independent Test legal");
         UUID firstIndependentAttemptId = independent.interaction().attemptId();
-        ApplyFlowResult.Boundary remediated = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary remediated = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 independent.interaction().flowId(), 4, UUID.randomUUID(), firstIndependentAttemptId,
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
         assertNotNull(remediated.interaction().teachingProjection(),
@@ -1133,12 +1133,12 @@ class LearningFlowGraphContractTest {
                 "the cycle holds the qualifying practice pass and exactly one Independent fail Evidence");
         assertFalse(harness.pedagogy().lastContextJson().contains("\"independent_test\""),
                 "right after the Independent fail, fresh Independent testing must not be legal");
-        ApplyFlowResult.Boundary practiceAgain = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+        LearningFlowResult.Boundary practiceAgain = (LearningFlowResult.Boundary) harness.useCase().continueRequested(
                 remediated.interaction().flowId(), remediated.interaction().interactionVersion(), UUID.randomUUID());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, practiceAgain.interaction().stage());
         assertEquals(AttemptPurpose.PRACTICE, practiceAgain.interaction().attemptPurpose());
         UUID secondPracticeAttemptId = practiceAgain.interaction().attemptId();
-        ApplyFlowResult.Boundary freshIndependent = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary freshIndependent = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practiceAgain.interaction().flowId(), 6, UUID.randomUUID(), secondPracticeAttemptId,
                 ApplyScriptData.SECOND_PRACTICE_CORRECT_DERIVATIVE,
                 ApplyScriptData.SECOND_PRACTICE_CORRECT_CANONICAL, null);
@@ -1148,7 +1148,7 @@ class LearningFlowGraphContractTest {
                 "the re-opened Independent Test must be a fresh Attempt");
         UUID secondIndependentAttemptId = freshIndependent.interaction().attemptId();
         UUID passKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 freshIndependent.interaction().flowId(), 7, passKey, secondIndependentAttemptId,
                 "24*x^3 - 4*x", "24*x^3 - 4*x", null);
         assertEquals(4, harness.flowStore().allEvidence().size(),
@@ -1178,9 +1178,9 @@ class LearningFlowGraphContractTest {
                 ScriptedPedagogyModel.scripted(
                         TeachingAction.EXPLAIN, TeachingAction.APPLY_PRACTICE,
                         TeachingAction.APPLY_PRACTICE));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary h1 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary h1 = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(),
                 practiceAttemptId, false, UUID.randomUUID());
         assertEquals(1, harness.flowStore().exposedHintLadderFingerprints(h1.interaction().flowId()).size(),
@@ -1189,7 +1189,7 @@ class LearningFlowGraphContractTest {
                 .exposedHintLadderFingerprints(h1.interaction().flowId()).get(0);
         assertFalse(harness.generation().calls().get(1).contextJson().contains(ladderFingerprint),
                 "the practice task delivered before the ladder must not yet be excluded by it");
-        ApplyFlowResult.Boundary h5 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary h5 = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 h1.interaction().flowId(), h1.interaction().interactionVersion(),
                 practiceAttemptId, true, UUID.randomUUID());
         assertEquals(1, harness.flowStore().exposedHintLadderFingerprints(h5.interaction().flowId()).size(),
@@ -1258,11 +1258,11 @@ class LearningFlowGraphContractTest {
                 new ScriptedPedagogyModel());
         // Flow 1: a passing Diagnostic and a passing Independent Test establish
         // the Independent milestone.
-        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary firstTransitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary firstTransitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 first.interaction().flowId(), 1, UUID.randomUUID(), first.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        ApplyFlowResult.Boundary firstCompleted = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary firstCompleted = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 firstTransitioned.interaction().flowId(), 2, UUID.randomUUID(), firstTransitioned.interaction().attemptId(),
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
@@ -1273,11 +1273,11 @@ class LearningFlowGraphContractTest {
         assertEquals(MasteryMilestone.INDEPENDENT, afterPass.currentMilestone());
         assertEquals(MasteryMilestone.INDEPENDENT, afterPass.highestMilestoneReached());
         // Flow 2: a fresh Independent Test fails conclusively without hints.
-        ApplyFlowResult.Boundary second = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary secondTransitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary second = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary secondTransitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 second.interaction().flowId(), 1, UUID.randomUUID(), second.interaction().attemptId(),
                 "9x²−5", "9*x^2-5", null);
-        ApplyFlowResult.Boundary remediated = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary remediated = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 secondTransitioned.interaction().flowId(), 2, UUID.randomUUID(),
                 secondTransitioned.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
@@ -1302,11 +1302,11 @@ class LearningFlowGraphContractTest {
     @Test
     void aFirstHintRequestGeneratesTheStableLadderAndRevealsH1KeepingTheAttemptOpen() {
         Harness harness = practiceHarness();
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary h1 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary h1 = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
-        ApplyFlowInteraction interaction = h1.interaction();
+        LearningFlowInteraction interaction = h1.interaction();
         assertEquals(4, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
@@ -1333,11 +1333,11 @@ class LearningFlowGraphContractTest {
     @Test
     void repeatedHintRequestsRevealPersistedLevelsWithoutAnotherModelCall() {
         Harness harness = practiceHarness();
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary h1 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary h1 = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
-        ApplyFlowResult.Boundary h2 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary h2 = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 h1.interaction().flowId(), h1.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
         assertEquals(5, h2.interaction().interactionVersion());
         assertEquals(2, h2.interaction().hint().level());
@@ -1357,14 +1357,14 @@ class LearningFlowGraphContractTest {
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment(), conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary h1 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary h1 = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(),
                 practiceAttemptId, false, UUID.randomUUID());
-        ApplyFlowResult.Boundary h2 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary h2 = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 h1.interaction().flowId(), h1.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
-        ApplyFlowResult.Boundary submitted = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary submitted = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 h2.interaction().flowId(), h2.interaction().interactionVersion(), UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
         assertEquals(LearningStage.INDEPENDENT_TEST, submitted.interaction().stage(),
@@ -1383,11 +1383,11 @@ class LearningFlowGraphContractTest {
                         ApplyScriptData.taskReadyJson(), practiceTaskJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary revealed = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary revealed = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, true, UUID.randomUUID());
-        ApplyFlowInteraction interaction = revealed.interaction();
+        LearningFlowInteraction interaction = revealed.interaction();
         assertEquals(4, interaction.interactionVersion());
         assertEquals(5, interaction.hint().level());
         assertEquals("reveal", interaction.hint().disclosureKind());
@@ -1419,11 +1419,11 @@ class LearningFlowGraphContractTest {
                 "the Teach-back task is a short-text package, not an Apply package");
         assertFalse(interaction.learnerProjection().allowedEvents().contains(ApplyLearnerEvent.HINT_REQUESTED),
                 "the Teach-back task never permits a Hint event");
-        ApplyFlowResult.HintIgnored later = (ApplyFlowResult.HintIgnored) harness.useCase().requestHint(
+        LearningFlowResult.HintIgnored later = (LearningFlowResult.HintIgnored) harness.useCase().requestHint(
                 interaction.flowId(), interaction.interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED, later.reason(),
                 "a closed Solution Revealed attempt never takes another hint");
-        ApplyFlowResult.HintIgnored teachBackHint = (ApplyFlowResult.HintIgnored) harness.useCase().requestHint(
+        LearningFlowResult.HintIgnored teachBackHint = (LearningFlowResult.HintIgnored) harness.useCase().requestHint(
                 interaction.flowId(), interaction.interactionVersion(), interaction.attemptId(), false, UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE, teachBackHint.reason(),
                 "hints are never legal on an open Teach-back Attempt (ADR-0065)");
@@ -1434,15 +1434,15 @@ class LearningFlowGraphContractTest {
     @Test
     void hintsAreIgnoredForDiagnosticIndependentAndUnknownAttempts() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.HintIgnored diagnostic = (ApplyFlowResult.HintIgnored) harness.useCase().requestHint(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.HintIgnored diagnostic = (LearningFlowResult.HintIgnored) harness.useCase().requestHint(
                 started.interaction().flowId(), 1, started.interaction().attemptId(), false, UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE, diagnostic.reason());
         assertEquals(0, harness.hintGeneration().calls().size(),
                 "no model call may ever happen for a wrong-purpose hint request");
         assertEquals(1, harness.flowStore().latestInteraction(started.interaction().flowId())
                 .orElseThrow().interactionVersion(), "an ignored hint must not advance the interaction");
-        ApplyFlowResult.HintIgnored unknown = (ApplyFlowResult.HintIgnored) harness.useCase().requestHint(
+        LearningFlowResult.HintIgnored unknown = (LearningFlowResult.HintIgnored) harness.useCase().requestHint(
                 started.interaction().flowId(), 1, UUID.randomUUID(), false, UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND, unknown.reason());
     }
@@ -1455,11 +1455,11 @@ class LearningFlowGraphContractTest {
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
                 new ScriptedResponseVerificationModel(List.of()),
                 new ScriptedHintGenerationModel(List.of(HintScriptData.sourceGapJson())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
-        ApplyFlowInteraction interaction = unavailable.interaction();
+        LearningFlowInteraction interaction = unavailable.interaction();
         assertEquals(4, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(practiceAttemptId, interaction.attemptId(),
@@ -1482,9 +1482,9 @@ class LearningFlowGraphContractTest {
                 new ScriptedResponseVerificationModel(List.of()),
                 new ScriptedHintGenerationModel(List.of(
                         invalidLadderJson(), invalidLadderJson())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
         assertNull(unavailable.interaction().hint(),
                 "a repeated invalid ladder after the one allowed repair must expose no partial content");
@@ -1499,12 +1499,12 @@ class LearningFlowGraphContractTest {
     @Test
     void aReplayedHintCommandReturnsTheOriginalInteractionWithoutRegeneration() {
         Harness harness = practiceHarness();
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
         UUID key = UUID.randomUUID();
-        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, key);
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, key);
         assertEquals(first.interaction(), replay.interaction(),
                 "a replayed key must return the original committed hint interaction");
@@ -1516,16 +1516,16 @@ class LearningFlowGraphContractTest {
     @Test
     void aCrashBetweenHintExposureAndBoundaryCommitResumesTheSameExposedLevel() {
         Harness harness = practiceHarness();
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
         UUID h1Key = UUID.randomUUID();
-        ApplyFlowResult.Boundary h1 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary h1 = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, false, h1Key);
         UUID crashKey = UUID.randomUUID();
         HintLadder ladder = harness.artifacts().findLadder(practiceAttemptId).orElseThrow();
         HintExposureOutcome exposed = harness.artifacts().exposeHint(practiceAttemptId, ladder, 2, crashKey);
         assertInstanceOf(HintExposureOutcome.Exposed.class, exposed);
-        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 h1.interaction().flowId(), h1.interaction().interactionVersion(), practiceAttemptId, false, crashKey);
         assertEquals(5, recovered.interaction().interactionVersion());
         assertEquals(2, recovered.interaction().hint().level(),
@@ -1533,7 +1533,7 @@ class LearningFlowGraphContractTest {
         assertEquals(List.of(1, 2), harness.artifacts().findAttempt(practiceAttemptId).orElseThrow()
                 .assistanceTrace().stream().map(entry -> entry.level().level()).toList(),
                 "the resumed exposure must not duplicate a trace entry");
-        ApplyFlowResult.Boundary next = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary next = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 recovered.interaction().flowId(), recovered.interaction().interactionVersion(), practiceAttemptId, false, UUID.randomUUID());
         assertEquals(3, next.interaction().hint().level(),
                 "a later request continues monotonically from the resumed trace");
@@ -1549,7 +1549,7 @@ class LearningFlowGraphContractTest {
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
         UUID crashKey = UUID.randomUUID();
         HintLadder ladder = HintLadder.from(practiceAttemptId,
@@ -1559,7 +1559,7 @@ class LearningFlowGraphContractTest {
         assertEquals(AttemptStatus.SOLUTION_REVEALED,
                 harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status(),
                 "the crashed run already closed the attempt as Solution Revealed");
-        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(), practiceAttemptId, true, crashKey);
         assertEquals(4, recovered.interaction().interactionVersion());
         assertEquals(5, recovered.interaction().hint().level(),
@@ -1580,13 +1580,13 @@ class LearningFlowGraphContractTest {
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
-        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
         UUID teachBackAttemptId = teachBack.interaction().attemptId();
-        ApplyFlowResult.Boundary followUp = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary followUp = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 UUID.randomUUID(), teachBackAttemptId,
                 TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
-        ApplyFlowInteraction interaction = followUp.interaction();
+        LearningFlowInteraction interaction = followUp.interaction();
         assertEquals(5, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage(),
@@ -1638,9 +1638,9 @@ class LearningFlowGraphContractTest {
                 ScriptedPedagogyModel.scripted(
                         TeachingAction.EXPLAIN, TeachingAction.APPLY_PRACTICE,
                         TeachingAction.TEACH_BACK, TeachingAction.APPLY_PRACTICE));
-        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
         UUID teachBackAttemptId = teachBack.interaction().attemptId();
-        ApplyFlowResult.Boundary followUp = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary followUp = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 UUID.randomUUID(), teachBackAttemptId,
                 "用了乘积法则，但没解释为什么。", "用了乘积法则，但没解释为什么。", null);
@@ -1666,13 +1666,13 @@ class LearningFlowGraphContractTest {
                 new ScriptedTeachBackGenerationModel(List.of(
                         TeachBackScriptData.taskReadyJson(), TeachBackScriptData.taskReadyJson())),
                 new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.inconclusiveAssessment())));
-        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
         UUID teachBackAttemptId = teachBack.interaction().attemptId();
-        ApplyFlowResult.Boundary replacement = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 UUID.randomUUID(), teachBackAttemptId,
                 "说不清为什么幂法则适用。", "说不清为什么幂法则适用。", null);
-        ApplyFlowInteraction interaction = replacement.interaction();
+        LearningFlowInteraction interaction = replacement.interaction();
         assertEquals(5, interaction.interactionVersion());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
         assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
@@ -1697,14 +1697,14 @@ class LearningFlowGraphContractTest {
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
-        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
         UUID key = UUID.randomUUID();
         UUID teachBackAttemptId = teachBack.interaction().attemptId();
-        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 key, teachBackAttemptId,
                 TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 key, teachBackAttemptId,
                 TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
@@ -1724,7 +1724,7 @@ class LearningFlowGraphContractTest {
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
-        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
         UUID teachBackAttemptId = teachBack.interaction().attemptId();
         harness.artifacts().closeAttempt(teachBackAttemptId,
                 new TaskSubmission(
@@ -1734,7 +1734,7 @@ class LearningFlowGraphContractTest {
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "the crash must leave the closed Attempt without committed Evidence");
         UUID retryKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 retryKey, teachBackAttemptId,
                 TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
@@ -1742,7 +1742,7 @@ class LearningFlowGraphContractTest {
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, recovered.interaction().stage());
         assertEquals(1, harness.flowStore().allEvidence().size(),
                 "the retry must resume the assessment of the saved submission exactly once");
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 retryKey, teachBackAttemptId,
                 TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
@@ -1753,7 +1753,7 @@ class LearningFlowGraphContractTest {
     @Test
     void theGuardOffersTeachBackOnlyWithAnEligibleAnchorAndNeverCallsTheModelWithoutOne() {
         Harness harness = practiceHarness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         assertEquals(0, harness.flowStore().latestAnchor(started.interaction().flowId()).map(anchor -> 1).orElse(0),
                 "a freshly started Flow carries no eligible anchor yet");
         TeachBackDeliveryResult.Unavailable guarded =
@@ -1765,7 +1765,7 @@ class LearningFlowGraphContractTest {
         assertEquals(1, harness.artifacts().allPackages().size(),
                 "no Teach-back package may open without an eligible anchor");
 
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         TeachBackAnchor anchor = harness.flowStore().latestAnchor(explained.interaction().flowId()).orElseThrow();
@@ -1790,15 +1790,15 @@ class LearningFlowGraphContractTest {
                 new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())),
                 new ScriptedTeachBackGenerationModel(List.of(TeachBackScriptData.taskReadyJson())),
                 new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.passAssessment())));
-        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
-        ApplyFlowResult.Boundary afterTeachBackPass = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        LearningFlowResult.Boundary afterTeachBackPass = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 UUID.randomUUID(), teachBack.interaction().attemptId(),
                 TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, afterTeachBackPass.interaction().stage(),
                 "a Teach-back pass must not reopen Independent testing by itself");
         assertEquals(1, harness.flowStore().allEvidence().size());
-        ApplyFlowResult.Boundary practicePass = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary practicePass = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 afterTeachBackPass.interaction().flowId(), afterTeachBackPass.interaction().interactionVersion(),
                 UUID.randomUUID(), afterTeachBackPass.interaction().attemptId(),
                 ApplyScriptData.SECOND_PRACTICE_CORRECT_DERIVATIVE,
@@ -1808,7 +1808,7 @@ class LearningFlowGraphContractTest {
         assertEquals(AttemptPurpose.INDEPENDENT_TEST, practicePass.interaction().attemptPurpose());
         assertEquals(2, harness.flowStore().allEvidence().size(),
                 "the understanding Evidence and the assisted Practice Evidence are both accepted");
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practicePass.interaction().flowId(), practicePass.interaction().interactionVersion(),
                 UUID.randomUUID(), practicePass.interaction().attemptId(),
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
@@ -1832,8 +1832,8 @@ class LearningFlowGraphContractTest {
                 new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
                 new ScriptedPedagogyModel(List.of(ScriptedPedagogyModel.planJson(
                         TeachingAction.APPLY_PRACTICE, "好的，请完成一道练习题。"))));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary practice = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary practice = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, practice.interaction().stage(),
@@ -1852,7 +1852,7 @@ class LearningFlowGraphContractTest {
     @Test
     void thePedagogyAgentReceivesOnlySanitizedFactsAndTheClosedLegalSet() {
         Harness harness = practiceHarness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
@@ -1886,8 +1886,8 @@ class LearningFlowGraphContractTest {
                 new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.passAssessment())),
                 new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
                 new ScriptedPedagogyModel(List.of("{not valid json", "{not valid json")));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(2, harness.pedagogy().calls().size(),
@@ -1919,8 +1919,8 @@ class LearningFlowGraphContractTest {
                 new ScriptedPedagogyModel(List.of(
                         ScriptedPedagogyModel.planJson(TeachingAction.INDEPENDENT_TEST, illegalFeedback),
                         ScriptedPedagogyModel.planJson(TeachingAction.INDEPENDENT_TEST, illegalFeedback))));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(2, harness.pedagogy().calls().size(),
@@ -1953,11 +1953,11 @@ class LearningFlowGraphContractTest {
                 new ScriptedPedagogyModel(List.of(
                         ScriptedPedagogyModel.planJson(TeachingAction.EXPLAIN, ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                         "{not valid json", "{not valid json")));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
-        ApplyFlowResult.Boundary practice = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+        LearningFlowResult.Boundary practice = (LearningFlowResult.Boundary) harness.useCase().continueRequested(
                 explained.interaction().flowId(), 2, UUID.randomUUID());
         assertEquals(3, harness.pedagogy().calls().size(),
                 "one valid Diagnostic plan plus one plan and one repair for the Explain completion");
@@ -1986,7 +1986,7 @@ class LearningFlowGraphContractTest {
                         ScriptedPedagogyModel.planJson(TeachingAction.EXPLAIN, ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                         ScriptedPedagogyModel.planJson(TeachingAction.APPLY_PRACTICE, ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                         "{not valid json", "{not valid json")));
-        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
         assertEquals(4, harness.pedagogy().calls().size(),
                 "the H5 reveal decision runs one plan and one repair before the fallback");
         assertEquals(TeachBackScriptData.LEARNER_PROMPT, teachBack.interaction().learnerProjection().taskText(),
@@ -2018,8 +2018,8 @@ class LearningFlowGraphContractTest {
                         ScriptedPedagogyModel.planJson(TeachingAction.EXPLAIN, ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                         ScriptedPedagogyModel.planJson(TeachingAction.APPLY_PRACTICE, ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                         "{not valid json", "{not valid json")));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
-        ApplyFlowResult.Boundary independent = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary independent = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practice.interaction().attemptId(),
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
         assertEquals(4, harness.pedagogy().calls().size());
@@ -2051,8 +2051,8 @@ class LearningFlowGraphContractTest {
                         ScriptedPedagogyModel.planJson(TeachingAction.EXPLAIN, ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                         ScriptedPedagogyModel.planJson(TeachingAction.APPLY_PRACTICE, ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                         "{not valid json", "{not valid json")));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practice.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(4, harness.pedagogy().calls().size());
@@ -2087,8 +2087,8 @@ class LearningFlowGraphContractTest {
                         ScriptedPedagogyModel.planJson(TeachingAction.APPLY_PRACTICE, ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                         ScriptedPedagogyModel.planJson(TeachingAction.TEACH_BACK, ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                         "{not valid json", "{not valid json")));
-        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
-        ApplyFlowResult.Boundary followUp = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        LearningFlowResult.Boundary followUp = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 UUID.randomUUID(), teachBack.interaction().attemptId(),
                 TeachBackScriptData.PASS_EXPLANATION, TeachBackScriptData.PASS_EXPLANATION, null);
@@ -2124,8 +2124,8 @@ class LearningFlowGraphContractTest {
                         ScriptedPedagogyModel.planJson(TeachingAction.APPLY_PRACTICE, ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                         ScriptedPedagogyModel.planJson(TeachingAction.TEACH_BACK, ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                         "{not valid json", "{not valid json")));
-        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 UUID.randomUUID(), teachBack.interaction().attemptId(),
                 "用了乘积法则，但没解释为什么。", "用了乘积法则，但没解释为什么。", null);
@@ -2154,8 +2154,8 @@ class LearningFlowGraphContractTest {
                 new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.passAssessment())),
                 new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
                 new ScriptedPedagogyModel(List.of("{not valid json", "{not valid json")));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(FlowStatus.TERMINAL, unavailable.interaction().status(),
@@ -2180,10 +2180,10 @@ class LearningFlowGraphContractTest {
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment(), inconclusiveJudgment())),
                 new ScriptedResponseVerificationModel(List.of(inconclusiveJudgment())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         assertEquals(2, harness.pedagogy().calls().size(),
                 "the Diagnostic failure and Explain completion decisions both had several legal moves");
-        ApplyFlowResult.Boundary replacement = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(),
                 UUID.randomUUID(), practice.interaction().attemptId(),
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
@@ -2208,10 +2208,10 @@ class LearningFlowGraphContractTest {
                 new ScriptedTeachBackGenerationModel(List.of(
                         TeachBackScriptData.taskReadyJson(), TeachBackScriptData.taskReadyJson())),
                 new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.inconclusiveAssessment())));
-        ApplyFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
         assertEquals(3, harness.pedagogy().calls().size(),
                 "the three earlier decisions all had several legal moves");
-        ApplyFlowResult.Boundary replacement = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 UUID.randomUUID(), teachBack.interaction().attemptId(),
                 "说不清为什么幂法则适用。", "说不清为什么幂法则适用。", null);
@@ -2240,8 +2240,8 @@ class LearningFlowGraphContractTest {
                 new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
                 ScriptedPedagogyModel.scripted(
                         TeachingAction.EXPLAIN, TeachingAction.APPLY_PRACTICE, TeachingAction.APPLY_PRACTICE));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
-        ApplyFlowResult.Boundary moreLearning = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary moreLearning = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practice.interaction().attemptId(),
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, moreLearning.interaction().stage(),
@@ -2273,9 +2273,9 @@ class LearningFlowGraphContractTest {
                 new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
                 ScriptedPedagogyModel.scripted(
                         TeachingAction.EXPLAIN, TeachingAction.APPLY_PRACTICE, TeachingAction.APPLY_PRACTICE));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID revealedAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary freshPractice = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary freshPractice = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(),
                 revealedAttemptId, true, UUID.randomUUID());
         assertEquals(5, freshPractice.interaction().hint().level(),
@@ -2296,8 +2296,8 @@ class LearningFlowGraphContractTest {
     @Test
     void aTemporaryExplainInsideAnOpenPracticeAttemptReturnsToTheSamePracticeInteraction() {
         Harness harness = practiceHarness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertNotNull(explained.interaction().teachingProjection(),
@@ -2316,7 +2316,7 @@ class LearningFlowGraphContractTest {
         harness.flowStore().recordTaskExposure(explained.interaction().flowId(), openPackage);
         assertEquals(1, harness.pedagogy().calls().size(),
                 "the Explain decision was the only model-driven decision so far");
-        ApplyFlowResult.Boundary resumed = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+        LearningFlowResult.Boundary resumed = (LearningFlowResult.Boundary) harness.useCase().continueRequested(
                 explained.interaction().flowId(), 2, UUID.randomUUID());
         assertEquals(3, resumed.interaction().interactionVersion());
         assertEquals(openAttemptId, resumed.interaction().attemptId(),
@@ -2343,12 +2343,12 @@ class LearningFlowGraphContractTest {
                 new ScriptedResponseVerificationModel(List.of()),
                 new ScriptedExplainGenerationModel(List.of(
                         ExplainScriptData.explainReadyJson(), secondExplainReadyJson())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(),
                 practiceAttemptId, "为什么可以把系数直接提出来？", UUID.randomUUID());
-        ApplyFlowInteraction interaction = explained.interaction();
+        LearningFlowInteraction interaction = explained.interaction();
         assertEquals(4, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
@@ -2372,7 +2372,7 @@ class LearningFlowGraphContractTest {
         assertEquals(2, harness.flowStore().exposedExampleFingerprints(interaction.flowId()).size(),
                 "the displayed clarification Explain is exposed for novelty");
 
-        ApplyFlowResult.Boundary resumed = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+        LearningFlowResult.Boundary resumed = (LearningFlowResult.Boundary) harness.useCase().continueRequested(
                 interaction.flowId(), interaction.interactionVersion(), UUID.randomUUID());
         assertEquals(5, resumed.interaction().interactionVersion());
         assertEquals(practiceAttemptId, resumed.interaction().attemptId(),
@@ -2398,12 +2398,12 @@ class LearningFlowGraphContractTest {
                 new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
                 new ScriptedPedagogyModel(),
                 new ScriptedClarificationClassifier(List.of(ClarificationClassification.PROCEDURAL)));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        ApplyFlowResult.Boundary answered = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+        LearningFlowResult.Boundary answered = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(),
                 practiceAttemptId, "这道题是只填最终导数吗？", UUID.randomUUID());
-        ApplyFlowInteraction interaction = answered.interaction();
+        LearningFlowInteraction interaction = answered.interaction();
         assertEquals(4, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(practiceAttemptId, interaction.attemptId(),
@@ -2439,13 +2439,13 @@ class LearningFlowGraphContractTest {
                 new ScriptedResponseVerificationModel(List.of()),
                 new ScriptedExplainGenerationModel(List.of(
                         ExplainScriptData.explainReadyJson(), secondExplainReadyJson())));
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
         UUID key = UUID.randomUUID();
-        ApplyFlowResult.Boundary first = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(),
                 practiceAttemptId, "为什么可以把系数直接提出来？", key);
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(),
                 practiceAttemptId, "为什么可以把系数直接提出来？", key);
         assertEquals(first.interaction(), replay.interaction());
@@ -2458,15 +2458,15 @@ class LearningFlowGraphContractTest {
     @Test
     void aSubstantiveClarificationOnAnIndependentAttemptProjectsAnAssistanceConsentRequest() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
-        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+        LearningFlowResult.Boundary consented = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
                 transitioned.interaction().flowId(), transitioned.interaction().interactionVersion(),
                 independentAttemptId, "为什么幂法则适用？", UUID.randomUUID());
-        ApplyFlowInteraction interaction = consented.interaction();
+        LearningFlowInteraction interaction = consented.interaction();
         assertEquals(3, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.INDEPENDENT_TEST, interaction.stage());
@@ -2491,18 +2491,18 @@ class LearningFlowGraphContractTest {
     @Test
     void anAssistanceRefusalLeavesTheIndependentAttemptUnchanged() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
-        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+        LearningFlowResult.Boundary consented = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
                 transitioned.interaction().flowId(), transitioned.interaction().interactionVersion(),
                 independentAttemptId, "为什么幂法则适用？", UUID.randomUUID());
-        ApplyFlowResult.Boundary refused = (ApplyFlowResult.Boundary) harness.useCase().assistanceDecided(
+        LearningFlowResult.Boundary refused = (LearningFlowResult.Boundary) harness.useCase().assistanceDecided(
                 consented.interaction().flowId(), consented.interaction().interactionVersion(),
                 independentAttemptId, false, UUID.randomUUID());
-        ApplyFlowInteraction interaction = refused.interaction();
+        LearningFlowInteraction interaction = refused.interaction();
         assertEquals(4, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(independentAttemptId, interaction.attemptId());
@@ -2528,12 +2528,12 @@ class LearningFlowGraphContractTest {
                 new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment())),
                 new ScriptedResponseVerificationModel(List.of()),
                 new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
-        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+        LearningFlowResult.Boundary consented = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
                 transitioned.interaction().flowId(), transitioned.interaction().interactionVersion(),
                 independentAttemptId, "为什么幂法则适用？", UUID.randomUUID());
         // The process crashed after the conversion committed but before its
@@ -2546,7 +2546,7 @@ class LearningFlowGraphContractTest {
                         CLOCK.instant())));
         assertEquals(AttemptPurpose.PRACTICE,
                 harness.artifacts().findAttempt(independentAttemptId).orElseThrow().purpose());
-        ApplyFlowResult.Boundary resumed = (ApplyFlowResult.Boundary) harness.useCase().assistanceDecided(
+        LearningFlowResult.Boundary resumed = (LearningFlowResult.Boundary) harness.useCase().assistanceDecided(
                 consented.interaction().flowId(), consented.interaction().interactionVersion(),
                 independentAttemptId, true, UUID.randomUUID());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, resumed.interaction().status());
@@ -2574,18 +2574,18 @@ class LearningFlowGraphContractTest {
                 new ScriptedResponseVerificationModel(List.of()),
                 new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
                 new ScriptedHintGenerationModel(List.of(independentLadderJson())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
-        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+        LearningFlowResult.Boundary consented = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
                 transitioned.interaction().flowId(), transitioned.interaction().interactionVersion(),
                 independentAttemptId, "为什么幂法则适用？", UUID.randomUUID());
-        ApplyFlowResult.Boundary converted = (ApplyFlowResult.Boundary) harness.useCase().assistanceDecided(
+        LearningFlowResult.Boundary converted = (LearningFlowResult.Boundary) harness.useCase().assistanceDecided(
                 consented.interaction().flowId(), consented.interaction().interactionVersion(),
                 independentAttemptId, true, UUID.randomUUID());
-        ApplyFlowInteraction interaction = converted.interaction();
+        LearningFlowInteraction interaction = converted.interaction();
         assertEquals(4, interaction.interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
@@ -2604,16 +2604,16 @@ class LearningFlowGraphContractTest {
         assertEquals(0, harness.flowStore().unfinishedReviewsFor(LEARNER_ID).size(),
                 "an Independent conversion never touches the Review cadence");
 
-        ApplyFlowResult.Boundary resumed = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+        LearningFlowResult.Boundary resumed = (LearningFlowResult.Boundary) harness.useCase().continueRequested(
                 interaction.flowId(), interaction.interactionVersion(), UUID.randomUUID());
         assertEquals(independentAttemptId, resumed.interaction().attemptId(),
                 "Continue returns to the SAME now-Practice attempt");
-        ApplyFlowResult.Boundary h1 = (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+        LearningFlowResult.Boundary h1 = (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 resumed.interaction().flowId(), resumed.interaction().interactionVersion(),
                 independentAttemptId, false, UUID.randomUUID());
         assertEquals(1, h1.interaction().hint().level(),
                 "the converted attempt accepts hints like any open Apply Practice attempt");
-        ApplyFlowResult.Boundary readiness = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary readiness = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 h1.interaction().flowId(), h1.interaction().interactionVersion(), UUID.randomUUID(),
                 independentAttemptId, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
@@ -2646,11 +2646,11 @@ class LearningFlowGraphContractTest {
                         ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment(),
                         conclusivePracticeJudgment(), conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
@@ -2663,11 +2663,11 @@ class LearningFlowGraphContractTest {
         assertEquals(LearningStage.DELAYED_REVIEW, reviewBoundary.interaction().stage());
         UUID reviewAttemptId = reviewBoundary.interaction().attemptId();
 
-        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+        LearningFlowResult.Boundary consented = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
                 reviewBoundary.interaction().flowId(), reviewBoundary.interaction().interactionVersion(),
                 reviewAttemptId, "为什么幂法则适用？", UUID.randomUUID());
         assertNotNull(consented.interaction().assistanceConsent());
-        ApplyFlowResult.Boundary converted = (ApplyFlowResult.Boundary) harness.useCase().assistanceDecided(
+        LearningFlowResult.Boundary converted = (LearningFlowResult.Boundary) harness.useCase().assistanceDecided(
                 consented.interaction().flowId(), consented.interaction().interactionVersion(),
                 reviewAttemptId, true, UUID.randomUUID());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, converted.interaction().stage());
@@ -2693,17 +2693,17 @@ class LearningFlowGraphContractTest {
                 "the conversion leaves the milestones unchanged");
         assertEquals(MasteryMilestone.INDEPENDENT, progress.highestMilestoneReached());
 
-        ApplyFlowResult.Boundary resumed = (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+        LearningFlowResult.Boundary resumed = (LearningFlowResult.Boundary) harness.useCase().continueRequested(
                 converted.interaction().flowId(), converted.interaction().interactionVersion(), UUID.randomUUID());
         assertEquals(reviewAttemptId, resumed.interaction().attemptId(),
                 "Continue returns to the same converted Practice attempt");
-        ApplyFlowResult.Boundary freshIndependent = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary freshIndependent = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 resumed.interaction().flowId(), resumed.interaction().interactionVersion(), UUID.randomUUID(),
                 reviewAttemptId, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION,
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
         assertEquals(LearningStage.INDEPENDENT_TEST, freshIndependent.interaction().stage(),
                 "the converted review attempt's Practice pass satisfies readiness");
-        ApplyFlowResult.Boundary rejoined = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary rejoined = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 freshIndependent.interaction().flowId(), freshIndependent.interaction().interactionVersion(),
                 UUID.randomUUID(), freshIndependent.interaction().attemptId(),
                 "6*x^2 - 1", "6*x^2 - 1", null);
@@ -2732,11 +2732,11 @@ class LearningFlowGraphContractTest {
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
@@ -2746,10 +2746,10 @@ class LearningFlowGraphContractTest {
         ReviewStartResult.Boundary reviewBoundary = (ReviewStartResult.Boundary) harness.reviewStartFlow().start(
                 review.reviewId(), UUID.randomUUID());
         UUID reviewAttemptId = reviewBoundary.interaction().attemptId();
-        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+        LearningFlowResult.Boundary consented = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
                 reviewBoundary.interaction().flowId(), reviewBoundary.interaction().interactionVersion(),
                 reviewAttemptId, "为什么幂法则适用？", UUID.randomUUID());
-        ApplyFlowResult.Boundary refused = (ApplyFlowResult.Boundary) harness.useCase().assistanceDecided(
+        LearningFlowResult.Boundary refused = (LearningFlowResult.Boundary) harness.useCase().assistanceDecided(
                 consented.interaction().flowId(), consented.interaction().interactionVersion(),
                 reviewAttemptId, false, UUID.randomUUID());
         assertEquals(AttemptPurpose.REVIEW, refused.interaction().attemptPurpose(),
@@ -2772,15 +2772,15 @@ class LearningFlowGraphContractTest {
     @Test
     void aFlowControlOnAnOpenAttemptAbandonsItWithoutAssessmentOrEvidenceAndReplaysTheLeaveTransition() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         UUID diagnosticAttemptId = started.interaction().attemptId();
         assertEquals(InteractionKind.TASK, started.interaction().kind(),
                 "an open task boundary is the task union member");
 
         UUID leaveKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary left = (ApplyFlowResult.Boundary) harness.useCase().flowControlRequested(
+        LearningFlowResult.Boundary left = (LearningFlowResult.Boundary) harness.useCase().flowControlRequested(
                 started.interaction().flowId(), 1, leaveKey);
-        ApplyFlowInteraction interaction = left.interaction();
+        LearningFlowInteraction interaction = left.interaction();
         assertEquals(2, interaction.interactionVersion());
         assertEquals(InteractionKind.TRANSITION, interaction.kind(),
                 "the explicit leave must project the transition union member");
@@ -2798,7 +2798,7 @@ class LearningFlowGraphContractTest {
         assertEquals(0, harness.artifacts().assessmentsFor(diagnosticAttemptId).size(),
                 "an abandoned attempt is never assessed");
 
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) harness.useCase().flowControlRequested(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().flowControlRequested(
                 started.interaction().flowId(), 1, leaveKey);
         assertEquals(left.interaction(), replay.interaction(),
                 "a replayed leave key must return the original committed transition");
@@ -2806,10 +2806,10 @@ class LearningFlowGraphContractTest {
                 .orElseThrow().interactionVersion(),
                 "a replayed leave must not advance the flow again");
 
-        ApplyFlowResult later = harness.useCase().submitAnswer(
+        LearningFlowResult later = harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, UUID.randomUUID(), diagnosticAttemptId,
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        assertTrue(later instanceof ApplyFlowResult.SubmissionIgnored,
+        assertTrue(later instanceof LearningFlowResult.SubmissionIgnored,
                 "a submission against the abandoned attempt must never be evaluated");
         assertTrue(harness.flowStore().allEvidence().isEmpty());
     }
@@ -2821,15 +2821,15 @@ class LearningFlowGraphContractTest {
                         ApplyScriptData.taskReadyJson(), practiceTaskJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(InteractionKind.TEACHING, explained.interaction().kind(),
                 "the Explain boundary is the teaching union member");
         assertNull(explained.interaction().attemptId(), "a teaching boundary holds no Attempt");
 
-        ApplyFlowResult.Boundary left = (ApplyFlowResult.Boundary) harness.useCase().flowControlRequested(
+        LearningFlowResult.Boundary left = (LearningFlowResult.Boundary) harness.useCase().flowControlRequested(
                 started.interaction().flowId(), 2, UUID.randomUUID());
         assertEquals(InteractionKind.TRANSITION, left.interaction().kind());
         assertEquals(LearningStateGraph.FLOW_LEAVE_MESSAGE, left.interaction().learnerMessage());
@@ -2850,14 +2850,14 @@ class LearningFlowGraphContractTest {
                                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION))),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID independentAttemptId = transitioned.interaction().attemptId();
         assertEquals(AttemptPurpose.INDEPENDENT_TEST, transitioned.interaction().attemptPurpose());
 
-        ApplyFlowResult.Boundary left = (ApplyFlowResult.Boundary) harness.useCase().flowControlRequested(
+        LearningFlowResult.Boundary left = (LearningFlowResult.Boundary) harness.useCase().flowControlRequested(
                 started.interaction().flowId(), 2, UUID.randomUUID());
         assertEquals(InteractionKind.TRANSITION, left.interaction().kind());
         TaskAttempt abandoned = harness.artifacts().findAttempt(independentAttemptId).orElseThrow();
@@ -2883,11 +2883,11 @@ class LearningFlowGraphContractTest {
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment(), conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
@@ -2901,7 +2901,7 @@ class LearningFlowGraphContractTest {
         UUID reviewAttemptId = reviewBoundary.interaction().attemptId();
         assertEquals(InteractionKind.TASK, reviewBoundary.interaction().kind());
 
-        ApplyFlowResult.Boundary left = (ApplyFlowResult.Boundary) harness.useCase().flowControlRequested(
+        LearningFlowResult.Boundary left = (LearningFlowResult.Boundary) harness.useCase().flowControlRequested(
                 started.interaction().flowId(), reviewBoundary.interaction().interactionVersion(),
                 UUID.randomUUID());
         assertEquals(InteractionKind.TRANSITION, left.interaction().kind());
@@ -2931,11 +2931,11 @@ class LearningFlowGraphContractTest {
                                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION))),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) harness.useCase().clarificationAsked(
+        LearningFlowResult.Boundary consented = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
                 started.interaction().flowId(), 2, transitioned.interaction().attemptId(),
                 "为什么幂法则适用？", UUID.randomUUID());
         assertEquals(InteractionKind.ASSISTANCE_CONSENT, consented.interaction().kind(),
@@ -2960,11 +2960,11 @@ class LearningFlowGraphContractTest {
                         ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment(), conclusivePracticeJudgment(),
                         conclusivePracticeJudgment())));
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
@@ -2977,7 +2977,7 @@ class LearningFlowGraphContractTest {
         assertEquals(AttemptPurpose.REVIEW, reviewBoundary.interaction().attemptPurpose());
 
         UUID reviewKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary reviewDone = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary reviewDone = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), reviewBoundary.interaction().interactionVersion(), reviewKey,
                 reviewBoundary.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
@@ -2991,7 +2991,7 @@ class LearningFlowGraphContractTest {
         assertEquals(2, remaining.get(0).reviewNumber());
         assertEquals(ReviewTaskStatus.SCHEDULED, remaining.get(0).status());
 
-        ApplyFlowResult.Boundary replayed = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary replayed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), reviewBoundary.interaction().interactionVersion(), reviewKey,
                 reviewBoundary.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
@@ -3004,31 +3004,31 @@ class LearningFlowGraphContractTest {
     @Test
     void clarificationAndAssistanceCommandsAreIgnoredForWrongOrClosedAttempts() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         UUID diagnosticAttemptId = started.interaction().attemptId();
-        ApplyFlowResult.ClarificationIgnored diagnostic = (ApplyFlowResult.ClarificationIgnored) harness.useCase()
+        LearningFlowResult.ClarificationIgnored diagnostic = (LearningFlowResult.ClarificationIgnored) harness.useCase()
                 .clarificationAsked(started.interaction().flowId(), 1, diagnosticAttemptId,
                         "这是什么题？", UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE, diagnostic.reason(),
                 "a Diagnostic attempt never takes the clarification command");
-        ApplyFlowResult.AssistanceIgnored diagnosticAssist = (ApplyFlowResult.AssistanceIgnored) harness.useCase()
+        LearningFlowResult.AssistanceIgnored diagnosticAssist = (LearningFlowResult.AssistanceIgnored) harness.useCase()
                 .assistanceDecided(started.interaction().flowId(), 1, diagnosticAttemptId, true,
                         UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE, diagnosticAssist.reason());
         assertEquals(0, harness.classifier().calls().size(),
                 "a wrong-purpose clarification must never classify");
-        ApplyFlowResult.ClarificationIgnored unknown = (ApplyFlowResult.ClarificationIgnored) harness.useCase()
+        LearningFlowResult.ClarificationIgnored unknown = (LearningFlowResult.ClarificationIgnored) harness.useCase()
                 .clarificationAsked(started.interaction().flowId(), 1, UUID.randomUUID(),
                         "这是什么题？", UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND, unknown.reason());
-        ApplyFlowResult.AssistanceIgnored unknownAssist = (ApplyFlowResult.AssistanceIgnored) harness.useCase()
+        LearningFlowResult.AssistanceIgnored unknownAssist = (LearningFlowResult.AssistanceIgnored) harness.useCase()
                 .assistanceDecided(started.interaction().flowId(), 1, UUID.randomUUID(), false,
                         UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND, unknownAssist.reason());
         harness.useCase().submitAnswer(started.interaction().flowId(), 1, UUID.randomUUID(),
                 diagnosticAttemptId, ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        ApplyFlowResult.ClarificationIgnored closed = (ApplyFlowResult.ClarificationIgnored) harness.useCase()
+        LearningFlowResult.ClarificationIgnored closed = (LearningFlowResult.ClarificationIgnored) harness.useCase()
                 .clarificationAsked(started.interaction().flowId(), 2, diagnosticAttemptId,
                         "这是什么题？", UUID.randomUUID());
         assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED, closed.reason(),
@@ -3116,12 +3116,12 @@ class LearningFlowGraphContractTest {
      * the deterministic remediation entry of the Learning StateGraph.
      */
 
-    private static ApplyFlowResult.Boundary reachPracticeBoundary(Harness harness) {
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) harness.useCase().submitAnswer(
+    private static LearningFlowResult.Boundary reachPracticeBoundary(Harness harness) {
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
-        return (ApplyFlowResult.Boundary) harness.useCase().continueRequested(
+        return (LearningFlowResult.Boundary) harness.useCase().continueRequested(
                 explained.interaction().flowId(), explained.interaction().interactionVersion(), UUID.randomUUID());
     }
 
@@ -3130,9 +3130,9 @@ class LearningFlowGraphContractTest {
      * fresh Practice boundary, and an H5 answer reveal, so the learner stands
      * at the anchored Teach-back task boundary.
      */
-    private static ApplyFlowResult.Boundary reachTeachBackBoundary(Harness harness) {
-        ApplyFlowResult.Boundary practice = reachPracticeBoundary(harness);
-        return (ApplyFlowResult.Boundary) harness.useCase().requestHint(
+    private static LearningFlowResult.Boundary reachTeachBackBoundary(Harness harness) {
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        return (LearningFlowResult.Boundary) harness.useCase().requestHint(
                 practice.interaction().flowId(), practice.interaction().interactionVersion(),
                 practice.interaction().attemptId(), true, UUID.randomUUID());
     }

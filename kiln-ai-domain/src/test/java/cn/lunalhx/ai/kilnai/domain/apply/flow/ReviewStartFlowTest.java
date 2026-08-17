@@ -7,13 +7,27 @@ import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ApplyScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedApplyGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedAssessmentModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedClarificationClassifier;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedExplainGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedHintGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedPedagogyModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedResponseVerificationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTaskVerifier;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackAssessmentModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackTaskVerifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.TeachBackApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
@@ -25,8 +39,12 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningFlowCommandUseCase;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningStateGraph;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
@@ -83,7 +101,7 @@ class ReviewStartFlowTest {
         ReviewStartResult.Boundary boundary = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review.reviewId(), startKey);
 
-        ApplyFlowInteraction interaction = boundary.interaction();
+        LearningFlowInteraction interaction = boundary.interaction();
         assertEquals(flowId, interaction.flowId());
         assertEquals(4, interaction.interactionVersion(), "the Review appends the next interaction of the same Flow");
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
@@ -388,9 +406,28 @@ class ReviewStartFlowTest {
         ReviewSubmissionFlow reviewFlow = new ReviewSubmissionFlow(
                 artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
                 reviewScheduler, executor, flowStore, ReviewApplyFixture.reviewContext(), CLOCK);
-        ApplyFlowUseCase useCase = new ApplyFlowUseCase(
-                artifacts, flowStore, diagnosticFlow, independentFlow, reviewFlow,
-                DiagnosticApplyFixture.diagnosticContext(), profilePort(), CLOCK);
+        PracticeSubmissionFlow practiceFlow = new PracticeSubmissionFlow(
+                executor, artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
+                PracticeApplyFixture.practiceContext(), IndependentApplyFixture.independentContext(), CLOCK);
+        ExplainFlow explainFlow = new ExplainFlow(
+                new ExplainProfileExecutor(ReferenceBundles.explainStack(),
+                        new ScriptedExplainGenerationModel(List.of())),
+                artifacts, flowStore, ExplainApplyFixture.explainContext());
+        HintFlow hintFlow = new HintFlow(
+                new ScriptedHintGenerationModel(List.of()), artifacts,
+                PracticeApplyFixture.practiceContext().conceptSourcePack());
+        TeachBackFlow teachBackFlow = new TeachBackFlow(
+                new TeachBackProfileExecutor(ReferenceBundles.teachBackStack(),
+                        new ScriptedTeachBackGenerationModel(List.of()),
+                        new ScriptedTeachBackTaskVerifier(List.of()), artifacts),
+                artifacts, flowStore, new ScriptedTeachBackAssessmentModel(List.of()),
+                TeachBackApplyFixture.teachBackContext(), CLOCK);
+        LearningStateGraph graph = new LearningStateGraph(
+                artifacts, flowStore, flowStore, diagnosticFlow, independentFlow, practiceFlow,
+                reviewFlow, explainFlow, hintFlow, teachBackFlow,
+                new ScriptedPedagogyModel(), new ScriptedClarificationClassifier(), CLOCK);
+        LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
+                artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort(), CLOCK);
         ReviewStartFlow reviewStart = new ReviewStartFlow(
                 executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), CLOCK);
         return new Harness(artifacts, flowStore, generation, useCase, reviewStart);
@@ -400,18 +437,18 @@ class ReviewStartFlowTest {
             ArtifactStore artifacts,
             InMemoryLearningFlowStore flowStore,
             ScriptedApplyGenerationModel generation,
-            ApplyFlowUseCase useCase,
+            LearningFlowCommandUseCase useCase,
             ReviewStartFlow reviewStart
     ) {
 
         UUID completeIndependentPass() {
-            ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(
+            LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
                     LEARNER_ID, UUID.randomUUID());
             UUID flowId = started.interaction().flowId();
-            ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) useCase.submit(
+            LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                     flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                     ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-            useCase.submit(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+            useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
             return flowId;

@@ -2,7 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
 import cn.lunalhx.ai.kilnai.domain.apply.ApplyHash;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
@@ -23,7 +23,7 @@ import java.util.UUID;
 /**
  * The deterministic start flow of a Review Task. It generates, gates, and
  * verifies a Fresh Equivalent Task just in time with the frozen Review
- * Blueprint and the complete Exposure Ledger of the original Apply Flow as
+ * Blueprint and the complete Exposure Ledger of the original Learning Flow as
  * novelty exclusions — before any durable state changes. A ready task is then
  * bound atomically by the store: the claim, the Package, the open Review
  * Attempt, the exposure, the Started state, the Flow's next Delayed Review
@@ -87,7 +87,7 @@ public final class ReviewStartFlow {
         }
         TaskPackage taskPackage = ((PreparedDelivery.TaskReady) prepared).taskPackage();
         int interactionVersion = latestInteractionVersion(flowId) + 1;
-        Optional<ApplyFlowInteraction> bound = reviewStore.bindReviewAttempt(new ReviewStartBind(
+        Optional<LearningFlowInteraction> bound = reviewStore.bindReviewAttempt(new ReviewStartBind(
                 reviewId, clock.instant(), flowId, taskPackage, interactionVersion, idempotencyKey, hash));
         if (bound.isPresent()) {
             return new ReviewStartResult.Boundary(bound.get());
@@ -99,7 +99,7 @@ public final class ReviewStartFlow {
 
     private int latestInteractionVersion(UUID flowId) {
         return flowStore.latestInteraction(flowId)
-                .map(ApplyFlowInteraction::interactionVersion)
+                .map(LearningFlowInteraction::interactionVersion)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
     }
 

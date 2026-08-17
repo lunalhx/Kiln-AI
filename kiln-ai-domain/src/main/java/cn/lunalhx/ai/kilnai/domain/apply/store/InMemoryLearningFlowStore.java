@@ -1,7 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.apply.store;
 
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -35,8 +35,8 @@ import java.util.UUID;
 public final class InMemoryLearningFlowStore implements LearningFlowStore, ReviewTaskStore {
 
     private final Map<UUID, FlowRecord> flows = new HashMap<>();
-    private final Map<UUID, List<ApplyFlowInteraction>> interactions = new HashMap<>();
-    private final Map<UUID, List<ApplyCheckpoint>> checkpoints = new HashMap<>();
+    private final Map<UUID, List<LearningFlowInteraction>> interactions = new HashMap<>();
+    private final Map<UUID, List<LearningCheckpoint>> checkpoints = new HashMap<>();
     private final Map<UUID, Set<String>> taskFingerprints = new HashMap<>();
     private final Map<UUID, Set<String>> solutionFingerprints = new HashMap<>();
     private final Map<UUID, Set<UUID>> exposedTaskPackages = new HashMap<>();
@@ -83,14 +83,14 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
 
     @Override
     public synchronized void commitBoundary(
-            ApplyFlowInteraction interaction,
-            ApplyCheckpoint checkpoint,
+            LearningFlowInteraction interaction,
+            LearningCheckpoint checkpoint,
             ProcessedCommand command
     ) {
         Objects.requireNonNull(interaction, "interaction must not be null");
         Objects.requireNonNull(checkpoint, "checkpoint must not be null");
         Objects.requireNonNull(command, "command must not be null");
-        List<ApplyFlowInteraction> history = interactions.computeIfAbsent(
+        List<LearningFlowInteraction> history = interactions.computeIfAbsent(
                 interaction.flowId(), key -> new ArrayList<>());
         if (history.stream().anyMatch(item -> item.interactionVersion() == interaction.interactionVersion())) {
             return;
@@ -101,8 +101,8 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
-    public synchronized Optional<ApplyFlowInteraction> latestInteraction(UUID flowId) {
-        List<ApplyFlowInteraction> history = interactions.get(flowId);
+    public synchronized Optional<LearningFlowInteraction> latestInteraction(UUID flowId) {
+        List<LearningFlowInteraction> history = interactions.get(flowId);
         if (history == null || history.isEmpty()) {
             return Optional.empty();
         }
@@ -110,8 +110,8 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
-    public synchronized Optional<ApplyCheckpoint> latestCheckpoint(UUID flowId) {
-        List<ApplyCheckpoint> history = checkpoints.get(flowId);
+    public synchronized Optional<LearningCheckpoint> latestCheckpoint(UUID flowId) {
+        List<LearningCheckpoint> history = checkpoints.get(flowId);
         if (history == null || history.isEmpty()) {
             return Optional.empty();
         }
@@ -321,7 +321,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
-    public synchronized Optional<ApplyFlowInteraction> bindReviewAttempt(ReviewTaskStore.ReviewStartBind bind) {
+    public synchronized Optional<LearningFlowInteraction> bindReviewAttempt(ReviewTaskStore.ReviewStartBind bind) {
         Objects.requireNonNull(bind, "bind must not be null");
         if (artifactStore == null) {
             throw new IllegalStateException(
@@ -341,19 +341,19 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         TaskAttempt attempt = artifactStore.openAttempt(bind.taskPackage());
         reviews.put(bind.reviewId(), claimed.withOpenAttempt(attempt.attemptId()));
         recordTaskExposure(bind.flowId(), bind.taskPackage());
-        ApplyFlowInteraction interaction = new ApplyFlowInteraction(
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
                 InteractionKind.TASK, bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
                 bind.taskPackage().learnerProjection(), null, null, null, null);
         commitBoundary(interaction,
-                new ApplyCheckpoint(UUID.randomUUID(), bind.flowId(), bind.interactionVersion(), clock.instant()),
+                new LearningCheckpoint(UUID.randomUUID(), bind.flowId(), bind.interactionVersion(), clock.instant()),
                 new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
                         interaction, clock.instant()));
         return Optional.of(interaction);
     }
 
     @Override
-    public synchronized Optional<ApplyFlowInteraction> resolveInconclusiveSubmission(
+    public synchronized Optional<LearningFlowInteraction> resolveInconclusiveSubmission(
             ReviewTaskStore.ResolveInconclusiveBind bind
     ) {
         Objects.requireNonNull(bind, "bind must not be null");
@@ -376,16 +376,16 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
             replacementProjection = bind.replacementPackage().learnerProjection();
         }
         reviews.put(bind.reviewId(), review.withOpenAttempt(openAttemptId));
-        ApplyFlowInteraction interaction = replacement == null
-                ? new ApplyFlowInteraction(
+        LearningFlowInteraction interaction = replacement == null
+                ? new LearningFlowInteraction(
                         InteractionKind.UNAVAILABLE, review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
                         LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null, null, null)
-                : new ApplyFlowInteraction(
+                : new LearningFlowInteraction(
                         InteractionKind.TASK, review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                         LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
                         replacementProjection, bind.learnerMessage(), null, null, null);
         commitBoundary(interaction,
-                new ApplyCheckpoint(UUID.randomUUID(), review.flowId(), bind.interactionVersion(), clock.instant()),
+                new LearningCheckpoint(UUID.randomUUID(), review.flowId(), bind.interactionVersion(), clock.instant()),
                 new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), review.flowId(),
                         interaction, clock.instant()));
         return Optional.of(interaction);

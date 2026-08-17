@@ -1,10 +1,10 @@
 package cn.lunalhx.ai.kilnai.infrastructure.adapter.repository;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
@@ -127,7 +127,7 @@ class ApplyFlowStoreJsonRoundTripTest {
         assertEquals(evidence, roundTrip(evidence));
 
         UUID flowId = UUID.randomUUID();
-        ApplyFlowInteraction interaction = new ApplyFlowInteraction(
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
                 InteractionKind.TASK, flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
                 openAttempt.attemptId(), AttemptPurpose.DIAGNOSTIC, projection, null, null, null, null);
         assertEquals(interaction, roundTrip(interaction));
@@ -141,7 +141,7 @@ class ApplyFlowStoreJsonRoundTripTest {
                         "15x² − 4x"),
                 List.of(ApplyLearnerEvent.CONTINUE_REQUESTED, ApplyLearnerEvent.CLARIFICATION_ASKED,
                         ApplyLearnerEvent.FLOW_CONTROL));
-        ApplyFlowInteraction teachingInteraction = new ApplyFlowInteraction(
+        LearningFlowInteraction teachingInteraction = new LearningFlowInteraction(
                 InteractionKind.TEACHING, flowId, 2, FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.LEARNING_AND_PRACTICE,
                 null, null, null, null, teaching, null, null);
@@ -158,7 +158,7 @@ class ApplyFlowStoreJsonRoundTripTest {
                 Instant.parse("2026-08-15T00:00:05Z"));
         assertEquals(request, roundTrip(request));
 
-        ApplyCheckpoint checkpoint = new ApplyCheckpoint(
+        LearningCheckpoint checkpoint = new LearningCheckpoint(
                 UUID.randomUUID(), flowId, 1, Instant.parse("2026-08-15T00:00:03Z"));
         assertEquals(checkpoint, roundTrip(checkpoint));
 

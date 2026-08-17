@@ -1,24 +1,41 @@
 package cn.lunalhx.ai.kilnai;
 
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
-import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.TeachBackApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningFlowCommandUseCase;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningStateGraph;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
@@ -27,6 +44,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
+import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPort;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.repository.ApplyFlowMapper;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.repository.PostgresApplyFlowStore;
@@ -69,7 +87,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * unfinished Review Task.
  */
 @SpringBootTest
-@Import(ScriptedApplyPortsConfiguration.class)
+@Import(ScriptedLearningGraphPortsConfiguration.class)
 @Testcontainers(disabledWithoutDocker = true)
 class LearningFlowPostgresSuccessPathTest {
 
@@ -90,7 +108,7 @@ class LearningFlowPostgresSuccessPathTest {
     JdbcTemplate jdbc;
 
     @Autowired
-    ApplyFlowUseCase useCase;
+    LearningFlowCommandUseCase useCase;
 
     @Autowired
     ReviewStartFlow reviewStart;
@@ -121,6 +139,27 @@ class LearningFlowPostgresSuccessPathTest {
 
     @Autowired
     ApplyProfileExecutor executor;
+
+    @Autowired
+    ExplainGenerationPort explainGeneration;
+
+    @Autowired
+    HintGenerationPort hintGeneration;
+
+    @Autowired
+    TeachBackGenerationPort teachBackGeneration;
+
+    @Autowired
+    TeachBackTaskVerifierPort teachBackVerifier;
+
+    @Autowired
+    TeachBackAssessmentPort teachBackAssessment;
+
+    @Autowired
+    PedagogyPort pedagogy;
+
+    @Autowired
+    ClarificationClassifierPort classifier;
 
     @BeforeEach
     void cleanDatabase() {
@@ -165,21 +204,21 @@ class LearningFlowPostgresSuccessPathTest {
     @Test
     void aRestartRecoversTheCommittedSuccessPathAndTheReviewCadenceContinues() {
         UUID learnerId = UUID.randomUUID();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
         UUID flowId = started.interaction().flowId();
         UUID diagnosticKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) useCase.submit(
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, diagnosticKey, started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
         UUID independentKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) useCase.submit(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 2, independentKey, transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         assertEquals(FlowStatus.TERMINAL, completed.interaction().status());
 
         RestartRuntime restarted = restartRuntime();
-        ApplyFlowInteraction recovered = restarted.useCase.query(flowId);
+        LearningFlowInteraction recovered = restarted.useCase.query(flowId);
         assertEquals(completed.interaction(), recovered,
                 "after a restart the learner must see the exact committed terminal interaction");
 
@@ -187,7 +226,7 @@ class LearningFlowPostgresSuccessPathTest {
         assertEquals(learnerId, flow.learnerId());
         assertEquals(DiagnosticApplyFixture.CONCEPT_ID, flow.conceptId());
 
-        ApplyCheckpoint checkpoint = restarted.store.latestCheckpoint(flowId).orElseThrow();
+        LearningCheckpoint checkpoint = restarted.store.latestCheckpoint(flowId).orElseThrow();
         assertEquals(3, checkpoint.interactionVersion(),
                 "the checkpoint must recover the committed boundary");
 
@@ -199,7 +238,7 @@ class LearningFlowPostgresSuccessPathTest {
         assertNotNull(restarted.store.findPackage(independentAttempt.taskPackageId()).orElseThrow(),
                 "the committed Task Package must round-trip through the restarted store");
 
-        ApplyFlowResult.Boundary replayed = (ApplyFlowResult.Boundary) restarted.useCase.submit(
+        LearningFlowResult.Boundary replayed = (LearningFlowResult.Boundary) restarted.useCase.submitAnswer(
                 flowId, 2, independentKey, transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
@@ -229,7 +268,7 @@ class LearningFlowPostgresSuccessPathTest {
         assertEquals(LearningStage.DELAYED_REVIEW, reviewBoundary.interaction().stage());
         assertEquals(AttemptPurpose.REVIEW, reviewBoundary.interaction().attemptPurpose());
 
-        ApplyFlowResult.Boundary reviewDone = (ApplyFlowResult.Boundary) restarted.useCase.submit(
+        LearningFlowResult.Boundary reviewDone = (LearningFlowResult.Boundary) restarted.useCase.submitAnswer(
                 flowId, reviewBoundary.interaction().interactionVersion(), UUID.randomUUID(),
                 reviewBoundary.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.REVIEW_EXPECTED,
@@ -249,15 +288,15 @@ class LearningFlowPostgresSuccessPathTest {
     @Test
     void concurrentSubmissionsNeverDuplicateEvidenceOrUnfinishedReviewTasks() throws Exception {
         UUID learnerId = UUID.randomUUID();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
         UUID flowId = started.interaction().flowId();
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) useCase.submit(
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
         UUID attemptId = transitioned.interaction().attemptId();
         UUID key = UUID.randomUUID();
 
-        race(() -> useCase.submit(flowId, 2, key, attemptId,
+        race(() -> useCase.submitAnswer(flowId, 2, key, attemptId,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null));
 
@@ -281,12 +320,12 @@ class LearningFlowPostgresSuccessPathTest {
     @Test
     void concurrentReviewStartsNeverCreateADuplicateOpenAttempt() throws Exception {
         UUID learnerId = UUID.randomUUID();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
         UUID flowId = started.interaction().flowId();
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) useCase.submit(
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
-        useCase.submit(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+        useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         Instant acceptedAt = flowStore.allEvidence().stream()
@@ -361,13 +400,28 @@ class LearningFlowPostgresSuccessPathTest {
                 IndependentApplyFixture.independentContext(), clock);
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
                 store, store, assessmentPort, verificationPort, scheduler, clock);
+        PracticeSubmissionFlow practiceFlow = new PracticeSubmissionFlow(
+                executor, store, store, assessmentPort, verificationPort,
+                PracticeApplyFixture.practiceContext(), IndependentApplyFixture.independentContext(), clock);
+        ExplainFlow explainFlow = new ExplainFlow(
+                new ExplainProfileExecutor(RecoveryTestBundles.explainStack(), explainGeneration),
+                store, store, ExplainApplyFixture.explainContext());
+        HintFlow hintFlow = new HintFlow(
+                hintGeneration, store, PracticeApplyFixture.practiceContext().conceptSourcePack());
+        TeachBackFlow teachBackFlow = new TeachBackFlow(
+                new TeachBackProfileExecutor(RecoveryTestBundles.teachBackStack(),
+                        teachBackGeneration, teachBackVerifier, store),
+                store, store, teachBackAssessment,
+                TeachBackApplyFixture.teachBackContext(), clock);
         ReviewSubmissionFlow reviewFlow = new ReviewSubmissionFlow(
                 store, store, assessmentPort, verificationPort, scheduler, executor, store,
                 ReviewApplyFixture.reviewContext(), clock);
-        ApplyFlowUseCase freshUseCase = new ApplyFlowUseCase(
-                store, store, diagnosticFlow, independentFlow, reviewFlow,
-                DiagnosticApplyFixture.diagnosticContext(),
-                (cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort) () -> new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile(
+        LearningStateGraph graph = new LearningStateGraph(
+                store, store, store, diagnosticFlow, independentFlow, practiceFlow,
+                reviewFlow, explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
+        LearningFlowCommandUseCase freshUseCase = new LearningFlowCommandUseCase(
+                store, store, graph, DiagnosticApplyFixture.diagnosticContext(),
+                (OperatorModelProfilePort) () -> new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile(
                         new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding(
                                 "openai-compatible", "https://api.test/v1", "acme", "scripted-strong", "TEST_STRONG"),
                         new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding(
@@ -381,7 +435,7 @@ class LearningFlowPostgresSuccessPathTest {
 
     private record RestartRuntime(
             PostgresApplyFlowStore store,
-            ApplyFlowUseCase useCase,
+            LearningFlowCommandUseCase useCase,
             ReviewStartFlow reviewStart
     ) {
     }

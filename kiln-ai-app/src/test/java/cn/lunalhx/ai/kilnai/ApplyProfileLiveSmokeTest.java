@@ -4,21 +4,39 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
-import cn.lunalhx.ai.kilnai.domain.apply.flow.ApplyFlowUseCase;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.TeachBackApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassification;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningFlowCommandUseCase;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningStateGraph;
+import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPort;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.BundleLoader;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.SkillBundleSource;
@@ -44,12 +62,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The real-model smoke test for the Apply reference. It compiles the real
- * five-Bundle prompt, resolves the operator-configured model from
- * {@code deploy/local/.env}, and runs a complete Diagnostic start against the
- * provider with zero tools in ephemeral in-memory storage. It is never a CI
- * oracle: it runs only when {@code KILN_LIVE_SMOKE=true}, it is non-blocking,
- * and it creates no Learning Evidence.
+ * The real-model smoke test for the Learning Flow reference. It compiles the
+ * real Apply five-Bundle prompt, resolves the operator-configured model from
+ * {@code deploy/local/.env}, and runs a complete Diagnostic start through the
+ * Learning Flow command surface against the provider with zero tools in
+ * ephemeral in-memory storage. It is never a CI oracle: it runs only when
+ * {@code KILN_LIVE_SMOKE=true}, it is non-blocking, and it creates no Learning
+ * Evidence.
  */
 @Tag("live")
 @EnabledIfEnvironmentVariable(named = "KILN_LIVE_SMOKE", matches = "true")
@@ -78,6 +97,21 @@ class ApplyProfileLiveSmokeTest {
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
                 artifacts, flowStore, model, model,
                 new ReviewTaskScheduler((ReviewTaskStore) flowStore), Clock.systemUTC());
+        PracticeSubmissionFlow practiceFlow = new PracticeSubmissionFlow(
+                executor, artifacts, flowStore, model, model,
+                PracticeApplyFixture.practiceContext(), IndependentApplyFixture.independentContext(),
+                Clock.systemUTC());
+        ExplainFlow explainFlow = new ExplainFlow(
+                new ExplainProfileExecutor(RecoveryTestBundles.explainStack(), failClosedExplain()),
+                artifacts, flowStore, ExplainApplyFixture.explainContext());
+        HintFlow hintFlow = new HintFlow(
+                failClosedHint(), artifacts,
+                PracticeApplyFixture.practiceContext().conceptSourcePack());
+        TeachBackFlow teachBackFlow = new TeachBackFlow(
+                new TeachBackProfileExecutor(RecoveryTestBundles.teachBackStack(),
+                        failClosedTeachBackGeneration(), failClosedTeachBackVerifier(), artifacts),
+                artifacts, flowStore, failClosedTeachBackAssessment(),
+                TeachBackApplyFixture.teachBackContext(), Clock.systemUTC());
         ReviewSubmissionFlow reviewFlow = new ReviewSubmissionFlow(
                 artifacts, flowStore, model, model,
                 new ReviewTaskScheduler((ReviewTaskStore) flowStore),
@@ -88,14 +122,18 @@ class ApplyProfileLiveSmokeTest {
                 new ModelProfile.ModelBinding("openai-compatible", "https://api.smoke.test/v1",
                         "smoke", "smoke-small", "KILN_APPLY_SMOKE_SMALL"),
                 2048);
-        ApplyFlowUseCase useCase = new ApplyFlowUseCase(
-                artifacts, flowStore, diagnosticFlow, independentFlow, reviewFlow,
-                DiagnosticApplyFixture.diagnosticContext(), profilePort, Clock.systemUTC());
+        LearningStateGraph graph = new LearningStateGraph(
+                artifacts, flowStore, (ReviewTaskStore) flowStore, diagnosticFlow, independentFlow,
+                practiceFlow, reviewFlow, explainFlow, hintFlow, teachBackFlow,
+                failClosedPedagogy(), failClosedClassifier(), Clock.systemUTC());
+        LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
+                artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                profilePort, Clock.systemUTC());
 
-        ApplyFlowResult result = useCase.start(UUID.randomUUID(), UUID.randomUUID());
+        LearningFlowResult result = useCase.start(UUID.randomUUID(), UUID.randomUUID());
 
-        assertInstanceOf(ApplyFlowResult.Boundary.class, result);
-        ApplyFlowResult.Boundary boundary = (ApplyFlowResult.Boundary) result;
+        assertInstanceOf(LearningFlowResult.Boundary.class, result);
+        LearningFlowResult.Boundary boundary = (LearningFlowResult.Boundary) result;
         LearnerProjection projection = boundary.interaction().learnerProjection();
         if (projection != null) {
             assertEquals("zh-CN", projection.locale());
@@ -109,6 +147,46 @@ class ApplyProfileLiveSmokeTest {
         }
         assertTrue(flowStore.allEvidence().isEmpty(), "a smoke start must never create evidence");
         assertNotNull(useCase.query(boundary.interaction().flowId()));
+    }
+
+    private static ExplainGenerationPort failClosedExplain() {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
+            throw new IllegalStateException("the smoke Diagnostic start must never run Explain");
+        };
+    }
+
+    private static HintGenerationPort failClosedHint() {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
+            throw new IllegalStateException("the smoke Diagnostic start must never run Hint");
+        };
+    }
+
+    private static TeachBackGenerationPort failClosedTeachBackGeneration() {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
+            throw new IllegalStateException("the smoke Diagnostic start must never run Teach-back");
+        };
+    }
+
+    private static TeachBackTaskVerifierPort failClosedTeachBackVerifier() {
+        return (profile, taskPackage, context) -> {
+            throw new IllegalStateException("the smoke Diagnostic start must never verify a Teach-back task");
+        };
+    }
+
+    private static TeachBackAssessmentPort failClosedTeachBackAssessment() {
+        return (profile, context) -> {
+            throw new IllegalStateException("the smoke Diagnostic start must never assess Teach-back");
+        };
+    }
+
+    private static PedagogyPort failClosedPedagogy() {
+        return (profile, compiledSystemPrompt, executionContextJson) -> {
+            throw new IllegalStateException("the smoke Diagnostic start must never run the Pedagogy Agent");
+        };
+    }
+
+    private static ClarificationClassifierPort failClosedClassifier() {
+        return (profile, message, taskText) -> ClarificationClassification.SUBSTANTIVE;
     }
 
     private static OperatorCatalog catalogFrom(Map<String, Object> env) {

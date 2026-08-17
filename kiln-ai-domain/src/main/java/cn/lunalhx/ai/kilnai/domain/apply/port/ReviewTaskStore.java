@@ -1,6 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
 
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
@@ -137,7 +137,7 @@ public interface ReviewTaskStore {
      * a Package, Attempt, Exposure, or interaction and at most one OPEN
      * Attempt can ever exist per Review Task.
      */
-    Optional<ApplyFlowInteraction> bindReviewAttempt(ReviewStartBind bind);
+    Optional<LearningFlowInteraction> bindReviewAttempt(ReviewStartBind bind);
 
     /**
      * The complete domain-owned specification of one successful Review start
@@ -176,7 +176,7 @@ public interface ReviewTaskStore {
      * nothing at all is written, so replay, concurrency, and duplicate
      * submissions can never create a duplicate replacement.
      */
-    Optional<ApplyFlowInteraction> resolveInconclusiveSubmission(ResolveInconclusiveBind bind);
+    Optional<LearningFlowInteraction> resolveInconclusiveSubmission(ResolveInconclusiveBind bind);
 
     /**
      * The complete domain-owned specification of one inconclusive Review

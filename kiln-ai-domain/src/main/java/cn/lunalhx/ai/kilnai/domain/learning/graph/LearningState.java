@@ -1,7 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.learning.graph;
 
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
@@ -20,8 +20,8 @@ import java.util.UUID;
  */
 public record LearningState(
         LearningFlowStore.FlowRecord flow,
-        ApplyFlowInteraction latestInteraction,
-        Optional<ApplyCheckpoint> latestCheckpoint
+        LearningFlowInteraction latestInteraction,
+        Optional<LearningCheckpoint> latestCheckpoint
 ) {
 
     public LearningState {
@@ -35,7 +35,7 @@ public record LearningState(
         Objects.requireNonNull(flowId, "flowId must not be null");
         LearningFlowStore.FlowRecord flow = flowStore.findFlow(flowId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
-        ApplyFlowInteraction latest = flowStore.latestInteraction(flowId)
+        LearningFlowInteraction latest = flowStore.latestInteraction(flowId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
         return new LearningState(flow, latest, flowStore.latestCheckpoint(flowId));
     }

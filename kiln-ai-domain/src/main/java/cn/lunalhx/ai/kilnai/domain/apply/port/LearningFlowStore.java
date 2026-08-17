@@ -1,8 +1,8 @@
 package cn.lunalhx.ai.kilnai.domain.apply.port;
 
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
@@ -19,12 +19,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The typed store of one Apply Learning Flow's durable state: the Flow
+ * The typed store of one Learning Flow's durable state: the Flow
  * record, every learner-visible interaction and its checkpoint, the Exposure
  * Ledger of displayed task and solution Fingerprints, accepted Learning
  * Evidence, and the idempotency ledger of processed commands.
  *
- * <p>{@link #commitBoundary(ApplyFlowInteraction, ApplyCheckpoint, ProcessedCommand)}
+ * <p>{@link #commitBoundary(LearningFlowInteraction, LearningCheckpoint, ProcessedCommand)}
  * persists the learner interaction, its checkpoint, and the processed command
  * atomically, so a replayed idempotency key always returns the original
  * result and a restart can resume the exact boundary.
@@ -41,11 +41,11 @@ public interface LearningFlowStore {
      * Repeating a boundary for the same interaction version is a no-op, so a
      * concurrent duplicate commit cannot corrupt state.
      */
-    void commitBoundary(ApplyFlowInteraction interaction, ApplyCheckpoint checkpoint, ProcessedCommand command);
+    void commitBoundary(LearningFlowInteraction interaction, LearningCheckpoint checkpoint, ProcessedCommand command);
 
-    Optional<ApplyFlowInteraction> latestInteraction(UUID flowId);
+    Optional<LearningFlowInteraction> latestInteraction(UUID flowId);
 
-    Optional<ApplyCheckpoint> latestCheckpoint(UUID flowId);
+    Optional<LearningCheckpoint> latestCheckpoint(UUID flowId);
 
     void recordTaskExposure(UUID flowId, TaskPackage taskPackage);
 
@@ -178,7 +178,7 @@ public interface LearningFlowStore {
             UUID idempotencyKey,
             String requestHash,
             UUID flowId,
-            ApplyFlowInteraction response,
+            LearningFlowInteraction response,
             Instant createdAt
     ) {
 

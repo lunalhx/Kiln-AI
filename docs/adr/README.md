@@ -25,7 +25,7 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0015](0015-abandon-open-attempts-when-leaving-a-learning-flow.md): leaving a Flow closes exposed attempts
 - [ADR-0044](0044-use-learner-confirmed-canonical-mathematical-answers.md): confirmed canonical mathematical answers
 - [ADR-0020](0020-use-a-bounded-pedagogy-agent-for-feedback-and-next-action.md): bounded Pedagogy Agent
-- [ADR-0021](0021-coordinate-through-a-typed-blackboard-and-node-specific-context-views.md): clarification — the Apply reference replaces the Blackboard with closed execution context and durable typed stores
+- [ADR-0021](0021-coordinate-through-a-typed-blackboard-and-node-specific-context-views.md): clarification — the Apply reference replaces the Blackboard with closed execution context and durable typed stores; the minimal typed Blackboard of ADR-0072 covers this clarification for the multi-Profile Learning StateGraph
 - [ADR-0022](0022-defer-cross-flow-learner-memory-in-phase-0.md): no cross-Flow Learner Memory
 - [ADR-0030](0030-return-control-to-the-graph-through-interaction-contracts.md): clarification — the learner projection carries the allowed-events contract
 - [ADR-0032](0032-bound-model-calls-per-graph-run.md): superseded by ADR-0036, which is itself superseded
@@ -38,6 +38,9 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0065](0065-limit-the-reference-hint-ladder-to-apply-practice.md): the reference Hint Ladder serves Apply Practice, not Teach-back
 - [ADR-0069](0069-retry-durable-unavailable-interactions.md): bounded retry of durable unavailable interactions
 - [ADR-0070](0070-limit-active-learning-work-and-cancel-review-cadence-explicitly.md): one active Flow/Review cadence and explicit cancellation
+- [ADR-0068](0068-cancel-started-review-when-leave-abandons-its-attempt.md): superseded by ADR-0073 — Started Review cancellation goes only through the independent cancel resource
+- [ADR-0072](0072-realize-the-minimal-typed-blackboard-for-the-learning-stategraph.md): the durable Flow store and rehydrated Learning State are the minimal typed Blackboard
+- [ADR-0073](0073-started-review-cancellation-only-through-the-independent-cancel-resource.md): Started Review cancellation only through the independent cancel resource
 
 ## Sources and Concept preparation
 

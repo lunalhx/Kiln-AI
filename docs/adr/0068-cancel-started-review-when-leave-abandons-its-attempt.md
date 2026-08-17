@@ -4,6 +4,10 @@ status: accepted
 
 # Cancel a Started Review Task when an explicit leave abandons its open Attempt
 
+> Superseded by ADR-0073: Started Review cancellation goes only through the
+> independent idempotent cancel resource. The explicit leave still abandons
+> the open Attempt (ADR-0015) but no longer cancels the Review Task.
+
 ADR-0015 closes any open Task Attempt as Abandoned when the learner explicitly
 leaves the Learning Flow, but it does not say what happens to the Review Task
 whose Attempt was abandoned. Without a rule, a Started Review Task would stay

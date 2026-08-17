@@ -7,13 +7,27 @@ import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ApplyScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedApplyGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedAssessmentModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedClarificationClassifier;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedExplainGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedHintGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedPedagogyModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedResponseVerificationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTaskVerifier;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackAssessmentModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackTaskVerifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.TeachBackApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
@@ -22,8 +36,12 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningFlowCommandUseCase;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningStateGraph;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ConceptProgress;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
@@ -109,7 +127,7 @@ class DelayedReviewCadenceContractTest {
 
         Instant fourthCompletion = thirdCompletion.plus(Duration.ofDays(21)).plus(Duration.ofHours(3));
         harness.clock().set(fourthCompletion);
-        ApplyFlowResult.Boundary finalBoundary = harness.passReview(4);
+        LearningFlowResult.Boundary finalBoundary = harness.passReview(4);
         assertEquals(FlowStatus.TERMINAL, finalBoundary.interaction().status());
         assertEquals(LearningStage.DELAYED_REVIEW, finalBoundary.interaction().stage());
         assertFalse(finalBoundary.interaction().learnerMessage().contains("8*x^3 - 6*x"),
@@ -180,20 +198,20 @@ class DelayedReviewCadenceContractTest {
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
         UUID submitKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), submitKey,
                 started.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
         assertEquals(FlowStatus.TERMINAL, completed.interaction().status());
 
-        ApplyFlowResult.Boundary replayed = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary replayed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), submitKey,
                 started.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
         assertEquals(completed.interaction(), replayed.interaction(),
                 "a replayed submission key must return the original result");
 
-        assertThrows(ApplicationException.class, () -> harness.useCase().submit(
+        assertThrows(ApplicationException.class, () -> harness.useCase().submitAnswer(
                         flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                         started.interaction().attemptId(),
                         ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null),
@@ -218,22 +236,22 @@ class DelayedReviewCadenceContractTest {
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
         UUID submitKey = UUID.randomUUID();
-        harness.useCase().submit(flowId, started.interaction().interactionVersion(), submitKey,
+        harness.useCase().submitAnswer(flowId, started.interaction().interactionVersion(), submitKey,
                 started.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
 
-        ApplyFlowUseCase recovered = harness.newUseCase();
-        ApplyFlowInteraction queried = recovered.query(flowId);
+        LearningFlowCommandUseCase recovered = harness.newUseCase();
+        LearningFlowInteraction queried = recovered.query(flowId);
         assertEquals(FlowStatus.TERMINAL, queried.status(),
                 "a fresh instance must recover the terminal Review result without regenerating");
 
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) recovered.submit(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) recovered.submitAnswer(
                 flowId, started.interaction().interactionVersion(), submitKey,
                 started.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
         assertEquals(queried, replay.interaction());
 
-        assertThrows(ApplicationException.class, () -> recovered.submit(
+        assertThrows(ApplicationException.class, () -> recovered.submitAnswer(
                         flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                         started.interaction().attemptId(),
                         ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null),
@@ -259,7 +277,7 @@ class DelayedReviewCadenceContractTest {
 
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
-        ApplyFlowResult.Boundary failed = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary failed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
@@ -313,7 +331,7 @@ class DelayedReviewCadenceContractTest {
 
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
-        ApplyFlowResult.Boundary failed = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary failed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION,
@@ -361,7 +379,7 @@ class DelayedReviewCadenceContractTest {
         harness.dueTransition().markDueReviewsDue();
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
-        harness.useCase().submit(flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
+        harness.useCase().submitAnswer(flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
         assertEquals(MasteryMilestone.LEARNING, harness.progress().currentMilestone());
@@ -418,7 +436,7 @@ class DelayedReviewCadenceContractTest {
                 "a fresh Independent pass must cancel the STARTED Review and restart the cadence");
         assertEquals(1, harness.unfinishedReviews().size());
 
-        ApplyFlowResult.Boundary outcome = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary outcome = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
@@ -470,7 +488,7 @@ class DelayedReviewCadenceContractTest {
         ReviewStartResult.Boundary freshStarted = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 fresh.reviewId(), UUID.randomUUID());
 
-        ApplyFlowResult.Boundary outcome = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary outcome = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
@@ -494,10 +512,10 @@ class DelayedReviewCadenceContractTest {
     @Test
     void anIndependentSubmissionReplayedAfterTheCrashBetweenCloseAndBoundaryRecoversTheSavedEvaluation() {
         Harness harness = harness();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) harness.useCase().start(
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(
                 LEARNER_ID, UUID.randomUUID());
         UUID flowId = started.interaction().flowId();
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
         UUID attemptId = transitioned.interaction().attemptId();
@@ -509,7 +527,7 @@ class DelayedReviewCadenceContractTest {
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
 
-        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, 2, submitKey, attemptId,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
@@ -543,7 +561,7 @@ class DelayedReviewCadenceContractTest {
                 attemptId, AttemptPurpose.REVIEW,
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
 
-        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), submitKey, attemptId,
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
 
@@ -567,16 +585,16 @@ class DelayedReviewCadenceContractTest {
         harness.dueTransition().markDueReviewsDue();
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
-        harness.useCase().submit(flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
+        harness.useCase().submitAnswer(flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
 
-        ApplyFlowResult duplicate = harness.useCase().submit(
+        LearningFlowResult duplicate = harness.useCase().submitAnswer(
                 flowId, harness.useCase().query(flowId).interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
 
-        assertTrue(duplicate instanceof ApplyFlowResult.SubmissionIgnored,
+        assertTrue(duplicate instanceof LearningFlowResult.SubmissionIgnored,
                 "a different-key duplicate of a committed Review submission must keep the conflict behavior");
         assertEquals(1, harness.reviewEvidence().size(),
                 "a duplicate must never accept a second Review Evidence record");
@@ -654,13 +672,32 @@ class DelayedReviewCadenceContractTest {
         ReviewSubmissionFlow reviewSubmissionFlow = new ReviewSubmissionFlow(
                 artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
                 reviewScheduler, executor, flowStore, ReviewApplyFixture.reviewContext(), clock);
-        ApplyFlowUseCase useCase = new ApplyFlowUseCase(
-                artifacts, flowStore, diagnosticFlow, independentFlow, reviewSubmissionFlow,
-                DiagnosticApplyFixture.diagnosticContext(), profilePort(), clock);
+        PracticeSubmissionFlow practiceFlow = new PracticeSubmissionFlow(
+                executor, artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
+                PracticeApplyFixture.practiceContext(), IndependentApplyFixture.independentContext(), clock);
+        ExplainFlow explainFlow = new ExplainFlow(
+                new ExplainProfileExecutor(ReferenceBundles.explainStack(),
+                        new ScriptedExplainGenerationModel(List.of())),
+                artifacts, flowStore, ExplainApplyFixture.explainContext());
+        HintFlow hintFlow = new HintFlow(
+                new ScriptedHintGenerationModel(List.of()), artifacts,
+                PracticeApplyFixture.practiceContext().conceptSourcePack());
+        TeachBackFlow teachBackFlow = new TeachBackFlow(
+                new TeachBackProfileExecutor(ReferenceBundles.teachBackStack(),
+                        new ScriptedTeachBackGenerationModel(List.of()),
+                        new ScriptedTeachBackTaskVerifier(List.of()), artifacts),
+                artifacts, flowStore, new ScriptedTeachBackAssessmentModel(List.of()),
+                TeachBackApplyFixture.teachBackContext(), clock);
+        LearningStateGraph graph = new LearningStateGraph(
+                artifacts, flowStore, flowStore, diagnosticFlow, independentFlow, practiceFlow,
+                reviewSubmissionFlow, explainFlow, hintFlow, teachBackFlow,
+                new ScriptedPedagogyModel(), new ScriptedClarificationClassifier(), clock);
+        LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
+                artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort(), clock);
         ReviewStartFlow reviewStart = new ReviewStartFlow(
                 executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), clock);
         return new Harness(artifacts, flowStore, clock, reviewScheduler, useCase, reviewStart,
-                diagnosticFlow, independentFlow, reviewSubmissionFlow);
+                diagnosticFlow, independentFlow, reviewSubmissionFlow, graph);
     }
 
     private static final String REVIEW_TASK_2 = "设 p(x) = 3x⁵ − 4x + 2，求 p'(x)。";
@@ -675,21 +712,22 @@ class DelayedReviewCadenceContractTest {
             InMemoryLearningFlowStore flowStore,
             MutableClock clock,
             ReviewTaskScheduler reviewScheduler,
-            ApplyFlowUseCase useCase,
+            LearningFlowCommandUseCase useCase,
             ReviewStartFlow reviewStart,
             DiagnosticFlow diagnosticFlow,
             IndependentSubmissionFlow independentFlow,
-            ReviewSubmissionFlow reviewSubmissionFlow
+            ReviewSubmissionFlow reviewSubmissionFlow,
+            LearningStateGraph graph
     ) {
 
         UUID completeIndependentPass() {
-            ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(
+            LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
                     LEARNER_ID, UUID.randomUUID());
             UUID flowId = started.interaction().flowId();
-            ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) useCase.submit(
+            LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                     flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                     ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-            useCase.submit(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+            useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
             return flowId;
@@ -703,7 +741,7 @@ class DelayedReviewCadenceContractTest {
             return successor;
         }
 
-        ApplyFlowResult.Boundary passReview(int reviewNumber) {
+        LearningFlowResult.Boundary passReview(int reviewNumber) {
             ReviewTask due = unfinishedReviews().stream()
                     .filter(review -> review.reviewNumber() == reviewNumber)
                     .findFirst().orElseThrow();
@@ -711,7 +749,7 @@ class DelayedReviewCadenceContractTest {
             ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) reviewStart().start(
                     due.reviewId(), UUID.randomUUID());
             String expected = expectedFor(reviewNumber);
-            return (ApplyFlowResult.Boundary) useCase.submit(
+            return (LearningFlowResult.Boundary) useCase.submitAnswer(
                     started.interaction().flowId(), started.interaction().interactionVersion(),
                     UUID.randomUUID(), started.interaction().attemptId(),
                     expected, expected, null);
@@ -761,10 +799,10 @@ class DelayedReviewCadenceContractTest {
                     DiagnosticApplyFixture.CONCEPT_ID, evidence);
         }
 
-        ApplyFlowUseCase newUseCase() {
-            return new ApplyFlowUseCase(
-                    artifacts, flowStore, diagnosticFlow, independentFlow, reviewSubmissionFlow,
-                    DiagnosticApplyFixture.diagnosticContext(), profilePort(), clock);
+        LearningFlowCommandUseCase newUseCase() {
+            return new LearningFlowCommandUseCase(
+                    artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                    profilePort(), clock);
         }
     }
 }

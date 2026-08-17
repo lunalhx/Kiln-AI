@@ -66,7 +66,7 @@ public sealed interface ReviewSubmissionResult
      */
     record ReplacementBound(
             TaskAttempt closedAttempt,
-            ApplyFlowInteraction interaction
+            LearningFlowInteraction interaction
     ) implements ReviewSubmissionResult {
 
         public ReplacementBound {
@@ -83,7 +83,7 @@ public sealed interface ReviewSubmissionResult
      */
     record ReplacementUnavailable(
             TaskAttempt closedAttempt,
-            ApplyFlowInteraction interaction
+            LearningFlowInteraction interaction
     ) implements ReviewSubmissionResult {
 
         public ReplacementUnavailable {

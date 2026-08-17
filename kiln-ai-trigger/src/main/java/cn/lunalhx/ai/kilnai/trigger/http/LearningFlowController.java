@@ -4,7 +4,7 @@ import cn.lunalhx.ai.kilnai.api.dto.LearningFlowCommandRequest;
 import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse;
 import cn.lunalhx.ai.kilnai.api.dto.StartLearningFlowRequest;
 import cn.lunalhx.ai.kilnai.api.response.ApiErrorResponse;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningFlowCommandUseCase;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
@@ -59,8 +59,8 @@ public class LearningFlowController {
             @RequestHeader("Idempotency-Key") UUID idempotencyKey,
             @Valid @RequestBody StartLearningFlowRequest request
     ) {
-        ApplyFlowResult result = useCase.start(request.learnerId(), idempotencyKey);
-        return responseMapper.toResponse(((ApplyFlowResult.Boundary) result).interaction());
+        LearningFlowResult result = useCase.start(request.learnerId(), idempotencyKey);
+        return responseMapper.toResponse(((LearningFlowResult.Boundary) result).interaction());
     }
 
     @GetMapping("/{flowId}")
@@ -75,7 +75,7 @@ public class LearningFlowController {
             @Valid @RequestBody LearningFlowCommandRequest request
     ) {
         int interactionVersion = requireVersion(request);
-        ApplyFlowResult result = switch (request.command()) {
+        LearningFlowResult result = switch (request.command()) {
             case "answer_submitted" -> useCase.submitAnswer(
                     flowId, interactionVersion, idempotencyKey, requireAttempt(request),
                     requireRawAnswer(request), request.confirmedCanonical(), request.rationale());
@@ -95,25 +95,25 @@ public class LearningFlowController {
                     ErrorCode.INVALID_ARGUMENT, "unknown command: " + request.command());
         };
         return switch (result) {
-            case ApplyFlowResult.Boundary boundary ->
+            case LearningFlowResult.Boundary boundary ->
                     ResponseEntity.ok(responseMapper.toResponse(boundary.interaction()));
-            case ApplyFlowResult.SubmissionRejected rejected -> ResponseEntity
+            case LearningFlowResult.SubmissionRejected rejected -> ResponseEntity
                     .status(HttpStatus.UNPROCESSABLE_ENTITY)
                     .body(new ApiErrorResponse(ErrorCode.UNPROCESSABLE.name(),
                             rejected.reason().name(), Instant.now()));
-            case ApplyFlowResult.SubmissionIgnored ignored -> ResponseEntity
+            case LearningFlowResult.SubmissionIgnored ignored -> ResponseEntity
                     .status(HttpStatus.CONFLICT)
                     .body(new ApiErrorResponse(ErrorCode.CONFLICT.name(),
                             ignored.reason().name(), Instant.now()));
-            case ApplyFlowResult.HintIgnored ignored -> ResponseEntity
+            case LearningFlowResult.HintIgnored ignored -> ResponseEntity
                     .status(HttpStatus.CONFLICT)
                     .body(new ApiErrorResponse(ErrorCode.CONFLICT.name(),
                             ignored.reason().name(), Instant.now()));
-            case ApplyFlowResult.ClarificationIgnored ignored -> ResponseEntity
+            case LearningFlowResult.ClarificationIgnored ignored -> ResponseEntity
                     .status(HttpStatus.CONFLICT)
                     .body(new ApiErrorResponse(ErrorCode.CONFLICT.name(),
                             ignored.reason().name(), Instant.now()));
-            case ApplyFlowResult.AssistanceIgnored ignored -> ResponseEntity
+            case LearningFlowResult.AssistanceIgnored ignored -> ResponseEntity
                     .status(HttpStatus.CONFLICT)
                     .body(new ApiErrorResponse(ErrorCode.CONFLICT.name(),
                             ignored.reason().name(), Instant.now()));

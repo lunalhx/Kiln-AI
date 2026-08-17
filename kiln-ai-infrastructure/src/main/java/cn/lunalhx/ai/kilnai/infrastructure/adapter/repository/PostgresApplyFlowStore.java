@@ -1,7 +1,7 @@
 package cn.lunalhx.ai.kilnai.infrastructure.adapter.repository;
 
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptConversionOutcome;
@@ -81,7 +81,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
 
     @Override
     @Transactional
-    public void commitBoundary(ApplyFlowInteraction interaction, ApplyCheckpoint checkpoint, ProcessedCommand command) {
+    public void commitBoundary(LearningFlowInteraction interaction, LearningCheckpoint checkpoint, ProcessedCommand command) {
         mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
                 UUID.randomUUID(),
                 interaction.flowId(),
@@ -118,8 +118,8 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
-    public Optional<ApplyFlowInteraction> latestInteraction(UUID flowId) {
-        return mapper.latestInteraction(flowId).map(row -> new ApplyFlowInteraction(
+    public Optional<LearningFlowInteraction> latestInteraction(UUID flowId) {
+        return mapper.latestInteraction(flowId).map(row -> new LearningFlowInteraction(
                 InteractionKind.valueOf(row.kind()),
                 row.flowId(),
                 row.interactionVersion(),
@@ -139,8 +139,8 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
-    public Optional<ApplyCheckpoint> latestCheckpoint(UUID flowId) {
-        return mapper.latestCheckpoint(flowId).map(row -> new ApplyCheckpoint(
+    public Optional<LearningCheckpoint> latestCheckpoint(UUID flowId) {
+        return mapper.latestCheckpoint(flowId).map(row -> new LearningCheckpoint(
                 row.id(), row.flowId(), row.interactionVersion(), row.createdAt()));
     }
 
@@ -376,7 +376,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
 
     @Override
     @Transactional
-    public Optional<ApplyFlowInteraction> bindReviewAttempt(ReviewTaskStore.ReviewStartBind bind) {
+    public Optional<LearningFlowInteraction> bindReviewAttempt(ReviewTaskStore.ReviewStartBind bind) {
         TaskAttempt attempt = TaskAttempt.open(bind.taskPackage(), bind.startedAt());
         int claimed = mapper.claimReviewAttempt(bind.reviewId(), bind.startedAt(), attempt.attemptId());
         if (claimed == 0) {
@@ -403,7 +403,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 bind.taskPackage().privateAssessorProjection().taskFingerprint().value(),
                 bind.taskPackage().privateAssessorProjection().solutionFingerprint().value(),
                 bind.startedAt());
-        ApplyFlowInteraction interaction = new ApplyFlowInteraction(
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
                 InteractionKind.TASK, bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
                 bind.taskPackage().learnerProjection(), null, null, null, null);
@@ -414,7 +414,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
 
     @Override
     @Transactional
-    public Optional<ApplyFlowInteraction> resolveInconclusiveSubmission(
+    public Optional<LearningFlowInteraction> resolveInconclusiveSubmission(
             ReviewTaskStore.ResolveInconclusiveBind bind
     ) {
         ReviewTask review = toReviewTask(mapper.findReviewTask(bind.reviewId()).orElse(null));
@@ -457,11 +457,11 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                     bind.replacementPackage().privateAssessorProjection().solutionFingerprint().value(),
                     clock.instant());
         }
-        ApplyFlowInteraction interaction = replacement == null
-                ? new ApplyFlowInteraction(
+        LearningFlowInteraction interaction = replacement == null
+                ? new LearningFlowInteraction(
                         InteractionKind.UNAVAILABLE, review.flowId(), bind.interactionVersion(), FlowStatus.TERMINAL,
                         LearningStage.DELAYED_REVIEW, null, null, null, bind.learnerMessage(), null, null, null)
-                : new ApplyFlowInteraction(
+                : new LearningFlowInteraction(
                         InteractionKind.TASK, review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                         LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
                         replacementProjection, bind.learnerMessage(), null, null, null);
@@ -473,7 +473,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     private void insertBoundary(
             UUID flowId,
             int interactionVersion,
-            ApplyFlowInteraction interaction,
+            LearningFlowInteraction interaction,
             UUID idempotencyKey,
             String requestHash,
             Instant createdAt
@@ -556,7 +556,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     public Optional<ProcessedCommand> findCommand(UUID idempotencyKey) {
         return mapper.findCommand(idempotencyKey).map(row -> new ProcessedCommand(
                 row.idempotencyKey(), row.requestHash(), row.flowId(),
-                readJson(row.responseJson(), ApplyFlowInteraction.class), row.createdAt()));
+                readJson(row.responseJson(), LearningFlowInteraction.class), row.createdAt()));
     }
 
     @Override

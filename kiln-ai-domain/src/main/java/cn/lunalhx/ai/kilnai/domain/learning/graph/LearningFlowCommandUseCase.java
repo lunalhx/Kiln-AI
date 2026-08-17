@@ -5,8 +5,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.FlowCommandReplay;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
@@ -56,12 +56,12 @@ public final class LearningFlowCommandUseCase {
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
-    public ApplyFlowResult start(UUID learnerId, UUID idempotencyKey) {
+    public LearningFlowResult start(UUID learnerId, UUID idempotencyKey) {
         requireUuidKey(idempotencyKey);
         Objects.requireNonNull(learnerId, "learnerId must not be null");
         String hash = ApplyHash.sha256HexDelimited("start", learnerId);
         return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
-                interaction -> new ApplyFlowResult.Boundary(interaction),
+                interaction -> new LearningFlowResult.Boundary(interaction),
                 () -> {
                     UUID flowId = UUID.randomUUID();
                     // Starting a Learning Flow freezes the operator's current
@@ -77,7 +77,7 @@ public final class LearningFlowCommandUseCase {
                 });
     }
 
-    public ApplyFlowResult submitAnswer(
+    public LearningFlowResult submitAnswer(
             UUID flowId,
             int interactionVersion,
             UUID idempotencyKey,
@@ -93,12 +93,12 @@ public final class LearningFlowCommandUseCase {
         String hash = ApplyHash.sha256HexDelimited("submit", flowId, interactionVersion, attemptId,
                 rawDerivative, confirmedCanonical, rationale);
         return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
-                interaction -> new ApplyFlowResult.Boundary(interaction),
+                interaction -> new LearningFlowResult.Boundary(interaction),
                 () -> graph.submitAnswer(flowId, interactionVersion, attemptId, rawDerivative,
                         confirmedCanonical, rationale, idempotencyKey, hash));
     }
 
-    public ApplyFlowResult continueRequested(
+    public LearningFlowResult continueRequested(
             UUID flowId,
             int interactionVersion,
             UUID idempotencyKey
@@ -107,11 +107,11 @@ public final class LearningFlowCommandUseCase {
         Objects.requireNonNull(flowId, "flowId must not be null");
         String hash = ApplyHash.sha256HexDelimited("continue", flowId, interactionVersion);
         return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
-                interaction -> new ApplyFlowResult.Boundary(interaction),
+                interaction -> new LearningFlowResult.Boundary(interaction),
                 () -> graph.continueRequested(flowId, interactionVersion, idempotencyKey, hash));
     }
 
-    public ApplyFlowInteraction query(UUID flowId) {
+    public LearningFlowInteraction query(UUID flowId) {
         Objects.requireNonNull(flowId, "flowId must not be null");
         return flowStore.latestInteraction(flowId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
@@ -123,7 +123,7 @@ public final class LearningFlowCommandUseCase {
      * An explicit request for the answer jumps to H5; a regular request
      * reveals the next persisted level of the attempt's stable ladder.
      */
-    public ApplyFlowResult requestHint(
+    public LearningFlowResult requestHint(
             UUID flowId,
             int interactionVersion,
             UUID attemptId,
@@ -136,7 +136,7 @@ public final class LearningFlowCommandUseCase {
         String hash = ApplyHash.sha256HexDelimited(
                 "hint", flowId, interactionVersion, attemptId, answerRequested);
         return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
-                interaction -> new ApplyFlowResult.Boundary(interaction),
+                interaction -> new LearningFlowResult.Boundary(interaction),
                 () -> graph.requestHint(flowId, interactionVersion, attemptId, answerRequested,
                         idempotencyKey, hash));
     }
@@ -148,7 +148,7 @@ public final class LearningFlowCommandUseCase {
      * Explain inside the open Practice Attempt, or an assistance-consent
      * request over an open Independent or Review Attempt.
      */
-    public ApplyFlowResult clarificationAsked(
+    public LearningFlowResult clarificationAsked(
             UUID flowId,
             int interactionVersion,
             UUID attemptId,
@@ -162,7 +162,7 @@ public final class LearningFlowCommandUseCase {
         String hash = ApplyHash.sha256HexDelimited(
                 "clarify", flowId, interactionVersion, attemptId, message);
         return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
-                interaction -> new ApplyFlowResult.Boundary(interaction),
+                interaction -> new LearningFlowResult.Boundary(interaction),
                 () -> graph.clarificationAsked(flowId, interactionVersion, attemptId, message,
                         idempotencyKey, hash));
     }
@@ -175,7 +175,7 @@ public final class LearningFlowCommandUseCase {
      * before any assistance content is exposed, cancelling the started
      * Review Task when the attempt was a Review.
      */
-    public ApplyFlowResult assistanceDecided(
+    public LearningFlowResult assistanceDecided(
             UUID flowId,
             int interactionVersion,
             UUID attemptId,
@@ -188,7 +188,7 @@ public final class LearningFlowCommandUseCase {
         String hash = ApplyHash.sha256HexDelimited(
                 "assist", flowId, interactionVersion, attemptId, accept);
         return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
-                interaction -> new ApplyFlowResult.Boundary(interaction),
+                interaction -> new LearningFlowResult.Boundary(interaction),
                 () -> graph.assistanceDecided(flowId, interactionVersion, attemptId, accept,
                         idempotencyKey, hash));
     }
@@ -202,7 +202,7 @@ public final class LearningFlowCommandUseCase {
      * boundary, so a replayed leave always returns its original committed
      * transition.
      */
-    public ApplyFlowResult flowControlRequested(
+    public LearningFlowResult flowControlRequested(
             UUID flowId,
             int interactionVersion,
             UUID idempotencyKey
@@ -211,7 +211,7 @@ public final class LearningFlowCommandUseCase {
         Objects.requireNonNull(flowId, "flowId must not be null");
         String hash = ApplyHash.sha256HexDelimited("flow-control", flowId, interactionVersion);
         return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
-                interaction -> new ApplyFlowResult.Boundary(interaction),
+                interaction -> new LearningFlowResult.Boundary(interaction),
                 () -> graph.flowControlRequested(flowId, interactionVersion, idempotencyKey, hash));
     }
 

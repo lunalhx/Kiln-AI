@@ -6,13 +6,27 @@ import cn.lunalhx.ai.kilnai.domain.apply.bundle.ReferenceBundles;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ApplyScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedApplyGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedAssessmentModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedClarificationClassifier;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedExplainGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedHintGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedPedagogyModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedResponseVerificationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTaskVerifier;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackAssessmentModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackGenerationModel;
+import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackTaskVerifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ReviewApplyFixture;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.TeachBackApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.PracticeSubmissionFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
@@ -21,8 +35,12 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningFlowCommandUseCase;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningStateGraph;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ConceptProgress;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
@@ -95,11 +113,11 @@ class InconclusiveReviewReplacementContractTest {
         Instant startedAt = harness.review(review1.reviewId()).startedAt();
         UUID submitKey = UUID.randomUUID();
 
-        ApplyFlowResult.Boundary replaced = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary replaced = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), submitKey, firstAttemptId,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
 
-        ApplyFlowInteraction interaction = replaced.interaction();
+        LearningFlowInteraction interaction = replaced.interaction();
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status(),
                 "an inconclusive submission continues with a replacement task");
         assertEquals(LearningStage.DELAYED_REVIEW, interaction.stage());
@@ -169,7 +187,7 @@ class InconclusiveReviewReplacementContractTest {
         assertEquals(review1.reviewId(), harness.unfinishedReviews().get(0).reviewId());
         assertEquals(1, harness.unfinishedReviews().get(0).reviewNumber());
 
-        ApplyFlowResult.Boundary replayed = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary replayed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), submitKey, firstAttemptId,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
         assertEquals(replaced.interaction(), replayed.interaction(),
@@ -177,7 +195,7 @@ class InconclusiveReviewReplacementContractTest {
         assertEquals(4, harness.artifacts().allPackages().size(),
                 "a replay must never create a duplicate replacement");
 
-        assertThrows(ApplicationException.class, () -> harness.useCase().submit(
+        assertThrows(ApplicationException.class, () -> harness.useCase().submitAnswer(
                         flowId, started.interaction().interactionVersion(), UUID.randomUUID(), firstAttemptId,
                         ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null),
                 "a different-key duplicate of the closed attempt must conflict without writing");
@@ -206,7 +224,7 @@ class InconclusiveReviewReplacementContractTest {
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
 
-        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
@@ -262,7 +280,7 @@ class InconclusiveReviewReplacementContractTest {
                 "a second resume with a new key must conflict without a duplicate replacement");
         assertEquals(4, harness.artifacts().allPackages().size());
 
-        ApplyFlowResult.Boundary passed = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary passed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, resumed.interaction().interactionVersion(), UUID.randomUUID(),
                 resumed.interaction().attemptId(), RESUME_EXPECTED, RESUME_EXPECTED, null);
         assertEquals(FlowStatus.TERMINAL, passed.interaction().status());
@@ -282,16 +300,16 @@ class InconclusiveReviewReplacementContractTest {
 
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
-        ApplyFlowResult.Boundary replaced = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary replaced = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
 
-        ApplyFlowUseCase recovered = harness.newUseCase();
+        LearningFlowCommandUseCase recovered = harness.newUseCase();
         assertEquals(replaced.interaction(), recovered.query(flowId),
                 "a fresh instance must recover the exact open replacement interaction");
 
-        ApplyFlowResult.Boundary passed = (ApplyFlowResult.Boundary) recovered.submit(
+        LearningFlowResult.Boundary passed = (LearningFlowResult.Boundary) recovered.submitAnswer(
                 flowId, replaced.interaction().interactionVersion(), UUID.randomUUID(),
                 replaced.interaction().attemptId(), REPLACEMENT_EXPECTED, REPLACEMENT_EXPECTED, null);
         assertEquals(FlowStatus.TERMINAL, passed.interaction().status());
@@ -338,7 +356,7 @@ class InconclusiveReviewReplacementContractTest {
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
 
-        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
@@ -366,7 +384,7 @@ class InconclusiveReviewReplacementContractTest {
         assertEquals(RESUME_TASK, resumed.interaction().learnerProjection().taskText());
         assertEquals(resumed.interaction().attemptId(), harness.review(review1.reviewId()).openAttemptId());
 
-        ApplyFlowResult.Boundary passed = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary passed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, resumed.interaction().interactionVersion(), UUID.randomUUID(),
                 resumed.interaction().attemptId(), RESUME_EXPECTED, RESUME_EXPECTED, null);
         assertEquals(FlowStatus.TERMINAL, passed.interaction().status());
@@ -395,7 +413,7 @@ class InconclusiveReviewReplacementContractTest {
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
 
-        ApplyFlowResult.Boundary failed = (ApplyFlowResult.Boundary) harness.useCase().submit(
+        LearningFlowResult.Boundary failed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
@@ -515,32 +533,52 @@ class InconclusiveReviewReplacementContractTest {
         ReviewSubmissionFlow reviewSubmissionFlow = new ReviewSubmissionFlow(
                 artifacts, flowStore, assessment, verification, reviewScheduler,
                 executor, flowStore, ReviewApplyFixture.reviewContext(), clock);
-        ApplyFlowUseCase useCase = new ApplyFlowUseCase(
-                artifacts, flowStore, diagnosticFlow, independentFlow, reviewSubmissionFlow,
-                DiagnosticApplyFixture.diagnosticContext(), profilePort(), clock);
+        PracticeSubmissionFlow practiceFlow = new PracticeSubmissionFlow(
+                executor, artifacts, flowStore, assessment, verification,
+                PracticeApplyFixture.practiceContext(), IndependentApplyFixture.independentContext(), clock);
+        ExplainFlow explainFlow = new ExplainFlow(
+                new ExplainProfileExecutor(ReferenceBundles.explainStack(),
+                        new ScriptedExplainGenerationModel(List.of())),
+                artifacts, flowStore, ExplainApplyFixture.explainContext());
+        HintFlow hintFlow = new HintFlow(
+                new ScriptedHintGenerationModel(List.of()), artifacts,
+                PracticeApplyFixture.practiceContext().conceptSourcePack());
+        TeachBackFlow teachBackFlow = new TeachBackFlow(
+                new TeachBackProfileExecutor(ReferenceBundles.teachBackStack(),
+                        new ScriptedTeachBackGenerationModel(List.of()),
+                        new ScriptedTeachBackTaskVerifier(List.of()), artifacts),
+                artifacts, flowStore, new ScriptedTeachBackAssessmentModel(List.of()),
+                TeachBackApplyFixture.teachBackContext(), clock);
+        LearningStateGraph graph = new LearningStateGraph(
+                artifacts, flowStore, flowStore, diagnosticFlow, independentFlow, practiceFlow,
+                reviewSubmissionFlow, explainFlow, hintFlow, teachBackFlow,
+                new ScriptedPedagogyModel(), new ScriptedClarificationClassifier(), clock);
+        LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
+                artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort(), clock);
         ReviewStartFlow reviewStart = new ReviewStartFlow(
                 executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), clock);
-        return new Harness(artifacts, flowStore, clock, useCase, reviewStart, reviewSubmissionFlow, generation);
+        return new Harness(artifacts, flowStore, clock, useCase, reviewStart, reviewSubmissionFlow, generation, graph);
     }
 
     private record Harness(
             ArtifactStore artifacts,
             InMemoryLearningFlowStore flowStore,
             MutableClock clock,
-            ApplyFlowUseCase useCase,
+            LearningFlowCommandUseCase useCase,
             ReviewStartFlow reviewStart,
             ReviewSubmissionFlow reviewSubmissionFlow,
-            ScriptedApplyGenerationModel generation
+            ScriptedApplyGenerationModel generation,
+            LearningStateGraph graph
     ) {
 
         UUID completeIndependentPass() {
-            ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(
+            LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
                     LEARNER_ID, UUID.randomUUID());
             UUID flowId = started.interaction().flowId();
-            ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) useCase.submit(
+            LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                     flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                     ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-            useCase.submit(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+            useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
             return flowId;
@@ -584,22 +622,10 @@ class InconclusiveReviewReplacementContractTest {
                     DiagnosticApplyFixture.CONCEPT_ID, flowStore.allEvidence());
         }
 
-        ApplyFlowUseCase newUseCase() {
-            return new ApplyFlowUseCase(
-                    artifacts, flowStore,
-                    new DiagnosticFlow(
-                            new ApplyProfileExecutor(ReferenceBundles.stack(), generation,
-                                    new ScriptedTaskVerifier(List.of()), artifacts),
-                            artifacts, flowStore, new ScriptedAssessmentModel(List.of()),
-                            new ScriptedResponseVerificationModel(List.of()),
-                            DiagnosticApplyFixture.diagnosticContext(),
-                            IndependentApplyFixture.independentContext(), clock),
-                    new IndependentSubmissionFlow(
-                            artifacts, flowStore, new ScriptedAssessmentModel(List.of()),
-                            new ScriptedResponseVerificationModel(List.of()),
-                            new ReviewTaskScheduler(flowStore), clock),
-                    reviewSubmissionFlow,
-                    DiagnosticApplyFixture.diagnosticContext(), profilePort(), clock);
+        LearningFlowCommandUseCase newUseCase() {
+            return new LearningFlowCommandUseCase(
+                    artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                    profilePort(), clock);
         }
     }
 }

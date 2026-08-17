@@ -1,6 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
@@ -26,7 +26,7 @@ public final class FlowCommandReplay {
             LearningFlowStore flowStore,
             UUID key,
             String hash,
-            Function<ApplyFlowInteraction, T> toBoundary,
+            Function<LearningFlowInteraction, T> toBoundary,
             Supplier<T> action
     ) {
         Objects.requireNonNull(flowStore, "flowStore must not be null");

@@ -8,7 +8,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * The durable learner-visible interaction of one Apply Learning Flow at one
+ * The durable learner-visible interaction of one Learning Flow at one
  * Learner Interaction Boundary. Its closed {@link InteractionKind} declares
  * which one of the union shapes the interaction carries — an open Task
  * Attempt awaiting a submission, a teaching interaction with its
@@ -19,7 +19,7 @@ import java.util.UUID;
  * Practice Attempt. It never carries private assessor projections, expected
  * answers, unexposed hint levels, source traces, or Fingerprints.
  */
-public record ApplyFlowInteraction(
+public record LearningFlowInteraction(
         InteractionKind kind,
         UUID flowId,
         int interactionVersion,
@@ -34,7 +34,7 @@ public record ApplyFlowInteraction(
         AssistanceConsentView assistanceConsent
 ) {
 
-    public ApplyFlowInteraction {
+    public LearningFlowInteraction {
         Objects.requireNonNull(kind, "kind must not be null");
         Objects.requireNonNull(flowId, "flowId must not be null");
         Objects.requireNonNull(status, "status must not be null");

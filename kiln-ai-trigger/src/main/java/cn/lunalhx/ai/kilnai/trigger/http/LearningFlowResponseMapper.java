@@ -6,7 +6,7 @@ import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse.HintView;
 import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse.ProgressView;
 import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse.TaskView;
 import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse.TeachingView;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceConsentView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
@@ -41,7 +41,7 @@ public class LearningFlowResponseMapper {
         this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
     }
 
-    public LearningFlowResponse toResponse(ApplyFlowInteraction interaction) {
+    public LearningFlowResponse toResponse(LearningFlowInteraction interaction) {
         LearnerProjection projection = interaction.learnerProjection();
         TaskView task = projection == null ? null : new TaskView(
                 projection.locale(),
@@ -95,7 +95,7 @@ public class LearningFlowResponseMapper {
      * retry re-issues the original command); a terminal transition offers
      * nothing further.
      */
-    private List<String> allowedEvents(ApplyFlowInteraction interaction) {
+    private List<String> allowedEvents(LearningFlowInteraction interaction) {
         return switch (interaction.kind()) {
             case TASK -> interaction.learnerProjection().allowedEvents().stream()
                     .map(LearningFlowResponseMapper::commandOf)
@@ -151,7 +151,7 @@ public class LearningFlowResponseMapper {
      * interaction. The Review Task itself stays Due and startable.
      */
     public LearningFlowResponse unavailable(UUID flowId, String learnerMessage) {
-        ApplyFlowInteraction latest = flowStore.latestInteraction(flowId)
+        LearningFlowInteraction latest = flowStore.latestInteraction(flowId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.FLOW_NOT_FOUND, "flow not found"));
         return new LearningFlowResponse(
                 latest.flowId(),

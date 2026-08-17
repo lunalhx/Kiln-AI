@@ -2,8 +2,8 @@ package cn.lunalhx.ai.kilnai;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyCheckpoint;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintGenerationDraft;
@@ -146,7 +146,7 @@ class ApplyPostgresHintStoreTest {
                 flowId, UUID.randomUUID(), UUID.randomUUID(),
                 FlowStatus.READY, LearningStage.LEARNING_AND_PRACTICE, PROFILE,
                 Instant.parse("2026-08-15T00:00:00Z")));
-        ApplyFlowInteraction interaction = new ApplyFlowInteraction(
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
                 InteractionKind.TASK, flowId, 3, FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.LEARNING_AND_PRACTICE,
                 attempt.attemptId(), AttemptPurpose.PRACTICE,
@@ -157,7 +157,7 @@ class ApplyPostgresHintStoreTest {
                 null);
         UUID key = UUID.randomUUID();
         flowStore.commitBoundary(interaction,
-                new ApplyCheckpoint(UUID.randomUUID(), flowId, 3, Instant.parse("2026-08-15T00:00:01Z")),
+                new LearningCheckpoint(UUID.randomUUID(), flowId, 3, Instant.parse("2026-08-15T00:00:01Z")),
                 new LearningFlowStore.ProcessedCommand(
                         key, "hash", flowId, interaction, Instant.parse("2026-08-15T00:00:01Z")));
 

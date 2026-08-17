@@ -9,8 +9,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
@@ -181,14 +181,14 @@ class LearningFlowPostgresRecoveryContractTest {
     void aFailedReviewGenerationLeavesNoUnacceptedArtifactAttemptOrEvidenceAndACompletedCommandReplaysItsOriginalInteraction() {
         UUID learnerId = UUID.randomUUID();
         UUID startKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) graph(store).start(learnerId, startKey);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) graph(store).start(learnerId, startKey);
         UUID flowId = started.interaction().flowId();
         UUID diagnosticKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) graph(store).submitAnswer(
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) graph(store).submitAnswer(
                 flowId, 1, diagnosticKey, started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
         UUID independentKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) graph(store).submitAnswer(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) graph(store).submitAnswer(
                 flowId, 2, independentKey, transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
@@ -237,7 +237,7 @@ class LearningFlowPostgresRecoveryContractTest {
         assertEquals(packagesBefore + 1, store.allPackages().size(),
                 "a replayed start must never persist a second Package");
 
-        ApplyFlowResult.Boundary replayed = (ApplyFlowResult.Boundary) graph(store).submitAnswer(
+        LearningFlowResult.Boundary replayed = (LearningFlowResult.Boundary) graph(store).submitAnswer(
                 flowId, 2, independentKey, transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
@@ -252,12 +252,12 @@ class LearningFlowPostgresRecoveryContractTest {
         UUID learnerId = UUID.randomUUID();
         UUID startKey = UUID.randomUUID();
         LearningFlowCommandUseCase useCase = graph(store);
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, startKey);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, startKey);
         UUID flowId = started.interaction().flowId();
 
         config.failNextExplainGeneration();
         UUID failKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary unavailable = (ApplyFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, failKey, started.interaction().attemptId(),
                 "3*x^2", "3*x^2", "我猜的");
         assertEquals(FlowStatus.TERMINAL, unavailable.interaction().status(),
@@ -278,7 +278,7 @@ class LearningFlowPostgresRecoveryContractTest {
         assertTrue(store.latestAnchor(flowId).isEmpty(),
                 "a failed teaching generation must not record a Teach-back anchor");
 
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, failKey, started.interaction().attemptId(),
                 "3*x^2", "3*x^2", "我猜的");
         assertEquals(unavailable.interaction(), replay.interaction(),
@@ -292,9 +292,9 @@ class LearningFlowPostgresRecoveryContractTest {
         UUID learnerId = UUID.randomUUID();
         UUID startKey = UUID.randomUUID();
         LearningFlowCommandUseCase useCase = graph(store);
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, startKey);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, startKey);
         UUID flowId = started.interaction().flowId();
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
         UUID attemptId = transitioned.interaction().attemptId();
@@ -311,7 +311,7 @@ class LearningFlowPostgresRecoveryContractTest {
                 "the crash must leave the closed Attempt without committed Evidence");
 
         UUID submitKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary recovered = (ApplyFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 2, submitKey, attemptId,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
@@ -324,7 +324,7 @@ class LearningFlowPostgresRecoveryContractTest {
         assertEquals(1, store.assessmentsFor(attemptId).size(),
                 "the resumed transition must run exactly one isolated Assessment");
 
-        ApplyFlowResult.Boundary replay = (ApplyFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 2, submitKey, attemptId,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
@@ -350,12 +350,12 @@ class LearningFlowPostgresRecoveryContractTest {
         UUID learnerId = UUID.randomUUID();
         UUID startKey = UUID.randomUUID();
         LearningFlowCommandUseCase useCase = graph(store);
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, startKey);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, startKey);
         UUID flowId = started.interaction().flowId();
-        ApplyFlowResult.Boundary transitioned = (ApplyFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
-        ApplyFlowResult.Boundary completed = (ApplyFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
@@ -366,7 +366,7 @@ class LearningFlowPostgresRecoveryContractTest {
                 reviewStart.start(review.reviewId(), UUID.randomUUID());
         UUID reviewAttemptId = reviewBoundary.interaction().attemptId();
 
-        ApplyFlowResult.Boundary consented = (ApplyFlowResult.Boundary) useCase.clarificationAsked(
+        LearningFlowResult.Boundary consented = (LearningFlowResult.Boundary) useCase.clarificationAsked(
                 flowId, reviewBoundary.interaction().interactionVersion(),
                 reviewAttemptId, "为什么幂法则适用？", UUID.randomUUID());
         assertNotNull(consented.interaction().assistanceConsent(),
@@ -384,7 +384,7 @@ class LearningFlowPostgresRecoveryContractTest {
                         clock.instant())));
         store.cancelStartedReview(learnerId, DiagnosticApplyFixture.CONCEPT_ID, clock.instant());
 
-        ApplyFlowResult.Boundary resumed = (ApplyFlowResult.Boundary) useCase.assistanceDecided(
+        LearningFlowResult.Boundary resumed = (LearningFlowResult.Boundary) useCase.assistanceDecided(
                 flowId, consented.interaction().interactionVersion(),
                 reviewAttemptId, true, assistKey);
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, resumed.interaction().status());
@@ -435,10 +435,10 @@ class LearningFlowPostgresRecoveryContractTest {
         UUID learnerId = UUID.randomUUID();
         UUID startKey = UUID.randomUUID();
         LearningFlowCommandUseCase useCase = graph(store);
-        ApplyFlowResult.Boundary started = (ApplyFlowResult.Boundary) useCase.start(learnerId, startKey);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, startKey);
         UUID flowId = started.interaction().flowId();
         UUID failKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary explained = (ApplyFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, failKey, started.interaction().attemptId(),
                 "3*x^2", "3*x^2", "我猜的");
         assertNotNull(explained.interaction().teachingProjection(),
@@ -447,14 +447,14 @@ class LearningFlowPostgresRecoveryContractTest {
         assertEquals(TeachBackAnchor.TeachBackAnchorKind.EXPLAIN_WORKED_EXAMPLE, anchor.kind());
 
         UUID continueKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary practice = (ApplyFlowResult.Boundary) useCase.continueRequested(
+        LearningFlowResult.Boundary practice = (LearningFlowResult.Boundary) useCase.continueRequested(
                 flowId, 2, continueKey);
         UUID practiceAttemptId = practice.interaction().attemptId();
         assertNotNull(practiceAttemptId);
         assertEquals(AttemptPurpose.PRACTICE, practice.interaction().attemptPurpose());
 
         UUID hintKey = UUID.randomUUID();
-        ApplyFlowResult.Boundary hinted = (ApplyFlowResult.Boundary) useCase.requestHint(
+        LearningFlowResult.Boundary hinted = (LearningFlowResult.Boundary) useCase.requestHint(
                 flowId, 3, practiceAttemptId, false, hintKey);
         assertEquals(1, hinted.interaction().hint().level(),
                 "the first hint request must expose the persisted H1 level");
@@ -463,7 +463,7 @@ class LearningFlowPostgresRecoveryContractTest {
         LearningFlowCommandUseCase restarted = freshUseCase();
         PostgresApplyFlowStore fresh = freshStore();
 
-        ApplyFlowInteraction recovered = restarted.query(flowId);
+        LearningFlowInteraction recovered = restarted.query(flowId);
         assertEquals(hinted.interaction(), recovered,
                 "a restart must recover the exact committed hint boundary");
         assertEquals(4, fresh.latestCheckpoint(flowId).orElseThrow().interactionVersion(),
@@ -509,7 +509,7 @@ class LearningFlowPostgresRecoveryContractTest {
         assertTrue(fresh.allEvidence().isEmpty(),
                 "teaching and hints must never create Evidence");
 
-        ApplyFlowResult.Boundary hintReplay = (ApplyFlowResult.Boundary) restarted.requestHint(
+        LearningFlowResult.Boundary hintReplay = (LearningFlowResult.Boundary) restarted.requestHint(
                 flowId, 3, practiceAttemptId, false, hintKey);
         assertEquals(hinted.interaction(), hintReplay.interaction(),
                 "a replayed hint command after the restart must return the original committed interaction");

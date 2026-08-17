@@ -1,7 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyFlowInteraction;
+import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewSubmissionResult;
@@ -277,7 +277,7 @@ public final class ReviewSubmissionFlow {
         String message = replacement == null
                 ? INCONCLUSIVE_UNAVAILABLE_MESSAGE
                 : INCONCLUSIVE_REPLACEMENT_MESSAGE;
-        Optional<ApplyFlowInteraction> bound = reviewStore.resolveInconclusiveSubmission(
+        Optional<LearningFlowInteraction> bound = reviewStore.resolveInconclusiveSubmission(
                 new ReviewTaskStore.ResolveInconclusiveBind(
                         review.reviewId(),
                         closedAttempt.attemptId(),
@@ -297,7 +297,7 @@ public final class ReviewSubmissionFlow {
 
     private int latestInteractionVersion(UUID flowId) {
         return flowStore.latestInteraction(flowId)
-                .map(ApplyFlowInteraction::interactionVersion)
+                .map(LearningFlowInteraction::interactionVersion)
                 .orElseThrow(() -> new IllegalStateException("flow not found"));
     }
 
