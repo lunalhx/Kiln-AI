@@ -127,8 +127,7 @@ class ApplyProfileLiveSmokeTest {
                 practiceFlow, reviewFlow, explainFlow, hintFlow, teachBackFlow,
                 failClosedPedagogy(), failClosedClassifier(), Clock.systemUTC());
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
-                artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
-                profilePort, Clock.systemUTC());
+                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort);
 
         LearningFlowResult result = useCase.start(UUID.randomUUID(), UUID.randomUUID());
 

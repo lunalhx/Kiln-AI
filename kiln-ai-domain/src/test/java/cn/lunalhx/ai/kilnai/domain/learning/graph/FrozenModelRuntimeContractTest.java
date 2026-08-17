@@ -161,9 +161,8 @@ class FrozenModelRuntimeContractTest {
                     new ScriptedPedagogyModel(), new ScriptedClarificationClassifier(),
                     Clock.systemUTC());
             useCase = new LearningFlowCommandUseCase(
-                    artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
-                    (OperatorModelProfilePort) () -> ScriptedModelProfile.PROFILE,
-                    Clock.systemUTC());
+                    flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                    (OperatorModelProfilePort) () -> ScriptedModelProfile.PROFILE);
         }
 
         LearningFlowCommandUseCase useCase() {

@@ -4,7 +4,9 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
@@ -34,6 +36,26 @@ public interface LearningFlowStore {
     void insertFlow(FlowRecord flow);
 
     Optional<FlowRecord> findFlow(UUID flowId);
+
+    /**
+     * The existing Active Learning Work claim of one learner and Target
+     * Concept (ADR-0070): the Flow id of a non-terminal Flow, or the Flow id
+     * of an unfinished Review Task (SCHEDULED, DUE, or STARTED) belonging to
+     * its terminal Flow. Empty when no claim exists and a new Diagnostic may
+     * start.
+     */
+    Optional<UUID> activeWorkFlowId(UUID learnerId, UUID conceptId);
+
+    /**
+     * Atomically binds one fully-prepared Start: the Flow record, its Source
+     * Pack, the Diagnostic Task Package with its open Attempt, the exposure,
+     * the first learner interaction, its checkpoint, and the processed
+     * command commit in one transaction — and only when no Active Learning
+     * Work already exists for the learner and Concept. A losing race throws
+     * {@link cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException}
+     * carrying the existing Flow id, and nothing at all is written.
+     */
+    LearningFlowInteraction bindStart(StartBind bind);
 
     /**
      * Atomically persists one Learner Interaction Boundary: the learner-visible
@@ -188,6 +210,40 @@ public interface LearningFlowStore {
             Objects.requireNonNull(flowId, "flowId must not be null");
             Objects.requireNonNull(response, "response must not be null");
             Objects.requireNonNull(createdAt, "createdAt must not be null");
+        }
+    }
+
+    /**
+     * The complete domain-owned specification of one atomic Start. The store
+     * builds the Flow record, the open Attempt, the first learner
+     * interaction, its checkpoint, and the processed command from these
+     * fields, so the whole binding is one atomic write (ADR-0063): the claim,
+     * the Source Pack, the Package, the Attempt, the exposure, the
+     * checkpoint, the interaction, and the processed command either all
+     * commit or none do.
+     */
+    record StartBind(
+            UUID flowId,
+            UUID learnerId,
+            UUID conceptId,
+            ModelProfile modelProfile,
+            SourceArtifact source,
+            TaskPackage taskPackage,
+            TaskVerificationVerdict verificationVerdict,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+
+        public StartBind {
+            Objects.requireNonNull(flowId, "flowId must not be null");
+            Objects.requireNonNull(learnerId, "learnerId must not be null");
+            Objects.requireNonNull(conceptId, "conceptId must not be null");
+            Objects.requireNonNull(modelProfile, "modelProfile must not be null");
+            Objects.requireNonNull(source, "source must not be null");
+            Objects.requireNonNull(taskPackage, "taskPackage must not be null");
+            Objects.requireNonNull(verificationVerdict, "verificationVerdict must not be null");
+            Objects.requireNonNull(idempotencyKey, "idempotencyKey must not be null");
+            Objects.requireNonNull(requestHash, "requestHash must not be null");
         }
     }
 }

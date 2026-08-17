@@ -319,6 +319,66 @@ class LearningFlowHttpTest {
     }
 
     @Test
+    void aStartConflictReturnsLearnerSafe409WithOnlyTheExistingFlowId() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowResponse started = start(learnerId, UUID.randomUUID());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Idempotency-Key", UUID.randomUUID().toString());
+        ResponseEntity<Map> conflict = http.exchange(
+                "/api/learning/flows",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of("learnerId", learnerId), headers),
+                Map.class);
+        assertEquals(HttpStatus.CONFLICT, conflict.getStatusCode(),
+                "a different-key Start under the existing Active Learning Work claim must conflict");
+        Map body = conflict.getBody();
+        assertNotNull(body);
+        assertEquals("CONFLICT", body.get("code"));
+        assertEquals(started.flowId().toString(), body.get("flowId"),
+                "the 409 body must carry the existing Flow id needed for recovery");
+        String serialized = serialize(body);
+        assertFalse(serialized.contains("openstax"), "no source identity may leak into the 409");
+        assertFalse(serialized.contains("fingerprint"));
+        assertFalse(serialized.contains("assessment"));
+        LearningFlowResponse recovered = http.getForObject(
+                "/api/learning/flows/" + started.flowId(), LearningFlowResponse.class);
+        assertEquals(started, recovered,
+                "the learner can recover the committed interaction through the returned Flow id");
+    }
+
+    @Test
+    void aFailedStartPreparationReturnsGeneric503AndTheOriginalKeyRetriesSuccessfully() {
+        UUID learnerId = UUID.randomUUID();
+        UUID startKey = UUID.randomUUID();
+        config.failNextApplyGeneration();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Idempotency-Key", startKey.toString());
+        ResponseEntity<Map> failed = http.exchange(
+                "/api/learning/flows",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of("learnerId", learnerId), headers),
+                Map.class);
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, failed.getStatusCode(),
+                "an initial Start preparation failure must return the generic 503");
+        Map body = failed.getBody();
+        assertNotNull(body);
+        assertEquals("SERVICE_UNAVAILABLE", body.get("code"));
+        String serialized = serialize(body);
+        assertFalse(serialized.contains("openstax"), "the 503 body must stay learner-safe and generic");
+        assertFalse(serialized.contains("fingerprint"));
+        assertFalse(serialized.contains("scripted"));
+
+        LearningFlowResponse retried = start(learnerId, startKey);
+        assertEquals("task", retried.kind(),
+                "reusing the original Idempotency-Key after the atomic 503 must start fresh");
+        assertEquals("DIAGNOSTIC", retried.stage());
+        assertEquals(1, retried.interactionVersion());
+        assertFalse(serialize(retried).contains(ScriptedApplyPortsConfiguration.DIAGNOSTIC_EXPECTED));
+    }
+
+    @Test
     void theReviewCollectionExposesOnlyScheduledWorkAndSafeProgress() {
         UUID learnerId = UUID.randomUUID();
         UUID flowId = completeIndependentPass(learnerId);

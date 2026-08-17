@@ -74,6 +74,19 @@ public final class DiagnosticFlow {
         return result;
     }
 
+    /**
+     * The atomic Start preparation of the Learning command surface: the
+     * bounded generation, Output Gate, and Task Verification cycles run to
+     * completion without persisting any Flow, Source Pack, Package, Attempt,
+     * Exposure, or verification audit. A ready package is bound durably by
+     * the Start itself; an unavailable outcome leaves nothing behind and the
+     * command reports the generic 503.
+     */
+    public ApplyProfileExecutor.PreparedDelivery prepareDiagnostic(ModelProfile profile) {
+        Objects.requireNonNull(profile, "profile must not be null");
+        return executor.prepareTask(profile, diagnosticContext, false);
+    }
+
     public DiagnosticSubmissionResult submitDiagnostic(
             UUID flowId,
             ModelProfile profile,

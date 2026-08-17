@@ -15,8 +15,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestPropertySource(properties = {
@@ -37,10 +37,15 @@ class FailClosedCatalogHttpTest {
                 new HttpEntity<>(Map.of("learnerId", UUID.randomUUID()), headers),
                 Map.class
         );
-        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode(),
+                "an unconfigured operator Model Profile fails closed at Start with the generic 503");
         assertNotNull(response.getBody());
         assertEquals("SERVICE_UNAVAILABLE", response.getBody().get("code"));
-        assertTrue(String.valueOf(response.getBody().get("message")).contains("not configured"));
+        String message = String.valueOf(response.getBody().get("message"));
+        assertFalse(message.contains("not configured"),
+                "the generic 503 must not leak operator configuration state to the learner");
+        assertFalse(message.contains("adapter"), "no adapter or provider details may reach the learner");
+        assertNotNull(response.getBody().get("timestamp"));
     }
 
     @Test

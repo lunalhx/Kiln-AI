@@ -420,14 +420,13 @@ class LearningFlowPostgresSuccessPathTest {
                 store, store, store, diagnosticFlow, independentFlow, practiceFlow,
                 reviewFlow, explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
         LearningFlowCommandUseCase freshUseCase = new LearningFlowCommandUseCase(
-                store, store, graph, DiagnosticApplyFixture.diagnosticContext(),
+                store, graph, DiagnosticApplyFixture.diagnosticContext(),
                 (OperatorModelProfilePort) () -> new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile(
                         new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding(
                                 "openai-compatible", "https://api.test/v1", "acme", "scripted-strong", "TEST_STRONG"),
                         new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding(
                                 "openai-compatible", "https://api.test/v1", "acme", "scripted-small", "TEST_SMALL"),
-                        2048),
-                clock);
+                        2048));
         ReviewStartFlow freshReviewStart = new ReviewStartFlow(
                 executor, store, store, ReviewApplyFixture.reviewContext(), clock);
         return new RestartRuntime(store, freshUseCase, freshReviewStart);

@@ -59,7 +59,6 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackUnavailableReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
-import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
@@ -81,6 +80,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.TeachingAction;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ConceptProgressProjector;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
+import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import org.junit.jupiter.api.Test;
 import java.time.Clock;
@@ -891,20 +891,123 @@ class LearningFlowGraphContractTest {
     }
 
     @Test
-    void aSourceGapStartCommitsOnlyATerminalBoundaryWithoutAnAttempt() {
+    void aFailedStartPreparationPersistsNothingAndReturns503() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(ApplyScriptData.sourceGapJson()));
         Harness harness = harness(generation, new ScriptedTaskVerifier(List.of()),
                 new ScriptedAssessmentModel(List.of()));
         UUID startKey = UUID.randomUUID();
-        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, startKey);
-        assertEquals(1, started.interaction().interactionVersion());
-        assertEquals(FlowStatus.TERMINAL, started.interaction().status());
-        assertEquals("暂时无法准备一道可验证的题目。请稍后重试。", started.interaction().learnerMessage());
-        assertTrue(harness.artifacts().allPackages().isEmpty(), "no Task Package may be created");
-        assertEquals(1, harness.flowStore().latestCheckpoint(started.interaction().flowId())
-                .orElseThrow().interactionVersion(), "a terminal boundary still commits its checkpoint");
-        assertEquals(started.interaction(),
-                harness.flowStore().findCommand(startKey).orElseThrow().response());
+        ApplicationException unavailable = assertThrows(ApplicationException.class,
+                () -> harness.useCase().start(LEARNER_ID, startKey));
+        assertEquals(ErrorCode.SERVICE_UNAVAILABLE, unavailable.errorCode(),
+                "an initial Start preparation failure must return the generic 503");
+        assertTrue(harness.flowStore().activeWorkFlowId(LEARNER_ID, CONCEPT_ID).isEmpty(),
+                "a failed start must leave no Flow claim (and therefore no Flow, checkpoint, interaction, or exposure, all flow-bound)");
+        assertTrue(harness.flowStore().findCommand(startKey).isEmpty(),
+                "a failed start must not process the command");
+        assertTrue(harness.artifacts().allPackages().isEmpty(),
+                "a failed start must not persist a Task Package (and therefore no Attempt)");
+        assertTrue(harness.artifacts().allVerifications().isEmpty(),
+                "a failed start must leave no Task Verification audit either");
+        assertTrue(harness.artifacts().findSource("openstax-calculus-v1-3.3").isEmpty(),
+                "a failed start must not persist the Source Pack");
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "a failed start must never create Evidence");
+        assertTrue(harness.flowStore().unfinishedReviewsFor(LEARNER_ID).isEmpty(),
+                "a failed start must not create Active Review Work");
+        assertTrue(harness.generation().calls().size() == 1,
+                "the failing preparation must still attempt exactly one generation cycle");
+    }
+
+    @Test
+    void aFailedStartPreparationRetriesWithTheOriginalKeyAndBindsExactlyOnce() {
+        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
+                ApplyScriptData.sourceGapJson(), ApplyScriptData.taskReadyJson()));
+        Harness harness = harness(generation,
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of()));
+        UUID startKey = UUID.randomUUID();
+        assertThrows(ApplicationException.class, () -> harness.useCase().start(LEARNER_ID, startKey));
+        LearningFlowResult.Boundary retried = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, startKey);
+        assertEquals(1, retried.interaction().interactionVersion());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, retried.interaction().status());
+        assertEquals(LearningStage.DIAGNOSTIC, retried.interaction().stage());
+        assertEquals(AttemptPurpose.DIAGNOSTIC, retried.interaction().attemptPurpose());
+        assertNotNull(retried.interaction().attemptId());
+        assertEquals(LEARNER_ID, harness.flowStore().findFlow(retried.interaction().flowId())
+                .orElseThrow().learnerId());
+        assertEquals(1, harness.artifacts().allPackages().size(),
+                "the retried start must bind exactly one Diagnostic Package");
+        assertEquals(1, harness.flowStore().exposedTaskFingerprints(retried.interaction().flowId()).size(),
+                "the retried start must record exactly one Exposure");
+        assertTrue(harness.artifacts().findSource("openstax-calculus-v1-3.3").isPresent(),
+                "the retried start must persist the Source Pack");
+        assertEquals(retried.interaction(),
+                harness.flowStore().findCommand(startKey).orElseThrow().response(),
+                "the retried start must process the original Idempotency-Key exactly once");
+        LearningFlowResult.Boundary replayed = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, startKey);
+        assertEquals(retried.interaction(), replayed.interaction(),
+                "a replayed original key after recovery must return the original committed boundary");
+        assertEquals(1, harness.artifacts().allPackages().size(),
+                "a replay must never bind a second Package");
+    }
+
+    @Test
+    void aStartHoldsTheUniqueActiveWorkClaimAndADifferentKeyConflictsWithTheExistingFlowId() {
+        Harness harness = harness();
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        ActiveWorkConflictException conflict = assertThrows(ActiveWorkConflictException.class,
+                () -> harness.useCase().start(LEARNER_ID, UUID.randomUUID()));
+        assertEquals(first.interaction().flowId(), conflict.existingFlowId(),
+                "the learner-safe 409 must carry only the existing Flow id needed for recovery");
+        assertEquals(1, harness.generation().calls().size(),
+                "a conflicting start must be rejected before any generation cycle");
+        assertEquals(1, harness.artifacts().allPackages().size(),
+                "a conflicting start must never bind a second Diagnostic");
+        assertEquals(first.interaction().flowId(),
+                harness.flowStore().activeWorkFlowId(LEARNER_ID, CONCEPT_ID).orElseThrow(),
+                "the first Flow keeps the unique Active Work claim");
+    }
+
+    @Test
+    void aTerminalFlowReleasesTheClaimAndAllowsANewDiagnostic() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson(), ApplyScriptData.taskReadyJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of()));
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary left = (LearningFlowResult.Boundary) harness.useCase().flowControlRequested(
+                first.interaction().flowId(), 1, UUID.randomUUID());
+        assertEquals(FlowStatus.TERMINAL, left.interaction().status());
+        assertEquals(FlowStatus.TERMINAL, harness.flowStore().findFlow(first.interaction().flowId())
+                        .orElseThrow().status(),
+                "a committed terminal boundary must mark the Flow terminal");
+        assertTrue(harness.flowStore().activeWorkFlowId(LEARNER_ID, CONCEPT_ID).isEmpty(),
+                "a terminal Flow with no unfinished Review releases the Active Work claim");
+        LearningFlowResult.Boundary second = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        assertNotEquals(first.interaction().flowId(), second.interaction().flowId(),
+                "the released claim permits a fresh Diagnostic");
+    }
+
+    @Test
+    void anUnfinishedReviewBlocksANewDiagnosticWithTheExistingFlowId() {
+        Harness harness = harness();
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+        assertEquals(FlowStatus.TERMINAL, completed.interaction().status());
+        assertEquals(1, harness.flowStore().unfinishedReviewsFor(LEARNER_ID).size(),
+                "the Independent pass must leave exactly one unfinished Review");
+        ActiveWorkConflictException blocked = assertThrows(ActiveWorkConflictException.class,
+                () -> harness.useCase().start(LEARNER_ID, UUID.randomUUID()));
+        assertEquals(started.interaction().flowId(), blocked.existingFlowId(),
+                "the unfinished Review blocks a new Diagnostic through its terminal Flow id");
+        assertEquals(2, harness.artifacts().allPackages().size(),
+                "the blocked start must not bind a second Diagnostic on top of the two existing packages");
     }
 
     @Test
@@ -1242,12 +1345,14 @@ class LearningFlowGraphContractTest {
                 advancingClock(),
                 new ScriptedApplyGenerationModel(List.of(
                         ApplyScriptData.taskReadyJson(), independentTaskJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
                         ApplyScriptData.taskReadyJson(
                                 "设 v(x) = 3x³ − 5x + 2，求 v'(x)。", "9*x^2 - 5"),
                         ApplyScriptData.taskReadyJson(
                                 "设 w(x) = 4x³ − x + 3，求 w'(x)。", "12*x^2 - 1"))),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
-                        ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                        ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(conclusivePracticeJudgment())),
                 new ScriptedResponseVerificationModel(List.of()),
                 new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
@@ -1257,7 +1362,9 @@ class LearningFlowGraphContractTest {
                 new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
                 new ScriptedPedagogyModel());
         // Flow 1: a passing Diagnostic and a passing Independent Test establish
-        // the Independent milestone.
+        // the Independent milestone. The scheduled Review is started and then
+        // explicitly left, so its claim is released without evidence or
+        // milestone change and a fresh Diagnostic becomes legal again.
         LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         LearningFlowResult.Boundary firstTransitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 first.interaction().flowId(), 1, UUID.randomUUID(), first.interaction().attemptId(),
@@ -1268,6 +1375,17 @@ class LearningFlowGraphContractTest {
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
         assertEquals(FlowStatus.TERMINAL, firstCompleted.interaction().status());
         assertEquals(1, harness.flowStore().allEvidence().size());
+        ReviewTask review = harness.flowStore().unfinishedReviewsFor(LEARNER_ID).get(0);
+        harness.flowStore().markDueReviewsDue(review.dueAt().plusSeconds(1));
+        ReviewStartResult.Boundary reviewBoundary = (ReviewStartResult.Boundary) harness.reviewStartFlow().start(
+                review.reviewId(), UUID.randomUUID());
+        LearningFlowResult.Boundary leftReview = (LearningFlowResult.Boundary) harness.useCase().flowControlRequested(
+                first.interaction().flowId(), reviewBoundary.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(FlowStatus.TERMINAL, leftReview.interaction().status());
+        assertEquals(ReviewTaskStatus.CANCELLED,
+                harness.flowStore().findReview(review.reviewId()).orElseThrow().status(),
+                "leaving a started Review must cancel it and release the claim");
+        assertTrue(harness.flowStore().unfinishedReviewsFor(LEARNER_ID).isEmpty());
         ConceptProgress afterPass =
                 new ConceptProgressProjector().projectFor(harness.flowStore(), LEARNER_ID, CONCEPT_ID);
         assertEquals(MasteryMilestone.INDEPENDENT, afterPass.currentMilestone());
@@ -3362,14 +3480,14 @@ class LearningFlowGraphContractTest {
                 reviewSubmissionFlow, explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
         OperatorModelProfilePort profilePort = () -> ScriptedModelProfile.PROFILE;
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
-                artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort, clock);
+                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort);
         return new Harness(artifacts, flowStore, generation, hintGeneration, useCase, graph,
                 explainGeneration, teachBackGeneration, teachBackAssessment, teachBackFlow, pedagogy,
                 reviewStartFlow, classifier);
     }
 
     private record Harness(
-            ArtifactStore artifacts,
+            InMemoryArtifactStore artifacts,
             InMemoryLearningFlowStore flowStore,
             ScriptedApplyGenerationModel generation,
             ScriptedHintGenerationModel hintGeneration,
@@ -3385,8 +3503,8 @@ class LearningFlowGraphContractTest {
     ) {
         LearningFlowCommandUseCase newUseCase() {
             return new LearningFlowCommandUseCase(
-                    artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
-                    () -> ScriptedModelProfile.PROFILE, CLOCK);
+                    flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                    () -> ScriptedModelProfile.PROFILE);
         }
     }
 }

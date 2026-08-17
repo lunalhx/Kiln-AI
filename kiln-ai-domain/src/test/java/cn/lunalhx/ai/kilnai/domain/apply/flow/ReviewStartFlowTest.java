@@ -427,7 +427,7 @@ class ReviewStartFlowTest {
                 reviewFlow, explainFlow, hintFlow, teachBackFlow,
                 new ScriptedPedagogyModel(), new ScriptedClarificationClassifier(), CLOCK);
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
-                artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort(), CLOCK);
+                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort());
         ReviewStartFlow reviewStart = new ReviewStartFlow(
                 executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), CLOCK);
         return new Harness(artifacts, flowStore, generation, useCase, reviewStart);

@@ -29,6 +29,74 @@ public interface ApplyFlowMapper {
             @Param("createdAt") Instant createdAt
     );
 
+    /**
+     * The conditional Start claim of ADR-0070: inserts the non-terminal Flow
+     * only when no Active Learning Work — a non-terminal Flow or an unfinished
+     * Review Task — already exists for the learner and Concept, so a racing
+     * different-key Start loses cleanly instead of throwing a unique violation.
+     * The partial unique index on non-terminal flows is the second guard.
+     */
+    @Insert("""
+            INSERT INTO flows (id, learner_id, concept_id, status, stage, model_profile, created_at)
+            SELECT #{id}, #{learnerId}, #{conceptId}, #{status}, #{stage},
+                   CAST(#{modelProfileJson} AS JSONB), #{createdAt}
+            WHERE NOT EXISTS (
+                SELECT 1 FROM flows
+                WHERE learner_id = #{learnerId} AND concept_id = #{conceptId} AND status <> 'TERMINAL'
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM review_tasks
+                WHERE learner_id = #{learnerId} AND concept_id = #{conceptId}
+                  AND status IN ('SCHEDULED', 'DUE', 'STARTED')
+            )
+            ON CONFLICT (learner_id, concept_id) WHERE status <> 'TERMINAL' DO NOTHING
+            """)
+    int insertFlowConditional(
+            @Param("id") UUID id,
+            @Param("learnerId") UUID learnerId,
+            @Param("conceptId") UUID conceptId,
+            @Param("status") String status,
+            @Param("stage") String stage,
+            @Param("modelProfileJson") String modelProfileJson,
+            @Param("createdAt") Instant createdAt
+    );
+
+    @Select("""
+            SELECT id
+            FROM flows
+            WHERE learner_id = #{learnerId} AND concept_id = #{conceptId} AND status <> 'TERMINAL'
+            LIMIT 1
+            """)
+    UUID findActiveWorkFlowId(
+            @Param("learnerId") UUID learnerId,
+            @Param("conceptId") UUID conceptId);
+
+    @Select("""
+            SELECT flow_id
+            FROM review_tasks
+            WHERE learner_id = #{learnerId} AND concept_id = #{conceptId}
+              AND status IN ('SCHEDULED', 'DUE', 'STARTED')
+            LIMIT 1
+            """)
+    UUID findUnfinishedReviewFlowId(
+            @Param("learnerId") UUID learnerId,
+            @Param("conceptId") UUID conceptId);
+
+    /**
+     * Mirrors one committed interaction's status and stage onto its Flow, so
+     * a terminal boundary releases the Active Learning Work claim and an
+     * awaiting-input boundary holds it.
+     */
+    @Update("""
+            UPDATE flows
+            SET status = #{status}, stage = #{stage}
+            WHERE id = #{flowId}
+            """)
+    void updateFlowState(
+            @Param("flowId") UUID flowId,
+            @Param("status") String status,
+            @Param("stage") String stage);
+
     @Select("""
             SELECT id, learner_id, concept_id, status, stage, model_profile::text AS model_profile_json, created_at
             FROM flows

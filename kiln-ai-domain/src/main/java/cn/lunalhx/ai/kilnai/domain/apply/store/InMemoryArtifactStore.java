@@ -243,6 +243,17 @@ public final class InMemoryArtifactStore implements ArtifactStore {
         return List.copyOf(verifications.getOrDefault(taskPackageId, List.of()));
     }
 
+    /**
+     * Every recorded Task Verification verdict across all candidates, used by
+     * the atomic Start contract to assert that a failed preparation leaves no
+     * verification audit either.
+     */
+    public synchronized List<TaskVerificationVerdict> allVerifications() {
+        return verifications.values().stream()
+                .flatMap(List::stream)
+                .toList();
+    }
+
     @Override
     public synchronized void recordResponseAssessment(UUID attemptId, ResponseAssessment assessment) {
         assessments.computeIfAbsent(attemptId, key -> new ArrayList<>()).add(assessment);

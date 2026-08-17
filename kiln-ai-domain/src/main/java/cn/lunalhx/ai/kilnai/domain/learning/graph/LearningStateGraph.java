@@ -26,6 +26,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PracticeSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewSubmissionResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
@@ -37,6 +38,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.ProcessedCommand;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
@@ -82,6 +84,15 @@ import java.util.UUID;
 public final class LearningStateGraph {
 
     public static final String RESUME_PRACTICE_MESSAGE = "请继续完成当前练习题。";
+
+    /**
+     * The generic learner-safe message of an initial Start preparation
+     * failure (spec: "Initial failure returns a generic 503 and the client
+     * reuses the original Idempotency-Key"). The failed Start persists
+     * nothing, so the learner message never exposes provider, model, source,
+     * or parser details.
+     */
+    public static final String START_UNAVAILABLE_MESSAGE = "暂时无法开始学习，请稍后重试。";
 
     /**
      * The teaching intent of every clarification-driven temporary Explain: a
@@ -162,24 +173,39 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Graph Run of a flow start: the Diagnostic node delivers the first
-     * task and the run stops at the first Learner Interaction Boundary — or at
-     * a terminal unavailable boundary when no task can be prepared.
+     * The Graph Run of a flow start: the Diagnostic node is fully prepared —
+     * profile resolution, generation, Output Gate, and Task Verification all
+     * complete first — and the whole Start binds atomically in one durable
+     * commit: the Flow record, Source Pack, Task Package, open Attempt,
+     * exposure, first learner interaction, checkpoint, and processed command
+     * (ADR-0063). An initial preparation failure returns the generic 503 with
+     * no durable trace, and the client reuses the original Idempotency-Key.
      */
-    public LearningFlowResult start(UUID flowId, ModelProfile profile, UUID idempotencyKey, String requestHash) {
+    public LearningFlowResult start(
+            UUID flowId,
+            UUID learnerId,
+            UUID conceptId,
+            ModelProfile profile,
+            SourceArtifact source,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
         Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(learnerId, "learnerId must not be null");
+        Objects.requireNonNull(conceptId, "conceptId must not be null");
         Objects.requireNonNull(profile, "profile must not be null");
-        ApplyDeliveryResult delivery = diagnosticFlow.startDiagnostic(flowId, profile);
-        LearningFlowInteraction interaction = switch (delivery) {
-            case ApplyDeliveryResult.Delivered delivered -> new LearningFlowInteraction(
-                    InteractionKind.TASK, flowId, 1, FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
-                    delivered.attempt().attemptId(), delivered.attempt().purpose(),
-                    delivered.learnerProjection(), null, null, null, null);
-            case ApplyDeliveryResult.Unavailable unavailable -> new LearningFlowInteraction(
-                    InteractionKind.UNAVAILABLE, flowId, 1, FlowStatus.TERMINAL, LearningStage.DIAGNOSTIC,
-                    null, null, null, unavailable.learnerMessage(), null, null, null);
+        Objects.requireNonNull(source, "source must not be null");
+        ApplyProfileExecutor.PreparedDelivery prepared = diagnosticFlow.prepareDiagnostic(profile);
+        return switch (prepared) {
+            case ApplyProfileExecutor.PreparedDelivery.Unavailable unavailable ->
+                    throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, START_UNAVAILABLE_MESSAGE);
+            case ApplyProfileExecutor.PreparedDelivery.TaskReady ready -> {
+                LearningFlowInteraction interaction = flowStore.bindStart(new LearningFlowStore.StartBind(
+                        flowId, learnerId, conceptId, profile, source, ready.taskPackage(),
+                        ready.verdict(), idempotencyKey, requestHash));
+                yield new LearningFlowResult.Boundary(interaction);
+            }
         };
-        return commitBoundary(interaction, idempotencyKey, requestHash);
     }
 
     /**

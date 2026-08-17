@@ -34,6 +34,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
+import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.transaction.annotation.Transactional;
@@ -80,6 +81,51 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
+    public Optional<UUID> activeWorkFlowId(UUID learnerId, UUID conceptId) {
+        Objects.requireNonNull(learnerId, "learnerId must not be null");
+        Objects.requireNonNull(conceptId, "conceptId must not be null");
+        UUID activeFlow = mapper.findActiveWorkFlowId(learnerId, conceptId);
+        if (activeFlow != null) {
+            return Optional.of(activeFlow);
+        }
+        return Optional.ofNullable(mapper.findUnfinishedReviewFlowId(learnerId, conceptId));
+    }
+
+    @Override
+    @Transactional
+    public LearningFlowInteraction bindStart(StartBind bind) {
+        Objects.requireNonNull(bind, "bind must not be null");
+        int inserted = mapper.insertFlowConditional(
+                bind.flowId(), bind.learnerId(), bind.conceptId(),
+                FlowStatus.AWAITING_LEARNER_INPUT.name(), LearningStage.DIAGNOSTIC.name(),
+                writeJson(bind.modelProfile()), clock.instant());
+        if (inserted == 0) {
+            // A racing different-key Start lost the Active Work claim; the
+            // learner recovers through the existing Flow id.
+            UUID winner = activeWorkFlowId(bind.learnerId(), bind.conceptId()).orElse(bind.flowId());
+            throw new ActiveWorkConflictException(winner);
+        }
+        mapper.insertSource(bind.source().sourcePackId(), bind.source().version(),
+                writeJson(bind.source().passages()), clock.instant());
+        TaskAttempt attempt = openAttempt(bind.taskPackage());
+        mapper.insertVerification(UUID.randomUUID(), bind.taskPackage().taskPackageId(),
+                writeJson(bind.verificationVerdict()), clock.instant());
+        mapper.recordExposure(
+                bind.flowId(),
+                bind.taskPackage().taskPackageId(),
+                bind.taskPackage().privateAssessorProjection().taskFingerprint().value(),
+                bind.taskPackage().privateAssessorProjection().solutionFingerprint().value(),
+                clock.instant());
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
+                InteractionKind.TASK, bind.flowId(), 1, FlowStatus.AWAITING_LEARNER_INPUT,
+                LearningStage.DIAGNOSTIC, attempt.attemptId(), AttemptPurpose.DIAGNOSTIC,
+                bind.taskPackage().learnerProjection(), null, null, null, null);
+        insertBoundary(bind.flowId(), 1, interaction,
+                bind.idempotencyKey(), bind.requestHash(), clock.instant());
+        return interaction;
+    }
+
+    @Override
     @Transactional
     public void commitBoundary(LearningFlowInteraction interaction, LearningCheckpoint checkpoint, ProcessedCommand command) {
         mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
@@ -103,6 +149,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         mapper.insertCommand(new ApplyFlowMapper.CommandRow(
                 command.idempotencyKey(), command.requestHash(), command.flowId(),
                 writeJson(command.response()), command.createdAt()));
+        mapper.updateFlowState(interaction.flowId(), interaction.status().name(), interaction.stage().name());
     }
 
     @Override
@@ -498,6 +545,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         mapper.insertCommand(new ApplyFlowMapper.CommandRow(
                 idempotencyKey, requestHash, flowId,
                 writeJson(interaction), createdAt));
+        mapper.updateFlowState(interaction.flowId(), interaction.status().name(), interaction.stage().name());
     }
 
     private ReviewTask toReviewTask(ApplyFlowMapper.ReviewTaskRow row) {

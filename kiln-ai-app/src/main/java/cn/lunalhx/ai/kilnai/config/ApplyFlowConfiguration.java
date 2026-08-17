@@ -288,8 +288,7 @@ public class ApplyFlowConfiguration {
             Clock clock
     ) {
         return new LearningFlowCommandUseCase(
-                artifactStore, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
-                modelProfilePort, clock);
+                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), modelProfilePort);
     }
 
     @Bean

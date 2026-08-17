@@ -67,13 +67,30 @@ public final class ApplyProfileExecutor {
 
     /**
      * Runs the full bounded generation, Output Gate, and Task Verification
-     * cycles without persisting a Task Package or opening a Task Attempt. A
-     * ready candidate returns the verified Task Package so the caller can
-     * durably bind it to its own state transition; Source Gap or exhausted
-     * generation returns an unavailable outcome and persists nothing but the
-     * verification audit records of rejected candidates.
+     * cycles without persisting a Task Package or opening a Task Attempt,
+     * recording each verified candidate's verdict on the verification audit
+     * ledger. A ready candidate returns the verified Task Package so the
+     * caller can durably bind it to its own state transition; Source Gap or
+     * exhausted generation returns an unavailable outcome and persists
+     * nothing but the verification audit records of rejected candidates.
      */
     public PreparedDelivery prepareTask(ModelProfile profile, ApplyExecutionContext context) {
+        return prepareTask(profile, context, true);
+    }
+
+    /**
+     * The preparation variant that can skip the verification audit
+     * persistence: used by the atomic initial Start, where the spec requires
+     * that Model Profile resolution, generation, Gate, and Task Verification
+     * all complete before any durable record — including verification audit —
+     * is created. The accepted candidate's verdict is then recorded by the
+     * Start binding itself.
+     */
+    public PreparedDelivery prepareTask(
+            ModelProfile profile,
+            ApplyExecutionContext context,
+            boolean recordVerificationAudit
+    ) {
         Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(context, "context must not be null");
         validateContextCoverage(context, stack);
@@ -81,7 +98,8 @@ public final class ApplyProfileExecutor {
         String contextJson = compiler.serializeContext(context);
         for (int cycle = 1; cycle <= MAX_GENERATION_CYCLES; cycle++) {
             String raw = generationPort.generate(profile, systemPrompt, contextJson);
-            Optional<PreparedDelivery> outcome = handleCandidate(profile, context, stack, raw, cycle - 1);
+            Optional<PreparedDelivery> outcome = handleCandidate(
+                    profile, context, stack, raw, cycle - 1, recordVerificationAudit);
             if (outcome.isPresent()) {
                 return outcome.get();
             }
@@ -95,7 +113,8 @@ public final class ApplyProfileExecutor {
             ApplyExecutionContext context,
             BundleStack stack,
             String raw,
-            int repairCount
+            int repairCount,
+            boolean recordVerificationAudit
     ) {
         ApplyGenerationDraft draft;
         try {
@@ -127,11 +146,13 @@ public final class ApplyProfileExecutor {
             return Optional.empty();
         }
         TaskVerificationVerdict verdict = verifierPort.verify(profile, taskPackage, context);
-        artifactStore.recordTaskVerification(taskPackage.taskPackageId(), verdict);
+        if (recordVerificationAudit) {
+            artifactStore.recordTaskVerification(taskPackage.taskPackageId(), verdict);
+        }
         if (!verdict.passed()) {
             return Optional.empty();
         }
-        return Optional.of(new PreparedDelivery.TaskReady(taskPackage));
+        return Optional.of(new PreparedDelivery.TaskReady(taskPackage, verdict));
     }
 
     private void validateContextCoverage(ApplyExecutionContext context, BundleStack stack) {
@@ -154,16 +175,18 @@ public final class ApplyProfileExecutor {
 
     /**
      * The closed outcome of {@link #prepareTask(ApplyExecutionContext)}: a
-     * verified ready Task Package, or an unavailable reason with the shared
-     * neutral learner message. Nothing is persisted for the unavailable
-     * outcome, and the caller owns opening the attempt for a ready package.
+     * verified ready Task Package with its Task Verification verdict, or an
+     * unavailable reason with the shared neutral learner message. Nothing is
+     * persisted for the unavailable outcome, and the caller owns opening the
+     * attempt and recording the verification audit for a ready package.
      */
     public sealed interface PreparedDelivery
             permits PreparedDelivery.TaskReady, PreparedDelivery.Unavailable {
 
-        record TaskReady(TaskPackage taskPackage) implements PreparedDelivery {
+        record TaskReady(TaskPackage taskPackage, TaskVerificationVerdict verdict) implements PreparedDelivery {
             public TaskReady {
                 Objects.requireNonNull(taskPackage, "taskPackage must not be null");
+                Objects.requireNonNull(verdict, "verdict must not be null");
             }
         }
 

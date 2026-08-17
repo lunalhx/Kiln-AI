@@ -418,10 +418,7 @@ class DelayedReviewCadenceContractTest {
                         ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
                                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
                         ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
-                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
-                        ApplyScriptData.taskReadyJson(),
-                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
-                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
+                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION)));
         UUID flowId = harness.completeIndependentPass();
         ReviewTask review1 = harness.onlyUnfinishedReview();
         harness.clock().set(review1.dueAt().plus(Duration.ofHours(1)));
@@ -429,9 +426,17 @@ class DelayedReviewCadenceContractTest {
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
 
+        // A fresh Independent pass restarts the cadence and defensively
+        // cancels the STARTED Review (ADR-0062). The Active Learning Work
+        // claim (ADR-0070) makes a new Flow impossible while the Review is
+        // unfinished, so the restart is driven through the store seam that
+        // every Independent pass commits through.
         Instant restartAt = review1.dueAt().plus(Duration.ofDays(2));
         harness.clock().set(restartAt);
-        harness.completeIndependentPass();
+        harness.reviewScheduler().acceptEvidenceAndScheduleFirstReview(new AcceptedLearningEvidence(
+                UUID.randomUUID(), UUID.randomUUID(), flowId,
+                DiagnosticApplyFixture.CONCEPT_ID, LEARNER_ID,
+                LearningResult.PASS, AttemptPurpose.INDEPENDENT_TEST, 0, List.of(), restartAt));
         assertEquals(ReviewTaskStatus.CANCELLED, harness.review(review1.reviewId()).status(),
                 "a fresh Independent pass must cancel the STARTED Review and restart the cadence");
         assertEquals(1, harness.unfinishedReviews().size());
@@ -458,8 +463,6 @@ class DelayedReviewCadenceContractTest {
         Harness harness = harness(List.of(
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
-                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
-                ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED)),
                 List.of(
                         ApplyScriptData.taskReadyJson(),
@@ -467,11 +470,8 @@ class DelayedReviewCadenceContractTest {
                                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
                         ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
                                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION),
-                        ApplyScriptData.taskReadyJson(),
-                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
-                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION),
-                        ApplyScriptData.taskReadyJson(ApplyScriptData.REVIEW_TASK_TEXT,
-                                ApplyScriptData.REVIEW_EXPECTED_EXPRESSION)));
+                        ApplyScriptData.taskReadyJson(REVIEW_TASK_2,
+                                REVIEW_EXPECTED_2)));
         UUID flowId = harness.completeIndependentPass();
         ReviewTask review1 = harness.onlyUnfinishedReview();
         harness.clock().set(review1.dueAt().plus(Duration.ofHours(1)));
@@ -479,9 +479,18 @@ class DelayedReviewCadenceContractTest {
         ReviewStartResult.Boundary started = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 review1.reviewId(), UUID.randomUUID());
 
+        // The restarted cadence comes from a fresh Independent pass through
+        // the store seam: it cancels the stale STARTED Review and schedules
+        // the unique new Review 1 (ADR-0062, ADR-0070). The stale Review
+        // attempt of the cancelled Review 1 is then submitted with the Flow's
+        // current interaction version and must never advance the fresh
+        // cadence.
         Instant restartAt = review1.dueAt().plus(Duration.ofDays(2));
         harness.clock().set(restartAt);
-        harness.completeIndependentPass();
+        harness.reviewScheduler().acceptEvidenceAndScheduleFirstReview(new AcceptedLearningEvidence(
+                UUID.randomUUID(), UUID.randomUUID(), flowId,
+                DiagnosticApplyFixture.CONCEPT_ID, LEARNER_ID,
+                LearningResult.PASS, AttemptPurpose.INDEPENDENT_TEST, 0, List.of(), restartAt));
         ReviewTask fresh = harness.onlyUnfinishedReview();
         harness.clock().set(fresh.dueAt().plus(Duration.ofHours(1)));
         harness.dueTransition().markDueReviewsDue();
@@ -489,7 +498,7 @@ class DelayedReviewCadenceContractTest {
                 fresh.reviewId(), UUID.randomUUID());
 
         LearningFlowResult.Boundary outcome = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
-                flowId, started.interaction().interactionVersion(), UUID.randomUUID(),
+                flowId, freshStarted.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
 
@@ -693,7 +702,7 @@ class DelayedReviewCadenceContractTest {
                 reviewSubmissionFlow, explainFlow, hintFlow, teachBackFlow,
                 new ScriptedPedagogyModel(), new ScriptedClarificationClassifier(), clock);
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
-                artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort(), clock);
+                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort());
         ReviewStartFlow reviewStart = new ReviewStartFlow(
                 executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), clock);
         return new Harness(artifacts, flowStore, clock, reviewScheduler, useCase, reviewStart,
@@ -801,8 +810,7 @@ class DelayedReviewCadenceContractTest {
 
         LearningFlowCommandUseCase newUseCase() {
             return new LearningFlowCommandUseCase(
-                    artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
-                    profilePort(), clock);
+                    flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort());
         }
     }
 }

@@ -54,6 +54,9 @@ import cn.lunalhx.ai.kilnai.domain.learning.service.ConceptProgressProjector;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.repository.ApplyFlowMapper;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.repository.PostgresApplyFlowStore;
+import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
+import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
+import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,8 +76,10 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -519,6 +524,98 @@ class LearningFlowPostgresRecoveryContractTest {
                 "a hint replay must never create Evidence");
     }
 
+    @Test
+    void aFailedStartPreparationLeavesNoDurableTraceAndTheOriginalKeyBindsExactlyOnce() {
+        UUID learnerId = UUID.randomUUID();
+        UUID startKey = UUID.randomUUID();
+        config.failNextApplyGeneration();
+
+        ApplicationException unavailable = assertThrows(ApplicationException.class,
+                () -> graph(store).start(learnerId, startKey));
+        assertEquals(ErrorCode.SERVICE_UNAVAILABLE, unavailable.errorCode(),
+                "an initial Start preparation failure must return the generic 503");
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM flows", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM sources", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM packages", Integer.class));
+        assertEquals(0, attemptCount());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM exposures", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM interactions", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM checkpoints", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM commands", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM verifications", Integer.class),
+                "an atomic Start failure must leave no verification audit either");
+        assertTrue(store.findCommand(startKey).isEmpty(),
+                "an atomic Start failure must not process the command");
+
+        LearningFlowResult.Boundary retried = (LearningFlowResult.Boundary) graph(store).start(learnerId, startKey);
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM flows", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM sources", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM packages", Integer.class));
+        assertEquals(1, attemptCount());
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM exposures", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM interactions", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM checkpoints", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM commands", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM verifications", Integer.class),
+                "the retried Start must bind the accepted candidate's verification audit once");
+        assertEquals(retried.interaction(), store.findCommand(startKey).orElseThrow().response(),
+                "the retried Start must process the original Idempotency-Key exactly once");
+
+        LearningFlowResult.Boundary replayed = (LearningFlowResult.Boundary) graph(store).start(learnerId, startKey);
+        assertEquals(retried.interaction(), replayed.interaction(),
+                "a replayed original key after recovery must return the original committed boundary");
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM flows", Integer.class),
+                "a replay must never bind a second Flow");
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM packages", Integer.class),
+                "a replay must never bind a second Package");
+    }
+
+    @Test
+    void aStartConflictReturnsTheExistingFlowIdAndTheClaimIsEnforcedByTheDatabase() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) graph(store).start(learnerId, UUID.randomUUID());
+        ActiveWorkConflictException conflict = assertThrows(ActiveWorkConflictException.class,
+                () -> graph(store).start(learnerId, UUID.randomUUID()));
+        assertEquals(started.interaction().flowId(), conflict.existingFlowId(),
+                "the learner-safe conflict must carry only the existing Flow id");
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM flows", Integer.class),
+                "a conflicting Start must never create a second Flow");
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM packages", Integer.class),
+                "a conflicting Start must never bind a second Package");
+    }
+
+    @Test
+    void aTerminalFlowReleasesTheClaimAndAnUnfinishedReviewBlocksANewDiagnostic() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) graph(store).start(learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        LearningFlowResult.Boundary left = (LearningFlowResult.Boundary) graph(store).flowControlRequested(
+                flowId, 1, UUID.randomUUID());
+        assertEquals(FlowStatus.TERMINAL, left.interaction().status());
+        assertEquals(FlowStatus.TERMINAL, store.findFlow(flowId).orElseThrow().status(),
+                "a committed terminal boundary must mark the Flow terminal");
+        assertTrue(store.activeWorkFlowId(learnerId, DiagnosticApplyFixture.CONCEPT_ID).isEmpty(),
+                "a terminal Flow with no unfinished Review releases the Active Work claim");
+        LearningFlowResult.Boundary restarted = (LearningFlowResult.Boundary) graph(store).start(learnerId, UUID.randomUUID());
+        assertNotEquals(flowId, restarted.interaction().flowId(),
+                "the released claim permits a fresh Diagnostic");
+
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) graph(store).submitAnswer(
+                restarted.interaction().flowId(), 1, UUID.randomUUID(), restarted.interaction().attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) graph(store).submitAnswer(
+                restarted.interaction().flowId(), 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+        assertEquals(FlowStatus.TERMINAL, completed.interaction().status());
+        assertEquals(1, store.unfinishedReviewsFor(learnerId).size(),
+                "the fresh Independent pass must schedule the unique Review 1");
+        ActiveWorkConflictException blocked = assertThrows(ActiveWorkConflictException.class,
+                () -> graph(store).start(learnerId, UUID.randomUUID()));
+        assertEquals(restarted.interaction().flowId(), blocked.existingFlowId(),
+                "the unfinished Review blocks a new Diagnostic through its terminal Flow id");
+    }
+
     private int attemptCount() {
         return Integer.valueOf(jdbc.queryForObject(
                 "SELECT count(*) FROM attempts", Integer.class));
@@ -551,14 +648,13 @@ class LearningFlowPostgresRecoveryContractTest {
                 flowStore, flowStore, flowStore, diagnosticFlow, independentFlow, practiceFlow,
                 reviewSubmissionFlow, explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
         return new LearningFlowCommandUseCase(
-                flowStore, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
                 (cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort) () -> new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile(
                         new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding(
                                 "openai-compatible", "https://api.test/v1", "acme", "scripted-strong", "TEST_STRONG"),
                         new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding(
                                 "openai-compatible", "https://api.test/v1", "acme", "scripted-small", "TEST_SMALL"),
-                        2048),
-                clock);
+                        2048));
     }
 
     private LearningFlowCommandUseCase freshUseCase() {

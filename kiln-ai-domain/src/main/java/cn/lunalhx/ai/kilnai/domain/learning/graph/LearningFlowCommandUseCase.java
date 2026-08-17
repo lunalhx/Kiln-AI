@@ -8,16 +8,14 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
-import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
-import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
-import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
+import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 
-import java.time.Clock;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -33,27 +31,21 @@ import java.util.UUID;
  */
 public final class LearningFlowCommandUseCase {
 
-    private final ArtifactStore artifactStore;
     private final LearningFlowStore flowStore;
     private final LearningStateGraph graph;
     private final ApplyExecutionContext diagnosticContext;
     private final OperatorModelProfilePort modelProfilePort;
-    private final Clock clock;
 
     public LearningFlowCommandUseCase(
-            ArtifactStore artifactStore,
             LearningFlowStore flowStore,
             LearningStateGraph graph,
             ApplyExecutionContext diagnosticContext,
-            OperatorModelProfilePort modelProfilePort,
-            Clock clock
+            OperatorModelProfilePort modelProfilePort
     ) {
-        this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
         this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
         this.graph = Objects.requireNonNull(graph, "graph must not be null");
         this.diagnosticContext = Objects.requireNonNull(diagnosticContext, "diagnosticContext must not be null");
         this.modelProfilePort = Objects.requireNonNull(modelProfilePort, "modelProfilePort must not be null");
-        this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
     public LearningFlowResult start(UUID learnerId, UUID idempotencyKey) {
@@ -63,17 +55,24 @@ public final class LearningFlowCommandUseCase {
         return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
                 interaction -> new LearningFlowResult.Boundary(interaction),
                 () -> {
+                    UUID conceptId = DiagnosticApplyFixture.CONCEPT_ID;
+                    Optional<UUID> activeWork = flowStore.activeWorkFlowId(learnerId, conceptId);
+                    if (activeWork.isPresent()) {
+                        throw new ActiveWorkConflictException(activeWork.get());
+                    }
+                    ModelProfile profile = resolveProfile();
                     UUID flowId = UUID.randomUUID();
                     // Starting a Learning Flow freezes the operator's current
                     // Model Profile onto the Flow (ADR-0035, ADR-0037): the
                     // resolved snapshot is recorded with the Flow and every
                     // later model call uses it, never the current defaults.
-                    ModelProfile profile = modelProfilePort.resolve();
-                    flowStore.insertFlow(new LearningFlowStore.FlowRecord(
-                            flowId, learnerId, DiagnosticApplyFixture.CONCEPT_ID,
-                            FlowStatus.READY, LearningStage.DIAGNOSTIC, profile, clock.instant()));
-                    saveSourcePack();
-                    return graph.start(flowId, profile, idempotencyKey, hash);
+                    // The Flow, Source Pack, Package, Attempt, exposure,
+                    // checkpoint, interaction, and processed command commit
+                    // atomically only after the Diagnostic was fully prepared
+                    // (ADR-0063); a failed preparation persists nothing and
+                    // the client reuses the original Idempotency-Key.
+                    return graph.start(flowId, learnerId, conceptId, profile,
+                            sourceArtifact(), idempotencyKey, hash);
                 });
     }
 
@@ -215,9 +214,24 @@ public final class LearningFlowCommandUseCase {
                 () -> graph.flowControlRequested(flowId, interactionVersion, idempotencyKey, hash));
     }
 
-    private void saveSourcePack() {
+    /**
+     * Resolves the operator-owned Model Profile for a new Flow. Any
+     * configuration or provider failure is an initial preparation failure:
+     * it persists nothing and surfaces as the generic 503, never an
+     * implementation detail.
+     */
+    private ModelProfile resolveProfile() {
+        try {
+            return modelProfilePort.resolve();
+        } catch (RuntimeException exception) {
+            throw new ApplicationException(
+                    ErrorCode.SERVICE_UNAVAILABLE, LearningStateGraph.START_UNAVAILABLE_MESSAGE);
+        }
+    }
+
+    private SourceArtifact sourceArtifact() {
         ApplyExecutionContext.ConceptSourcePack pack = diagnosticContext.conceptSourcePack();
-        artifactStore.saveSource(new SourceArtifact(pack.id(), pack.version(), pack.passages()));
+        return new SourceArtifact(pack.id(), pack.version(), pack.passages());
     }
 
     private void requireUuidKey(UUID key) {

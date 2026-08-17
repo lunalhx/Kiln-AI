@@ -1,6 +1,7 @@
 package cn.lunalhx.ai.kilnai.trigger.http;
 
 import cn.lunalhx.ai.kilnai.api.response.ApiErrorResponse;
+import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,17 @@ public class GlobalExceptionHandler {
         };
         return ResponseEntity.status(status)
                 .body(new ApiErrorResponse(exception.errorCode().name(), exception.getMessage(), Instant.now()));
+    }
+
+    /**
+     * The learner-safe Start conflict of ADR-0070: the body carries the
+     * existing Flow id needed for recovery and nothing else.
+     */
+    @ExceptionHandler(ActiveWorkConflictException.class)
+    ResponseEntity<ApiErrorResponse> handleActiveWorkConflict(ActiveWorkConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiErrorResponse(ErrorCode.CONFLICT.name(), exception.getMessage(), Instant.now(),
+                        exception.existingFlowId()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -17,6 +17,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
+import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 
 import java.time.Instant;
@@ -82,6 +83,54 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
+    public synchronized Optional<UUID> activeWorkFlowId(UUID learnerId, UUID conceptId) {
+        Objects.requireNonNull(learnerId, "learnerId must not be null");
+        Objects.requireNonNull(conceptId, "conceptId must not be null");
+        return flows.values().stream()
+                .filter(flow -> flow.learnerId().equals(learnerId))
+                .filter(flow -> flow.conceptId().equals(conceptId))
+                .filter(flow -> flow.status() != FlowStatus.TERMINAL)
+                .map(FlowRecord::flowId)
+                .findFirst()
+                .or(() -> reviews.values().stream()
+                        .filter(review -> review.learnerId().equals(learnerId))
+                        .filter(review -> review.conceptId().equals(conceptId))
+                        .filter(ReviewTask::isUnfinished)
+                        .map(ReviewTask::flowId)
+                        .findFirst());
+    }
+
+    @Override
+    public synchronized LearningFlowInteraction bindStart(StartBind bind) {
+        Objects.requireNonNull(bind, "bind must not be null");
+        if (artifactStore == null) {
+            throw new IllegalStateException(
+                    "bindStart requires the composite InMemoryLearningFlowStore(clock, artifactStore) form");
+        }
+        UUID activeWork = activeWorkFlowId(bind.learnerId(), bind.conceptId()).orElse(null);
+        if (activeWork != null) {
+            throw new ActiveWorkConflictException(activeWork);
+        }
+        TaskAttempt attempt = artifactStore.openAttempt(bind.taskPackage());
+        artifactStore.saveSource(bind.source());
+        artifactStore.recordTaskVerification(bind.taskPackage().taskPackageId(), bind.verificationVerdict());
+        flows.put(bind.flowId(), new FlowRecord(
+                bind.flowId(), bind.learnerId(), bind.conceptId(),
+                FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
+                bind.modelProfile(), clock.instant()));
+        recordTaskExposure(bind.flowId(), bind.taskPackage());
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
+                InteractionKind.TASK, bind.flowId(), 1, FlowStatus.AWAITING_LEARNER_INPUT,
+                LearningStage.DIAGNOSTIC, attempt.attemptId(), AttemptPurpose.DIAGNOSTIC,
+                bind.taskPackage().learnerProjection(), null, null, null, null);
+        commitBoundary(interaction,
+                new LearningCheckpoint(UUID.randomUUID(), bind.flowId(), 1, clock.instant()),
+                new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
+                        interaction, clock.instant()));
+        return interaction;
+    }
+
+    @Override
     public synchronized void commitBoundary(
             LearningFlowInteraction interaction,
             LearningCheckpoint checkpoint,
@@ -98,6 +147,15 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         history.add(interaction);
         checkpoints.computeIfAbsent(checkpoint.flowId(), key -> new ArrayList<>()).add(checkpoint);
         commands.putIfAbsent(command.idempotencyKey(), command);
+        // The Flow record mirrors its latest committed interaction status and
+        // stage: a terminal boundary releases the Active Learning Work claim
+        // of ADR-0070, an awaiting-input boundary holds it.
+        FlowRecord current = flows.get(interaction.flowId());
+        if (current != null && current.status() != interaction.status()) {
+            flows.put(current.flowId(), new FlowRecord(
+                    current.flowId(), current.learnerId(), current.conceptId(),
+                    interaction.status(), interaction.stage(), current.modelProfile(), current.createdAt()));
+        }
     }
 
     @Override

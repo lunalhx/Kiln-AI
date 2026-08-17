@@ -554,7 +554,7 @@ class InconclusiveReviewReplacementContractTest {
                 reviewSubmissionFlow, explainFlow, hintFlow, teachBackFlow,
                 new ScriptedPedagogyModel(), new ScriptedClarificationClassifier(), clock);
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
-                artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort(), clock);
+                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort());
         ReviewStartFlow reviewStart = new ReviewStartFlow(
                 executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), clock);
         return new Harness(artifacts, flowStore, clock, useCase, reviewStart, reviewSubmissionFlow, generation, graph);
@@ -624,8 +624,7 @@ class InconclusiveReviewReplacementContractTest {
 
         LearningFlowCommandUseCase newUseCase() {
             return new LearningFlowCommandUseCase(
-                    artifacts, flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
-                    profilePort(), clock);
+                    flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort());
         }
     }
 }
