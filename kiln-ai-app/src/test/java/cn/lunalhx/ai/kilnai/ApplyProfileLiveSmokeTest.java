@@ -18,11 +18,16 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
+import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
@@ -84,21 +89,24 @@ class ApplyProfileLiveSmokeTest {
         };
         ApplyModelAdapter model = new ApplyModelAdapter(
                 catalog, new OpenAiCompatibleChatClientFactory(), secrets);
+        TaskVerifierPort verifier = (profile, pkg, ctx) -> TaskVerificationVerdict.parse(model.verify(profile, pkg, ctx));
+        AssessmentPort assessment = (profile, ctx) -> ResponseAssessment.parse(model.assess(profile, ctx));
+        ResponseVerificationPort verification = (profile, ctx) -> ResponseAssessment.parse(model.verifyResponse(profile, ctx));
 
         ArtifactStore artifacts = new InMemoryArtifactStore(Clock.systemUTC());
         LearningFlowStore flowStore = new InMemoryLearningFlowStore();
         ApplyProfileExecutor executor = new ApplyProfileExecutor(
-                referenceStack(), model, model, artifacts);
+                referenceStack(), model, verifier, artifacts);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
-                executor, artifacts, flowStore, model, model,
+                executor, artifacts, flowStore, assessment, verification,
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
                 Clock.systemUTC());
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
-                artifacts, flowStore, model, model,
+                artifacts, flowStore, assessment, verification,
                 new ReviewTaskScheduler((ReviewTaskStore) flowStore), Clock.systemUTC());
         PracticeSubmissionFlow practiceFlow = new PracticeSubmissionFlow(
-                executor, artifacts, flowStore, model, model,
+                executor, artifacts, flowStore, assessment, verification,
                 PracticeApplyFixture.practiceContext(), IndependentApplyFixture.independentContext(),
                 Clock.systemUTC());
         ExplainFlow explainFlow = new ExplainFlow(
@@ -113,7 +121,7 @@ class ApplyProfileLiveSmokeTest {
                 artifacts, flowStore, failClosedTeachBackAssessment(),
                 TeachBackApplyFixture.teachBackContext(), Clock.systemUTC());
         ReviewSubmissionFlow reviewFlow = new ReviewSubmissionFlow(
-                artifacts, flowStore, model, model,
+                artifacts, flowStore, assessment, verification,
                 new ReviewTaskScheduler((ReviewTaskStore) flowStore),
                 executor, (ReviewTaskStore) flowStore, ReviewApplyFixture.reviewContext(), Clock.systemUTC());
         OperatorModelProfilePort profilePort = () -> new ModelProfile(

@@ -7,6 +7,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -116,6 +117,13 @@ public interface ArtifactStore {
     void recordTaskVerification(UUID taskPackageId, TaskVerificationVerdict verdict);
 
     List<TaskVerificationVerdict> verificationsFor(UUID taskPackageId);
+
+    /**
+     * Records one Model Contract Invalid audit. The payload is limited to
+     * identity, responsibility, normalized violation codes, repair count,
+     * correlation ID, and provider-health category.
+     */
+    void recordModelContractAudit(ModelContractAudit audit);
 
     void recordResponseAssessment(UUID attemptId, ResponseAssessment assessment);
 

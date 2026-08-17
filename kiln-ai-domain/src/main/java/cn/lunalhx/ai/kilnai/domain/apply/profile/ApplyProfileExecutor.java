@@ -3,12 +3,15 @@ package cn.lunalhx.ai.kilnai.domain.apply.profile;
 import cn.lunalhx.ai.kilnai.domain.apply.ModelProviderFailure;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.SkillBundle;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ModelContractRepair;
 import cn.lunalhx.ai.kilnai.domain.apply.gate.ApplyGenerationDraftGatePolicy;
 import cn.lunalhx.ai.kilnai.domain.apply.gate.ApplyTaskPackageGatePolicy;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDraftException;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyGenerationDraft;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractInvalidException;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelExecution;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -156,7 +159,17 @@ public final class ApplyProfileExecutor {
         if (packageGate.outcome() != GateOutcome.PASSED) {
             return Optional.empty();
         }
-        TaskVerificationVerdict verdict = verifierPort.verify(profile, taskPackage, context);
+        TaskVerificationVerdict verdict;
+        try {
+            verdict = verifierPort.verify(profile, taskPackage, context);
+        } catch (ModelContractInvalidException exception) {
+            if (recordVerificationAudit) {
+                ModelContractRepair.recordVoidedCandidate(
+                        artifactStore, taskPackage.taskPackageId(),
+                        ModelContractAudit.TASK_VERIFICATION, exception);
+            }
+            return Optional.empty();
+        }
         if (recordVerificationAudit) {
             artifactStore.recordTaskVerification(taskPackage.taskPackageId(), verdict);
         }

@@ -503,6 +503,28 @@ public interface ApplyFlowMapper {
     List<String> listVerificationJson(UUID taskPackageId);
 
     @Insert("""
+            INSERT INTO model_contract_audits (
+                id, flow_id, attempt_id, task_package_id, responsibility,
+                violation_codes, repair_count, correlation_id, provider_category, created_at)
+            VALUES (
+                #{id}, #{flowId}, #{attemptId}, #{taskPackageId}, #{responsibility},
+                CAST(#{violationCodesJson} AS JSONB), #{repairCount}, #{correlationId},
+                #{providerCategory}, #{createdAt})
+            """)
+    void insertModelContractAudit(
+            @Param("id") UUID id,
+            @Param("flowId") UUID flowId,
+            @Param("attemptId") UUID attemptId,
+            @Param("taskPackageId") UUID taskPackageId,
+            @Param("responsibility") String responsibility,
+            @Param("violationCodesJson") String violationCodesJson,
+            @Param("repairCount") int repairCount,
+            @Param("correlationId") String correlationId,
+            @Param("providerCategory") String providerCategory,
+            @Param("createdAt") Instant createdAt
+    );
+
+    @Insert("""
             INSERT INTO assessments (id, attempt_id, assessment, created_at)
             VALUES (#{id}, #{attemptId}, CAST(#{assessmentJson} AS JSONB), #{createdAt})
             """)

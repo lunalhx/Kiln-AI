@@ -1,7 +1,10 @@
 package cn.lunalhx.ai.kilnai.domain.apply.model;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * The closed {@code response_assessment/v1} contract returned by isolated
@@ -27,5 +30,16 @@ public record ResponseAssessment(
         if (!SCHEMA.equals(schema)) {
             throw new IllegalArgumentException("unsupported assessment schema: " + schema);
         }
+    }
+
+    public static ResponseAssessment parse(String json) {
+        JsonNode root = ModelContract.object(json);
+        ModelContract.requireExactFields(root, Set.of(
+                "schema", "final_expression_judgment", "rationale_judgment", "reason_codes"));
+        return new ResponseAssessment(
+                ModelContract.requiredSchema(root, SCHEMA),
+                ModelContract.requiredEnum(root, "final_expression_judgment", FinalExpressionJudgment.class),
+                ModelContract.requiredEnum(root, "rationale_judgment", RationaleJudgment.class),
+                ModelContract.requiredStringList(root, "reason_codes"));
     }
 }

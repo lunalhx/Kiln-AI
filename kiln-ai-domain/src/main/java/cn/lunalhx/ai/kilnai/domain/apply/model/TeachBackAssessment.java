@@ -1,9 +1,10 @@
 package cn.lunalhx.ai.kilnai.domain.apply.model;
 
-import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * The closed {@code teach_back_assessment/v1} contract returned by the
@@ -36,6 +37,19 @@ public record TeachBackAssessment(
         if (!SCHEMA.equals(schema)) {
             throw new IllegalArgumentException("unsupported assessment schema: " + schema);
         }
+    }
+
+    public static TeachBackAssessment parse(String json) {
+        JsonNode root = ModelContract.object(json);
+        ModelContract.requireExactFields(root, Set.of(
+                "schema", "rule_identification", "applicability_explanation",
+                "steps_result_coherence", "reason_codes"));
+        return new TeachBackAssessment(
+                ModelContract.requiredSchema(root, SCHEMA),
+                ModelContract.requiredEnum(root, "rule_identification", DimensionJudgment.class),
+                ModelContract.requiredEnum(root, "applicability_explanation", DimensionJudgment.class),
+                ModelContract.requiredEnum(root, "steps_result_coherence", DimensionJudgment.class),
+                ModelContract.requiredStringList(root, "reason_codes"));
     }
 
     /**

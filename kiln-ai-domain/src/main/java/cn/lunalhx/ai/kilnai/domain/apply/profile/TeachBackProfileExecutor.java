@@ -3,8 +3,11 @@ package cn.lunalhx.ai.kilnai.domain.apply.profile;
 import cn.lunalhx.ai.kilnai.domain.apply.ModelProviderFailure;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.SkillBundle;
+import cn.lunalhx.ai.kilnai.domain.apply.flow.ModelContractRepair;
 import cn.lunalhx.ai.kilnai.domain.apply.gate.TeachBackTaskPackageGatePolicy;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDraftException;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractInvalidException;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackDeliveryResult;
@@ -158,7 +161,15 @@ public final class TeachBackProfileExecutor {
         if (packageGate.outcome() != GateOutcome.PASSED) {
             return new Outcome.Rejected(false);
         }
-        TaskVerificationVerdict verdict = verifierPort.verify(profile, taskPackage, context);
+        TaskVerificationVerdict verdict;
+        try {
+            verdict = verifierPort.verify(profile, taskPackage, context);
+        } catch (ModelContractInvalidException exception) {
+            ModelContractRepair.recordVoidedCandidate(
+                    artifactStore, taskPackage.taskPackageId(),
+                    ModelContractAudit.TEACH_BACK_TASK_VERIFICATION, exception);
+            return new Outcome.Rejected(true);
+        }
         artifactStore.recordTaskVerification(taskPackage.taskPackageId(), verdict);
         if (!verdict.passed()) {
             return new Outcome.Rejected(true);

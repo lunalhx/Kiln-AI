@@ -402,6 +402,32 @@ class LearningFlowHttpTest {
     }
 
     @Test
+    void aMalformedAssessmentDoesNotReturn503AndKeepsTheLearnerSafeBody() {
+        UUID learnerId = UUID.randomUUID();
+        config.failNextAssessments(2);
+        LearningFlowResponse started = start(learnerId, UUID.randomUUID());
+        ResponseEntity<Map> response = submitRawMap(
+                started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
+                "3*x^2", "3*x^2", null);
+        assertEquals(HttpStatus.OK, response.getStatusCode(),
+                "a still-invalid Assessment must recover as Inconclusive, never as 503");
+        Map body = response.getBody();
+        assertNotNull(body);
+        assertEquals("task", body.get("kind"));
+        assertEquals("INDEPENDENT_TEST", body.get("stage"));
+        assertEquals("INDEPENDENT_TEST", body.get("attemptPurpose"));
+        String serialized = serialize(body);
+        assertFalse(serialized.contains("Jackson"));
+        assertFalse(serialized.contains("UnrecognizedProperty"));
+        assertFalse(serialized.contains("unknown_field"));
+        assertFalse(serialized.contains("parser"));
+        assertFalse(serialized.contains("openai"));
+        assertFalse(serialized.contains("MODEL_CONTRACT_INVALID"));
+        assertFalse(serialized.contains("stackTrace"));
+        assertFalse(serialized.contains(ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED));
+    }
+
+    @Test
     void theReviewCollectionExposesOnlyScheduledWorkAndSafeProgress() {
         UUID learnerId = UUID.randomUUID();
         UUID flowId = completeIndependentPass(learnerId);

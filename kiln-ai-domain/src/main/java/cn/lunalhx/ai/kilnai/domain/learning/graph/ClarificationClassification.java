@@ -1,5 +1,10 @@
 package cn.lunalhx.ai.kilnai.domain.learning.graph;
 
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContract;
+import com.fasterxml.jackson.databind.JsonNode;
+
+import java.util.Set;
+
 /**
  * The closed classification of one Clarification Asked event (CONTEXT.md
  * Clarification Gate). A procedural request only restates interface behavior,
@@ -13,5 +18,14 @@ package cn.lunalhx.ai.kilnai.domain.learning.graph;
 public enum ClarificationClassification {
     PROCEDURAL,
     SUBSTANTIVE,
-    UNCERTAIN
+    UNCERTAIN;
+
+    public static final String SCHEMA = "clarification_classification/v1";
+
+    public static ClarificationClassification parse(String json) {
+        JsonNode root = ModelContract.object(json);
+        ModelContract.requireExactFields(root, Set.of("schema", "classification"));
+        ModelContract.requiredSchema(root, SCHEMA);
+        return ModelContract.requiredEnum(root, "classification", ClarificationClassification.class);
+    }
 }

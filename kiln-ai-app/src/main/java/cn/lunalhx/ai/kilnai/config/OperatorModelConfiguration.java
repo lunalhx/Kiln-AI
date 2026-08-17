@@ -1,5 +1,8 @@
 package cn.lunalhx.ai.kilnai.config;
 
+import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
@@ -10,6 +13,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassification;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPort;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.model.ApplyModelAdapter;
@@ -55,17 +59,17 @@ public class OperatorModelConfiguration {
 
     @Bean
     TaskVerifierPort taskVerifierPort(OperatorModelPorts ports) {
-        return ports.adapter()::verify;
+        return (profile, pkg, ctx) -> TaskVerificationVerdict.parse(ports.adapter().verify(profile, pkg, ctx));
     }
 
     @Bean
     AssessmentPort assessmentPort(OperatorModelPorts ports) {
-        return ports.adapter()::assess;
+        return (profile, ctx) -> ResponseAssessment.parse(ports.adapter().assess(profile, ctx));
     }
 
     @Bean
     ResponseVerificationPort responseVerificationPort(OperatorModelPorts ports) {
-        return ports.adapter()::verify;
+        return (profile, ctx) -> ResponseAssessment.parse(ports.adapter().verifyResponse(profile, ctx));
     }
 
     @Bean
@@ -85,12 +89,12 @@ public class OperatorModelConfiguration {
 
     @Bean
     TeachBackTaskVerifierPort teachBackTaskVerifierPort(OperatorModelPorts ports) {
-        return ports.adapter()::verify;
+        return (profile, pkg, ctx) -> TaskVerificationVerdict.parse(ports.adapter().verify(profile, pkg, ctx));
     }
 
     @Bean
     TeachBackAssessmentPort teachBackAssessmentPort(OperatorModelPorts ports) {
-        return ports.adapter()::assess;
+        return (profile, ctx) -> TeachBackAssessment.parse(ports.adapter().assess(profile, ctx));
     }
 
     @Bean
@@ -100,7 +104,8 @@ public class OperatorModelConfiguration {
 
     @Bean
     ClarificationClassifierPort clarificationClassifierPort(OperatorModelPorts ports) {
-        return ports.adapter()::classify;
+        return (profile, message, taskText) -> ClarificationClassification.parse(
+                ports.adapter().classify(profile, message, taskText));
     }
 
     record OperatorModelPorts(ApplyModelAdapter adapter) {

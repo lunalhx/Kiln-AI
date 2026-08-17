@@ -23,6 +23,7 @@ public class GlobalExceptionHandler {
             case CONFLICT -> HttpStatus.CONFLICT;
             case UNPROCESSABLE -> HttpStatus.UNPROCESSABLE_ENTITY;
             case SERVICE_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+            case MODEL_CONTRACT_INVALID -> HttpStatus.INTERNAL_SERVER_ERROR;
             case INVALID_ARGUMENT -> HttpStatus.BAD_REQUEST;
         };
         return ResponseEntity.status(status)

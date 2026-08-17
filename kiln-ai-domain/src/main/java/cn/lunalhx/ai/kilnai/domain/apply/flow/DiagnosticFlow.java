@@ -58,7 +58,8 @@ public final class DiagnosticFlow {
         this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
         this.assessmentRunner = new AssessmentRunner(
                 Objects.requireNonNull(assessmentPort, "assessmentPort must not be null"),
-                Objects.requireNonNull(verificationPort, "verificationPort must not be null"));
+                Objects.requireNonNull(verificationPort, "verificationPort must not be null"),
+                artifactStore);
         this.submissionCloser = new SubmissionCloser(artifactStore, clock);
         this.diagnosticContext = Objects.requireNonNull(diagnosticContext, "diagnosticContext must not be null");
         this.independentContextTemplate = Objects.requireNonNull(

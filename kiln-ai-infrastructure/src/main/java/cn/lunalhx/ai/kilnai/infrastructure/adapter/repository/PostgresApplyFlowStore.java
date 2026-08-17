@@ -12,6 +12,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintLevel;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PendingOperation;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
@@ -901,6 +902,21 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     public List<TaskVerificationVerdict> verificationsFor(UUID taskPackageId) {
         return mapper.listVerificationJson(taskPackageId).stream()
                 .map(payload -> readJson(payload, TaskVerificationVerdict.class)).toList();
+    }
+
+    @Override
+    public void recordModelContractAudit(ModelContractAudit audit) {
+        mapper.insertModelContractAudit(
+                UUID.randomUUID(),
+                audit.flowId(),
+                audit.attemptId(),
+                audit.taskPackageId(),
+                audit.responsibility(),
+                writeJson(audit.violationCodes()),
+                audit.repairCount(),
+                audit.correlationId(),
+                audit.providerCategory(),
+                clock.instant());
     }
 
     @Override

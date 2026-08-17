@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractInvalidException;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
@@ -26,6 +27,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The scripted model ports of the Learning/Practice graph for the PostgreSQL
@@ -48,6 +50,7 @@ public class ScriptedLearningGraphPortsConfiguration {
 
     private volatile boolean failNextApplyGeneration = false;
     private volatile boolean failNextExplainGeneration = false;
+    private final AtomicInteger remainingInvalidAssessments = new AtomicInteger(0);
 
     public void failNextApplyGeneration() {
         this.failNextApplyGeneration = true;
@@ -55,6 +58,10 @@ public class ScriptedLearningGraphPortsConfiguration {
 
     public void failNextExplainGeneration() {
         this.failNextExplainGeneration = true;
+    }
+
+    public void failNextAssessments(int count) {
+        this.remainingInvalidAssessments.set(count);
     }
 
     @Bean
@@ -122,12 +129,18 @@ public class ScriptedLearningGraphPortsConfiguration {
         // The Assessment defers to the proof-bounded deterministic
         // Mathematical Equivalence Check: NOT_REQUESTED/NOT_PROVIDED with a
         // proven-correct expression passes and a proven-wrong expression is a
-        // conclusive failure for every Attempt Purpose.
-        return (profile, context) -> new ResponseAssessment(
-                ResponseAssessment.SCHEMA,
-                FinalExpressionJudgment.NOT_REQUESTED,
-                RationaleJudgment.NOT_PROVIDED,
-                List.of());
+        // conclusive failure for every Attempt Purpose. Tests can script a
+        // bounded number of Model Contract Invalid replies before that.
+        return (profile, context) -> {
+            if (remainingInvalidAssessments.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+                throw new ModelContractInvalidException(List.of("unknown_field"));
+            }
+            return new ResponseAssessment(
+                    ResponseAssessment.SCHEMA,
+                    FinalExpressionJudgment.NOT_REQUESTED,
+                    RationaleJudgment.NOT_PROVIDED,
+                    List.of());
+        };
     }
 
     @Bean

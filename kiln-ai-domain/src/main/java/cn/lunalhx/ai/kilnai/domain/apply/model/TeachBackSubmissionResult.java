@@ -39,8 +39,10 @@ public sealed interface TeachBackSubmissionResult
 
         public TeachBackAssessed {
             Objects.requireNonNull(closedAttempt, "closedAttempt must not be null");
-            Objects.requireNonNull(assessment, "assessment must not be null");
             Objects.requireNonNull(facts, "facts must not be null");
+            if (assessment == null && evidence != null) {
+                throw new IllegalArgumentException("a null assessment cannot carry Evidence");
+            }
         }
     }
 

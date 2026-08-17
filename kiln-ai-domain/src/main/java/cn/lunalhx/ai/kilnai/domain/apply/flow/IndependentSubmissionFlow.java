@@ -72,7 +72,8 @@ public final class IndependentSubmissionFlow {
         this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
         this.assessmentRunner = new AssessmentRunner(
                 Objects.requireNonNull(assessmentPort, "assessmentPort must not be null"),
-                Objects.requireNonNull(verificationPort, "verificationPort must not be null"));
+                Objects.requireNonNull(verificationPort, "verificationPort must not be null"),
+                artifactStore);
         this.submissionCloser = new SubmissionCloser(artifactStore, clock);
         this.reviewScheduler = Objects.requireNonNull(reviewScheduler, "reviewScheduler must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");

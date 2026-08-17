@@ -3,6 +3,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.flow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.EquivalenceOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalEquivalenceCheck;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
@@ -31,10 +32,16 @@ public final class AssessmentRunner {
 
     private final AssessmentPort assessmentPort;
     private final ResponseVerificationPort verificationPort;
+    private final ArtifactStore artifactStore;
 
-    public AssessmentRunner(AssessmentPort assessmentPort, ResponseVerificationPort verificationPort) {
+    public AssessmentRunner(
+            AssessmentPort assessmentPort,
+            ResponseVerificationPort verificationPort,
+            ArtifactStore artifactStore
+    ) {
         this.assessmentPort = Objects.requireNonNull(assessmentPort, "assessmentPort must not be null");
         this.verificationPort = Objects.requireNonNull(verificationPort, "verificationPort must not be null");
+        this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
     }
 
     public AssessmentOutcome run(ModelProfile profile, TaskAttempt closedAttempt, TaskPackage taskPackage) {
@@ -59,10 +66,22 @@ public final class AssessmentRunner {
         if (outcomeIsDeterminedWithoutModel(closedAttempt.purpose(), deterministic)) {
             return ResponseAssessmentDecider.decide(context, null, null);
         }
-        ResponseAssessment assessment = assessmentPort.assess(profile, context);
+        ResponseAssessment assessment = ModelContractRepair.once(
+                () -> assessmentPort.assess(profile, context),
+                artifactStore, null, closedAttempt.attemptId(), closedAttempt.taskPackageId(),
+                ModelContractAudit.ASSESSMENT);
+        if (assessment == null) {
+            return new AssessmentOutcome.Inconclusive(null, null);
+        }
         ResponseAssessment verification = null;
         if (deterministic == EquivalenceOutcome.CANNOT_DECIDE) {
-            verification = verificationPort.verify(profile, context);
+            verification = ModelContractRepair.once(
+                    () -> verificationPort.verify(profile, context),
+                    artifactStore, null, closedAttempt.attemptId(), closedAttempt.taskPackageId(),
+                    ModelContractAudit.RESPONSE_VERIFICATION);
+            if (verification == null) {
+                return new AssessmentOutcome.Inconclusive(assessment, null);
+            }
         }
         return ResponseAssessmentDecider.decide(context, assessment, verification);
     }

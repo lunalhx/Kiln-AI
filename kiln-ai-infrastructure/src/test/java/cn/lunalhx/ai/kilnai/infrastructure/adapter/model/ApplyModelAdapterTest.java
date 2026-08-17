@@ -1,14 +1,9 @@
 package cn.lunalhx.ai.kilnai.infrastructure.adapter.model;
 
-import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
-import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassification;
-import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
-import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.model.EquivalenceOutcome;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
@@ -81,25 +76,23 @@ class ApplyModelAdapterTest {
     }
 
     @Test
-    void taskVerificationParsesAPassVerdict() {
-        ScriptedChatModel model = new ScriptedChatModel("""
+    void taskVerificationReturnsRawClosedJson() {
+        String rawJson = """
                 {"schema":"task_verification/v1","verdict":"pass",
                  "checks":{"answer_correctness":"pass","rubric_alignment":"pass","source_grounding":"pass",
                  "blueprint_compliance":"pass","learner_boundary":"pass"},"reason_codes":[]}
-                """);
+                """;
+        ScriptedChatModel model = new ScriptedChatModel(rawJson);
         ApplyModelAdapter adapter = adapter(model);
 
-        TaskVerificationVerdict verdict = adapter.verify(PROFILE, (TaskPackage) null, (ApplyExecutionContext) null);
+        String raw = adapter.verify(PROFILE, (TaskPackage) null, (ApplyExecutionContext) null);
 
-        assertEquals(TaskVerificationVerdict.Verdict.PASS, verdict.verdict());
-        assertTrue(verdict.passed());
-        assertEquals(5, verdict.checks().size());
-        assertTrue(verdict.checks().values().stream()
-                .allMatch(result -> result == TaskVerificationVerdict.CheckResult.PASS));
+        assertTrue(raw.contains("\"verdict\":\"pass\""));
+        assertTrue(raw.contains("task_verification/v1"));
     }
 
     @Test
-    void taskVerificationParsesARejectWithReasonCodes() {
+    void taskVerificationReturnsRawRejectJson() {
         ScriptedChatModel model = new ScriptedChatModel("""
                 {"schema":"task_verification/v1","verdict":"reject",
                  "checks":{"answer_correctness":"reject","rubric_alignment":"pass","source_grounding":"pass",
@@ -108,10 +101,10 @@ class ApplyModelAdapterTest {
                 """);
         ApplyModelAdapter adapter = adapter(model);
 
-        TaskVerificationVerdict verdict = adapter.verify(PROFILE, (TaskPackage) null, (ApplyExecutionContext) null);
+        String raw = adapter.verify(PROFILE, (TaskPackage) null, (ApplyExecutionContext) null);
 
-        assertEquals(TaskVerificationVerdict.Verdict.REJECT, verdict.verdict());
-        assertTrue(verdict.reasonCodes().contains("task_answer_inconsistent"));
+        assertTrue(raw.contains("task_answer_inconsistent"));
+        assertTrue(raw.contains("\"verdict\":\"reject\""));
     }
 
     @Test
@@ -125,24 +118,22 @@ class ApplyModelAdapterTest {
                 "task", "12*x^2 - 6*x + 7", "12x²−6x+7", "12x²−6x+7", "",
                 AttemptPurpose.INDEPENDENT_TEST, EquivalenceOutcome.CANNOT_DECIDE);
 
-        ResponseAssessment assessment = adapter.assess(PROFILE, context);
-        ResponseAssessment verified = adapter.verify(PROFILE, context);
+        String assessed = adapter.assess(PROFILE, context);
+        String verified = adapter.verifyResponse(PROFILE, context);
 
-        assertEquals(FinalExpressionJudgment.EQUIVALENT, assessment.finalExpressionJudgment());
-        assertEquals(RationaleJudgment.NOT_PROVIDED, assessment.rationaleJudgment());
-        assertEquals(assessment, verified);
+        assertTrue(assessed.contains("\"final_expression_judgment\":\"equivalent\""));
+        assertEquals(assessed, verified);
         assertEquals(2, model.prompts.size());
         assertTrue(model.prompts.stream().allMatch(prompt -> prompt.getContents().contains("# Response Assessment")));
     }
 
     @Test
-    void aWrongContractSchemaIsRejected() {
+    void aWrongContractSchemaIsReturnedAsRawContentNotAProviderFailure() {
         ScriptedChatModel model = new ScriptedChatModel("{\"schema\":\"task_verification/v2\",\"verdict\":\"pass\"}");
         ApplyModelAdapter adapter = adapter(model);
 
-        ApplicationException error = assertThrows(ApplicationException.class,
-                () -> adapter.verify(PROFILE, (TaskPackage) null, (ApplyExecutionContext) null));
-        assertEquals(ErrorCode.SERVICE_UNAVAILABLE, error.errorCode());
+        String raw = adapter.verify(PROFILE, (TaskPackage) null, (ApplyExecutionContext) null);
+        assertEquals("{\"schema\":\"task_verification/v2\",\"verdict\":\"pass\"}", raw);
     }
 
     @Test
@@ -167,19 +158,19 @@ class ApplyModelAdapterTest {
                 """);
         ApplyModelAdapter adapter = adapter(model);
 
-        TaskVerificationVerdict verdict = adapter.verify(
+        String raw = adapter.verify(
                 PROFILE,
                 (cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage) null,
                 (cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackExecutionContext) null);
 
-        assertEquals(TaskVerificationVerdict.Verdict.REJECT, verdict.verdict());
-        assertTrue(verdict.reasonCodes().contains("ambiguous_prompt"));
+        assertTrue(raw.contains("ambiguous_prompt"));
+        assertTrue(raw.contains("\"verdict\":\"reject\""));
         assertTrue(model.prompts.getFirst().getInstructions().get(0).getText()
                 .contains("# Teach-back Task Verifier"));
     }
 
     @Test
-    void teachBackAssessmentParsesTheThreeDimensionJudgments() {
+    void teachBackAssessmentReturnsRawThreeDimensionJson() {
         ScriptedChatModel model = new ScriptedChatModel("""
                 {"schema":"teach_back_assessment/v1",
                  "rule_identification":"pass","applicability_explanation":"fail",
@@ -191,18 +182,10 @@ class ApplyModelAdapterTest {
                         "请解释刚才的解题思路。", "完整解答：p'(x) = 18x² − 4。", "用了幂法则与和差法则。",
                         AttemptPurpose.PRACTICE);
 
-        cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment assessment =
-                adapter.assess(PROFILE, context);
+        String raw = adapter.assess(PROFILE, context);
 
-        assertEquals(cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment.DimensionJudgment.PASS,
-                assessment.ruleIdentification());
-        assertEquals(cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment.DimensionJudgment.FAIL,
-                assessment.applicabilityExplanation());
-        assertEquals(cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment.DimensionJudgment.INCONCLUSIVE,
-                assessment.stepsResultCoherence());
-        assertEquals(cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment.TeachBackOutcome.INCONCLUSIVE,
-                assessment.outcome(),
-                "any inconclusive dimension makes the whole judgment inconclusive");
+        assertTrue(raw.contains("rule_not_identified"));
+        assertTrue(raw.contains("\"steps_result_coherence\":\"inconclusive\""));
         assertTrue(model.prompts.getFirst().getInstructions().get(0).getText()
                 .contains("# Teach-back Assessment"));
     }
@@ -266,26 +249,25 @@ class ApplyModelAdapterTest {
     }
 
     @Test
-    void clarificationClassificationParsesTheClosedContract() {
+    void clarificationClassificationReturnsRawClosedJson() {
         ScriptedChatModel model = new ScriptedChatModel(
                 "{\"schema\":\"clarification_classification/v1\",\"classification\":\"procedural\"}");
         ApplyModelAdapter adapter = adapter(model);
 
-        assertEquals(ClarificationClassification.PROCEDURAL,
-                adapter.classify(PROFILE, "符号输入方式是什么？", "请填写最终答案。"));
+        String raw = adapter.classify(PROFILE, "符号输入方式是什么？", "请填写最终答案。");
+        assertTrue(raw.contains("\"classification\":\"procedural\""));
         assertTrue(model.prompts.getFirst().getInstructions().get(0).getText()
                 .contains("# Clarification Classifier"));
     }
 
     @Test
-    void anUnknownClarificationClassificationFailsClosed() {
+    void anUnknownClarificationClassificationIsReturnedAsRawContent() {
         ScriptedChatModel model = new ScriptedChatModel(
                 "{\"schema\":\"clarification_classification/v1\",\"classification\":\"guess\"}");
         ApplyModelAdapter adapter = adapter(model);
 
-        ApplicationException error = assertThrows(ApplicationException.class,
-                () -> adapter.classify(PROFILE, "帮我解题", "求导数。"));
-        assertEquals(ErrorCode.SERVICE_UNAVAILABLE, error.errorCode());
+        String raw = adapter.classify(PROFILE, "帮我解题", "求导数。");
+        assertTrue(raw.contains("\"classification\":\"guess\""));
     }
 
     @Test

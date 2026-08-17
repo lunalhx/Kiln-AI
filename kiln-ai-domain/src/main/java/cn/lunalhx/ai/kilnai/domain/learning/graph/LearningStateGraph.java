@@ -24,6 +24,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.IndependentSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractInvalidException;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PendingOperation;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PracticeSubmissionResult;
@@ -397,8 +399,17 @@ public final class LearningStateGraph {
         if (isTeachBackAttempt(attemptId) || attempt.purpose() == AttemptPurpose.DIAGNOSTIC) {
             return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         }
-        ClarificationClassification classification =
-                clarificationGate.classify(state.flow().modelProfile(), message, taskTextOf(attempt));
+        ClarificationClassification classification;
+        try {
+            classification = clarificationGate.classify(
+                    state.flow().modelProfile(), message, taskTextOf(attempt));
+        } catch (ModelContractInvalidException exception) {
+            artifactStore.recordModelContractAudit(new ModelContractAudit(
+                    state.flow().flowId(), attempt.attemptId(), attempt.taskPackageId(),
+                    ModelContractAudit.CLARIFICATION, exception.violationCodes(), 0,
+                    java.util.UUID.randomUUID().toString(), ModelContractAudit.PROVIDER_CATEGORY));
+            classification = ClarificationClassification.UNCERTAIN;
+        }
         return switch (classification) {
             case PROCEDURAL -> answerProcedurally(state, attempt, idempotencyKey, requestHash);
             case SUBSTANTIVE, UNCERTAIN -> switch (attempt.purpose()) {
@@ -990,11 +1001,13 @@ public final class LearningStateGraph {
             UUID idempotencyKey,
             String requestHash
     ) {
-        WorkflowGuard.DecisionContext context = switch (assessed.assessment().outcome()) {
-            case PASS -> WorkflowGuard.DecisionContext.TEACH_BACK_PASSED;
-            case FAIL -> WorkflowGuard.DecisionContext.TEACH_BACK_FAILED;
-            case INCONCLUSIVE -> WorkflowGuard.DecisionContext.TEACH_BACK_INCONCLUSIVE;
-        };
+        WorkflowGuard.DecisionContext context = assessed.assessment() == null
+                ? WorkflowGuard.DecisionContext.TEACH_BACK_INCONCLUSIVE
+                : switch (assessed.assessment().outcome()) {
+                    case PASS -> WorkflowGuard.DecisionContext.TEACH_BACK_PASSED;
+                    case FAIL -> WorkflowGuard.DecisionContext.TEACH_BACK_FAILED;
+                    case INCONCLUSIVE -> WorkflowGuard.DecisionContext.TEACH_BACK_INCONCLUSIVE;
+                };
         Decision decision = decide(state, context, assessed.facts());
         return executeMove(state, decision, assessed.evidence(), idempotencyKey, requestHash);
     }

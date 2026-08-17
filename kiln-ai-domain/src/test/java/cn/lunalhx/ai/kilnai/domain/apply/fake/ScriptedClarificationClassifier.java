@@ -1,12 +1,14 @@
 package cn.lunalhx.ai.kilnai.domain.apply.fake;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractInvalidException;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassification;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * The scripted Clarification Gate classifier port. In the default auto-policy
@@ -18,15 +20,24 @@ import java.util.Objects;
  */
 public final class ScriptedClarificationClassifier implements ClarificationClassifierPort {
 
-    private final List<ClarificationClassification> responses;
+    private final List<Optional<ClarificationClassification>> replies;
     private final List<Call> calls = new ArrayList<>();
 
     public ScriptedClarificationClassifier() {
-        this.responses = List.of();
+        this.replies = List.of();
     }
 
     public ScriptedClarificationClassifier(List<ClarificationClassification> responses) {
-        this.responses = List.copyOf(responses);
+        this.replies = responses.stream().map(Optional::of).toList();
+    }
+
+    @SafeVarargs
+    public static ScriptedClarificationClassifier replies(Optional<ClarificationClassification>... replies) {
+        return new ScriptedClarificationClassifier(List.of(replies), true);
+    }
+
+    private ScriptedClarificationClassifier(List<Optional<ClarificationClassification>> replies, boolean ignored) {
+        this.replies = List.copyOf(replies);
     }
 
     @Override
@@ -35,14 +46,15 @@ public final class ScriptedClarificationClassifier implements ClarificationClass
         Objects.requireNonNull(message, "message must not be null");
         Objects.requireNonNull(taskText, "taskText must not be null");
         calls.add(new Call(message, taskText));
-        if (responses.isEmpty()) {
+        if (replies.isEmpty()) {
             return ClarificationClassification.SUBSTANTIVE;
         }
-        if (calls.size() > responses.size()) {
+        if (calls.size() > replies.size()) {
             throw new IllegalStateException(
                     "scripted clarification classifier exhausted: no more scripted classifications");
         }
-        return responses.get(calls.size() - 1);
+        return replies.get(calls.size() - 1)
+                .orElseThrow(() -> new ModelContractInvalidException(List.of("invalid_enum")));
     }
 
     public List<Call> calls() {

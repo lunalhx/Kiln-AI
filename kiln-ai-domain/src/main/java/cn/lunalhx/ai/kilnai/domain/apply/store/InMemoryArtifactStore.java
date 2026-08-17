@@ -8,6 +8,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLevel;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
@@ -38,6 +39,7 @@ public final class InMemoryArtifactStore implements ArtifactStore {
     private final Map<UUID, HintLadder> ladders = new HashMap<>();
     private final Map<UUID, List<HintRequestRecord>> hintRequests = new HashMap<>();
     private final Map<UUID, List<TaskVerificationVerdict>> verifications = new HashMap<>();
+    private final List<ModelContractAudit> contractAudits = new ArrayList<>();
     private final Map<UUID, List<ResponseAssessment>> assessments = new HashMap<>();
     private final Map<UUID, List<TeachBackAssessment>> teachBackAssessments = new HashMap<>();
     private final Map<String, SourceArtifact> sources = new HashMap<>();
@@ -252,6 +254,16 @@ public final class InMemoryArtifactStore implements ArtifactStore {
         return verifications.values().stream()
                 .flatMap(List::stream)
                 .toList();
+    }
+
+    @Override
+    public synchronized void recordModelContractAudit(ModelContractAudit audit) {
+        Objects.requireNonNull(audit, "audit must not be null");
+        contractAudits.add(audit);
+    }
+
+    public synchronized List<ModelContractAudit> allContractAudits() {
+        return List.copyOf(contractAudits);
     }
 
     @Override

@@ -1,36 +1,21 @@
 package cn.lunalhx.ai.kilnai.infrastructure.adapter.model;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
-import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
-import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
-import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
-import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessmentContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
-import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
-import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
-import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
-import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
-import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
-import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassification;
-import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPort;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.json.JsonMapper;
@@ -38,7 +23,6 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -52,15 +36,11 @@ import java.util.function.Function;
  * Small model. The operator-owned output-token ceiling of the frozen profile
  * is enforced on every call. It registers no tools: the Apply and Hint
  * stacks are zero-tool by contract, and this adapter must never attach tool
- * callbacks. Apply generation and Hint ladder generation return raw model
- * text for the domain's strict closed contracts; Task Verification and
- * Response Assessment parse their closed JSON contracts back into domain
- * types.
+ * callbacks. Every model call returns raw content; the Domain owns strict
+ * closed-contract parsing.
  */
-public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifierPort,
-        AssessmentPort, ResponseVerificationPort, HintGenerationPort,
-        ExplainGenerationPort, TeachBackGenerationPort, TeachBackTaskVerifierPort, TeachBackAssessmentPort,
-        PedagogyPort, ClarificationClassifierPort {
+public final class ApplyModelAdapter implements ApplyGenerationPort,
+        HintGenerationPort, ExplainGenerationPort, TeachBackGenerationPort, PedagogyPort {
 
     private static final String JSON_ONLY = "Return JSON only. Do not add commentary, markdown, or fields outside the contract.";
 
@@ -290,8 +270,7 @@ public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifie
         return extractJson(complete(profile, strong(profile), compiledSystemPrompt, executionContextJson));
     }
 
-    @Override
-    public TaskVerificationVerdict verify(
+    public String verify(
             ModelProfile profile,
             TaskPackage taskPackage,
             ApplyExecutionContext context
@@ -299,33 +278,27 @@ public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifie
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("task_package", taskPackage);
         data.put("execution_context", context);
-        String raw = complete(profile, strong(profile), TASK_VERIFIER_SYSTEM, writeJson(data));
-        return parse(raw, TaskVerificationVerdict.class);
+        return extractJson(complete(profile, strong(profile), TASK_VERIFIER_SYSTEM, writeJson(data)));
     }
 
-    @Override
-    public ResponseAssessment assess(ModelProfile profile, ResponseAssessmentContext context) {
+    public String assess(ModelProfile profile, ResponseAssessmentContext context) {
         return judge(profile, context);
     }
 
-    @Override
-    public ResponseAssessment verify(ModelProfile profile, ResponseAssessmentContext context) {
+    public String verifyResponse(ModelProfile profile, ResponseAssessmentContext context) {
         return judge(profile, context);
     }
 
-    @Override
-    public TeachBackAssessment assess(ModelProfile profile, TeachBackAssessmentContext context) {
+    public String assess(ModelProfile profile, TeachBackAssessmentContext context) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("task_text", context.taskText());
         data.put("anchor_content", context.anchorContent());
         data.put("learner_response", context.learnerResponse());
         data.put("purpose", context.purpose());
-        String raw = complete(profile, strong(profile), TEACH_BACK_ASSESSMENT_SYSTEM, writeJson(data));
-        return parse(raw, TeachBackAssessment.class);
+        return extractJson(complete(profile, strong(profile), TEACH_BACK_ASSESSMENT_SYSTEM, writeJson(data)));
     }
 
-    @Override
-    public TaskVerificationVerdict verify(
+    public String verify(
             ModelProfile profile,
             TeachBackTaskPackage taskPackage,
             TeachBackExecutionContext context
@@ -333,8 +306,7 @@ public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifie
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("task_package", taskPackage);
         data.put("execution_context", context);
-        String raw = complete(profile, strong(profile), TEACH_BACK_TASK_VERIFIER_SYSTEM, writeJson(data));
-        return parse(raw, TaskVerificationVerdict.class);
+        return extractJson(complete(profile, strong(profile), TEACH_BACK_TASK_VERIFIER_SYSTEM, writeJson(data)));
     }
 
     @Override
@@ -342,25 +314,15 @@ public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifie
         return complete(profile, small(profile), compiledSystemPrompt, executionContextJson);
     }
 
-    @Override
-    public ClarificationClassification classify(ModelProfile profile, String message, String taskText) {
+    public String classify(ModelProfile profile, String message, String taskText) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("message", message);
         data.put("task_text", taskText);
-        String raw = complete(profile, small(profile), CLARIFICATION_CLASSIFIER_SYSTEM, writeJson(data));
-        ClarificationDraft draft = parse(raw, ClarificationDraft.class);
-        return switch (draft.classification()) {
-            case "procedural" -> ClarificationClassification.PROCEDURAL;
-            case "substantive" -> ClarificationClassification.SUBSTANTIVE;
-            case "uncertain" -> ClarificationClassification.UNCERTAIN;
-            default -> throw providerFailure(new IllegalStateException(
-                    "unknown clarification classification: " + draft.classification()));
-        };
+        return extractJson(complete(profile, small(profile), CLARIFICATION_CLASSIFIER_SYSTEM, writeJson(data)));
     }
 
-    private ResponseAssessment judge(ModelProfile profile, ResponseAssessmentContext context) {
-        String raw = complete(profile, strong(profile), RESPONSE_ASSESSMENT_SYSTEM, writeJson(context));
-        return parse(raw, ResponseAssessment.class);
+    private String judge(ModelProfile profile, ResponseAssessmentContext context) {
+        return extractJson(complete(profile, strong(profile), RESPONSE_ASSESSMENT_SYSTEM, writeJson(context)));
     }
 
     /**
@@ -422,15 +384,6 @@ public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifie
         }
     }
 
-    private <T> T parse(String content, Class<T> type) {
-        try {
-            JsonNode node = json.readTree(extractJson(content));
-            return json.treeToValue(node, type);
-        } catch (JsonProcessingException exception) {
-            throw providerFailure(exception);
-        }
-    }
-
     static String extractJson(String content) {
         String trimmed = content.trim();
         if (trimmed.startsWith("```")) {
@@ -467,15 +420,6 @@ public final class ApplyModelAdapter implements ApplyGenerationPort, TaskVerifie
     private static ObjectMapper contractMapper() {
         return JsonMapper.builder()
                 .propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
-                .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS)
-                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .build();
-    }
-
-    /**
-     * The closed {@code clarification_classification/v1} contract returned by
-     * the Small-model classifier.
-     */
-    private record ClarificationDraft(String schema, String classification) {
     }
 }

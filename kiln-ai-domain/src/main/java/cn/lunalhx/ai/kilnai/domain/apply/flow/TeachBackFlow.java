@@ -10,6 +10,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessmentContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackExecutionContext;
@@ -252,8 +253,13 @@ public final class TeachBackFlow {
                 anchorView.get().learnerContent(),
                 learnerResponse,
                 closedAttempt.purpose());
-        TeachBackAssessment assessment = assessmentPort.assess(flow.modelProfile(), context);
-        artifactStore.recordTeachBackAssessment(closedAttempt.attemptId(), assessment);
+        TeachBackAssessment assessment = ModelContractRepair.once(
+                () -> assessmentPort.assess(flow.modelProfile(), context),
+                artifactStore, flow.flowId(), closedAttempt.attemptId(), closedAttempt.taskPackageId(),
+                ModelContractAudit.TEACH_BACK_ASSESSMENT);
+        if (assessment != null) {
+            artifactStore.recordTeachBackAssessment(closedAttempt.attemptId(), assessment);
+        }
         return new TeachBackSubmissionResult.TeachBackAssessed(
                 closedAttempt,
                 assessment,
@@ -273,6 +279,9 @@ public final class TeachBackFlow {
             TaskAttempt closedAttempt,
             TeachBackAssessment assessment
     ) {
+        if (assessment == null) {
+            return null;
+        }
         return switch (assessment.outcome()) {
             case PASS -> understandingEvidence(flow, closedAttempt, LearningResult.PASS);
             case FAIL -> understandingEvidence(flow, closedAttempt, LearningResult.FAIL);
@@ -281,12 +290,13 @@ public final class TeachBackFlow {
     }
 
     private FeedbackFacts facts(LearningFlowStore.FlowRecord flow, TeachBackAssessment assessment) {
-        boolean satisfied = assessment.outcome() == TeachBackAssessment.TeachBackOutcome.PASS;
+        boolean satisfied = assessment != null
+                && assessment.outcome() == TeachBackAssessment.TeachBackOutcome.PASS;
         List<String> criterionIds = criterionIds();
         return new FeedbackFacts(
                 satisfied ? criterionIds : List.of(),
                 satisfied ? List.of() : criterionIds,
-                assessment.reasonCodes(),
+                assessment == null ? List.of() : assessment.reasonCodes(),
                 0,
                 List.of(),
                 practicePassEvidenceExists(flow));

@@ -71,7 +71,8 @@ public final class PracticeSubmissionFlow {
         this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
         this.assessmentRunner = new AssessmentRunner(
                 Objects.requireNonNull(assessmentPort, "assessmentPort must not be null"),
-                Objects.requireNonNull(verificationPort, "verificationPort must not be null"));
+                Objects.requireNonNull(verificationPort, "verificationPort must not be null"),
+                artifactStore);
         this.submissionCloser = new SubmissionCloser(artifactStore, clock);
         this.practiceContextTemplate = Objects.requireNonNull(
                 practiceContextTemplate, "practiceContextTemplate must not be null");

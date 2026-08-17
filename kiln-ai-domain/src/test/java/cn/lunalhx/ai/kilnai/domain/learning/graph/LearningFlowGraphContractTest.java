@@ -46,6 +46,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintGenerationDraft;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
 import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalAnswer;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
@@ -89,6 +90,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -966,6 +968,114 @@ class LearningFlowGraphContractTest {
     }
 
     @Test
+    void aMalformedPracticeAssessmentIsRepairedOnceThenAcceptsFailEvidenceAndAFreshReplacement() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                ScriptedAssessmentModel.replies(
+                        Optional.of(diagnosticFailJudgment()),
+                        Optional.empty(),
+                        Optional.of(conclusivePracticeJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())),
+                new ScriptedTeachBackGenerationModel(List.of(TeachBackScriptData.taskReadyJson())),
+                new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.passAssessment())),
+                new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
+                ScriptedPedagogyModel.scripted(
+                        TeachingAction.EXPLAIN, TeachingAction.APPLY_PRACTICE, TeachingAction.APPLY_PRACTICE));
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
+        LearningFlowInteraction interaction = replacement.interaction();
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
+        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
+        assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT, interaction.learnerProjection().taskText());
+        assertEquals(1, harness.flowStore().allEvidence().size(),
+                "a repaired valid fail must accept exactly one Evidence record");
+        assertEquals(LearningResult.FAIL, harness.flowStore().allEvidence().get(0).result());
+        assertEquals(List.of(conclusivePracticeJudgment()),
+                harness.artifacts().assessmentsFor(practiceAttemptId),
+                "only the repaired valid judgment is persisted");
+        List<ModelContractAudit> audits = harness.artifacts().allContractAudits();
+        assertEquals(1, audits.size());
+        assertEquals(ModelContractAudit.ASSESSMENT, audits.get(0).responsibility());
+        assertEquals(List.of("unknown_field"), audits.get(0).violationCodes());
+        assertEquals(0, audits.get(0).repairCount());
+        assertEquals(practiceAttemptId, audits.get(0).attemptId());
+        assertEquals(ModelContractAudit.PROVIDER_CATEGORY, audits.get(0).providerCategory());
+        assertFalse(audits.get(0).correlationId().isBlank());
+    }
+
+    @Test
+    void twoInvalidPracticeAssessmentsBecomeInconclusiveWithNoEvidenceAndNoPersistedJudgment() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                ScriptedAssessmentModel.replies(
+                        Optional.of(diagnosticFailJudgment()), Optional.empty(), Optional.empty()));
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
+        LearningFlowInteraction interaction = replacement.interaction();
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
+        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
+        assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT, interaction.learnerProjection().taskText());
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "a still-invalid Assessment must never create Evidence");
+        assertTrue(harness.artifacts().assessmentsFor(practiceAttemptId).isEmpty(),
+                "an invalid Assessment must never be persisted");
+        List<ModelContractAudit> audits = harness.artifacts().allContractAudits();
+        assertEquals(2, audits.size());
+        assertEquals(0, audits.get(0).repairCount());
+        assertEquals(1, audits.get(1).repairCount());
+        assertEquals(audits.get(0).correlationId(), audits.get(1).correlationId());
+        assertEquals(List.of("unknown_field"), audits.get(0).violationCodes());
+        assertEquals(List.of("unknown_field"), audits.get(1).violationCodes());
+        assertFalse(audits.get(0).violationCodes().toString().contains("{"),
+                "audit metadata must never retain raw invalid JSON");
+    }
+
+    @Test
+    void twoInvalidResponseVerificationsBecomeInconclusiveWithNoEvidence() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                ScriptedAssessmentModel.replies(
+                        Optional.of(diagnosticFailJudgment()), Optional.of(inconclusiveJudgment())),
+                ScriptedResponseVerificationModel.replies(Optional.empty(), Optional.empty()));
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
+        LearningFlowInteraction interaction = replacement.interaction();
+        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
+        assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT, interaction.learnerProjection().taskText());
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "a still-invalid Response Verification must never create Evidence");
+        assertEquals(List.of(inconclusiveJudgment()),
+                harness.artifacts().assessmentsFor(practiceAttemptId),
+                "the valid Assessment is persisted; the invalid Verification is not");
+        List<ModelContractAudit> audits = harness.artifacts().allContractAudits();
+        assertEquals(2, audits.size());
+        assertEquals(ModelContractAudit.RESPONSE_VERIFICATION, audits.get(0).responsibility());
+        assertEquals(0, audits.get(0).repairCount());
+        assertEquals(1, audits.get(1).repairCount());
+        assertEquals(audits.get(0).correlationId(), audits.get(1).correlationId());
+    }
+
+    @Test
     void onlyAQualifyingPracticePassInTheCurrentRemediationCycleDeliversAFreshIndependentTest() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(
@@ -1152,6 +1262,30 @@ class LearningFlowGraphContractTest {
                 "a failed start must not create Active Review Work");
         assertTrue(harness.generation().calls().size() == 1,
                 "the failing preparation must still attempt exactly one generation cycle");
+    }
+
+    @Test
+    void aMalformedTaskVerificationVoidsOnlyThatCandidateAndDeliversAFreshStart() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), ApplyScriptData.taskReadyJson())),
+                ScriptedTaskVerifier.replies(
+                        Optional.empty(), Optional.of(ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of()));
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase()
+                .start(LEARNER_ID, UUID.randomUUID());
+        assertEquals(LearningStage.DIAGNOSTIC, started.interaction().stage());
+        assertEquals(AttemptPurpose.DIAGNOSTIC, started.interaction().attemptPurpose());
+        assertEquals(ApplyScriptData.TASK_TEXT, started.interaction().learnerProjection().taskText());
+        assertEquals(2, harness.generation().calls().size(),
+                "an invalid Task Verification must consume one fresh generation cycle");
+        assertEquals(1, harness.artifacts().allPackages().size(),
+                "only the verified fresh candidate is persisted");
+        assertEquals(1, harness.artifacts().allVerifications().size(),
+                "the voided candidate must never persist a Task Verification verdict");
+        assertEquals(TaskVerificationVerdict.Verdict.PASS,
+                harness.artifacts().allVerifications().get(0).verdict());
+        assertEquals(1, harness.flowStore().exposedTaskFingerprints(started.interaction().flowId()).size());
     }
 
     @Test
@@ -2045,6 +2179,42 @@ class LearningFlowGraphContractTest {
     }
 
     @Test
+    void twoInvalidTeachBackAssessmentsBecomeInconclusiveWithNoEvidenceAndNoPersistedJudgment() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())),
+                new ScriptedTeachBackGenerationModel(List.of(
+                        TeachBackScriptData.taskReadyJson(), TeachBackScriptData.taskReadyJson())),
+                ScriptedTeachBackAssessmentModel.replies(Optional.empty(), Optional.empty()));
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        UUID teachBackAttemptId = teachBack.interaction().attemptId();
+        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
+                UUID.randomUUID(), teachBackAttemptId,
+                "说不清为什么幂法则适用。", "说不清为什么幂法则适用。", null);
+        LearningFlowInteraction interaction = replacement.interaction();
+        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
+        assertEquals(TeachBackScriptData.LEARNER_PROMPT, interaction.learnerProjection().taskText(),
+                "a still-invalid Teach-back Assessment must deliver a fresh Teach-back task");
+        assertEquals(TeachBackFlow.TEACH_BACK_REPLACEMENT_MESSAGE, interaction.learnerMessage());
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "a still-invalid Teach-back Assessment must never create Evidence");
+        assertTrue(harness.artifacts().teachBackAssessmentsFor(teachBackAttemptId).isEmpty(),
+                "an invalid Teach-back Assessment must never be persisted");
+        List<ModelContractAudit> audits = harness.artifacts().allContractAudits();
+        assertEquals(2, audits.size());
+        assertEquals(ModelContractAudit.TEACH_BACK_ASSESSMENT, audits.get(0).responsibility());
+        assertEquals(0, audits.get(0).repairCount());
+        assertEquals(1, audits.get(1).repairCount());
+        assertEquals(audits.get(0).correlationId(), audits.get(1).correlationId());
+    }
+
+    @Test
     void aReplayedTeachBackSubmissionReturnsTheOriginalInteractionWithoutASecondAssessment() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(
@@ -2844,6 +3014,48 @@ class LearningFlowGraphContractTest {
         assertTrue(attempt.assistanceTrace().isEmpty());
         assertEquals(0, harness.explainGeneration().calls().size(),
                 "the consent request must expose no teaching content before consent");
+        assertTrue(harness.flowStore().allEvidence().isEmpty());
+    }
+
+    @Test
+    void anInvalidClarificationClassificationFallsBackToUncertainConsentWithoutA503() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION))),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(ApplyScriptData.responseAssessment(
+                        FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED))),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())),
+                new ScriptedTeachBackGenerationModel(List.of(TeachBackScriptData.taskReadyJson())),
+                new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.passAssessment())),
+                new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
+                new ScriptedPedagogyModel(),
+                ScriptedClarificationClassifier.replies(Optional.empty()));
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase()
+                .start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        UUID independentAttemptId = transitioned.interaction().attemptId();
+        LearningFlowResult.Boundary consented = (LearningFlowResult.Boundary) harness.useCase().clarificationAsked(
+                transitioned.interaction().flowId(), transitioned.interaction().interactionVersion(),
+                independentAttemptId, "为什么幂法则适用？", UUID.randomUUID());
+        LearningFlowInteraction interaction = consented.interaction();
+        assertEquals(InteractionKind.ASSISTANCE_CONSENT, interaction.kind());
+        assertEquals(independentAttemptId, interaction.attemptId());
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST, interaction.attemptPurpose());
+        assertNotNull(interaction.assistanceConsent());
+        assertEquals(AttemptStatus.OPEN,
+                harness.artifacts().findAttempt(independentAttemptId).orElseThrow().status());
+        List<ModelContractAudit> audits = harness.artifacts().allContractAudits();
+        assertEquals(1, audits.size());
+        assertEquals(ModelContractAudit.CLARIFICATION, audits.get(0).responsibility());
+        assertEquals(0, audits.get(0).repairCount());
+        assertEquals(List.of("invalid_enum"), audits.get(0).violationCodes());
         assertTrue(harness.flowStore().allEvidence().isEmpty());
     }
 
