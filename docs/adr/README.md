@@ -36,6 +36,8 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0039](0039-connect-every-existing-model-port-through-one-spring-ai-adapter.md): superseded — the spike ports were removed; the Apply ports use `ApplyModelAdapter`
 - [ADR-0064](0064-restore-the-learning-state-graph-for-multi-profile-learning.md): restore the application-owned graph boundary for multi-Profile Learning and Practice
 - [ADR-0065](0065-limit-the-reference-hint-ladder-to-apply-practice.md): the reference Hint Ladder serves Apply Practice, not Teach-back
+- [ADR-0069](0069-retry-durable-unavailable-interactions.md): bounded retry of durable unavailable interactions
+- [ADR-0070](0070-limit-active-learning-work-and-cancel-review-cadence-explicitly.md): one active Flow/Review cadence and explicit cancellation
 
 ## Sources and Concept preparation
 
@@ -69,6 +71,7 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0059](0059-separate-profile-contract-tests-from-live-model-smoke-tests.md): deterministic Profile tests versus live smoke tests
 - [ADR-0060](0060-use-one-neutral-message-for-unavailable-apply-tasks.md): neutral unavailable-task message
 - [ADR-0061](0061-review-answer-rationale-contradiction-is-conclusive-fail.md): Review answer-rationale contradiction is a conclusive failure
+- [ADR-0071](0071-fail-closed-on-model-contract-errors-with-type-specific-recovery.md): strict model contracts and safe recovery
 
 ## Task generation, validation, and review
 

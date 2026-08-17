@@ -611,7 +611,7 @@ A `source_gap` ends task generation immediately. An invalid Output Gate result, 
 
 > 暂时无法准备一道可验证的题目。请稍后重试。
 
-The message does not expose source, model, validation, or technical-failure details. The learner sees only retry and leave-flow Flow Control; the detailed outcome and reason codes remain operator audit data. No Task Attempt exists in either case.
+The message does not expose source, model, validation, or technical-failure details. Before the first Flow is atomically bound, the Start command returns a generic 503 and leaves no Flow or source record; the client retries that same Start with its original Idempotency-Key. For an existing Flow, the Graph commits an `unavailable` Interaction Boundary in `AWAITING_LEARNER_INPUT` with a durable Pending Operation. The learner may issue `retry_requested` with a new Idempotency-Key up to three times for that unavailable chain, or leave through Flow Control. No Task Attempt exists for an unprepared task, and no retry carries a replacement answer or original request body.
 
 ## End-to-end test contract
 
@@ -629,6 +629,7 @@ The required `ApplyProfileContractTest` runs the whole Apply reference with scri
 | Independent contradiction | Final expression passes; rationale is clearly contradictory. | No evidence; normal subsequent flow, not learner failure. |
 | Mathematical uncertainty | Equivalence returns Cannot Decide and isolated judgments disagree or are inconclusive. | Inconclusive Assessment, no evidence, and the next formal test requires a fresh task. |
 | Least privilege | Independent context fixture includes only the Diagnostic-pass fact and prior Fingerprints. | No raw Diagnostic answer, rationale, conclusion, feedback, or key reaches the second Apply invocation. |
+| Atomic Start failure | Initial Diagnostic generation or verification fails. | HTTP 503; no Flow, Source Pack, package, Attempt, command, interaction, checkpoint, exposure, or verification audit. |
 
 `ApplyProfileLiveSmokeTest` is a separate, non-blocking check in ephemeral storage. It uses the real compiled prompts and an operator-configured model but never serves as a stable regression oracle or creates evidence.
 

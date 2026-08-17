@@ -10,7 +10,7 @@
 - [x] Independent/Review 拒绝帮助时 Attempt 不变；接受时先原子转换为 Practice，之后才可暴露帮助。
 - [x] 已开始 Review 的转换会取消 ReviewTask，不产生 Review Evidence 或 milestone 变化；后续 Independent PASS 从 Review 1 重启 cadence。
 
-## 显式记录的执行偏离 (Deviations recorded explicitly)
+## 已收敛的补充决策 (Not yet implemented)
 
-- **Teach-back 与 standalone Explain 边界上的 clarification 命令路由未实现。** Spec line 124 与 147 允许 Explain / Teach-back Interaction Contract 携带 Clarification 事件（learner projection 的 `allowedEvents` 已含 `CLARIFICATION_ASKED`），但 ticket 08 的验收标准只覆盖 Practice / Independent / Review 三个 Attempt purpose，spec 的 Implementation Decisions 也没有规定这两个边界的 clarification 图路由（Teach-back 的临时 Explain 恢复需要把 open-Attempt 的 flow-scoping 扩展到 teach-back package，超出本 ticket 范围）。因此 `clarification_asked` 对 Diagnostic 与 Teach-back Attempt 返回 `WRONG_ATTEMPT_PURPOSE`（与 hint 命令一致），对 teaching boundary（无 open Attempt）不可用。后续 ticket 需要在 Interaction Contract 层补上这两个边界的图行为。
+- **Diagnostic、Teach-back 与 standalone Explain 的 clarification 边界已确定。** Diagnostic 与 Teach-back 只允许程序性澄清；substantive 或 uncertain 请求不提供内容、不改变 Attempt purpose 或证据资格。Standalone Explain 也只允许程序性澄清，命令面向当前 teaching interaction 而非 Attempt。该决定取代本 ticket 原先记录的未实现偏离；实现见 `learning-flow-reliability-and-reference-ui/06-procedural-clarification-boundary.md`。
 - **Review conversion 的进程崩溃恢复是 ticket 10 的范围。** 转换、ReviewTask 取消与 boundary commit 在领域命令中顺序执行；in-memory 重试通过 Already-Practice 幂等路径恢复，但 PostgreSQL 上转换与取消之间的崩溃窗口、artifact 复用与完整 exactly-once 恢复契约由 ticket 10 提供。

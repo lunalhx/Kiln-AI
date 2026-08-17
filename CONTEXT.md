@@ -168,12 +168,16 @@ _Avoid_: Secondary target
 A progression through Diagnostic, necessary learning and practice, Independent Test, and later Delayed Review for one Target Concept. The stages constrain the flow, but they do not require every Teaching Action.
 _Avoid_: Course, chapter session
 
+**Active Learning Work**:
+The one durable unit that prevents a learner from starting another Flow for the same Target Concept: either a non-terminal Learning Flow or an unfinished Review Task belonging to its terminal Flow. Phase 0 permits at most one Active Learning Work item per learner and Target Concept.
+_Avoid_: Browser tab, local activeFlowId, parallel diagnostics
+
 **Suspended Learning Flow**:
 A resumable Learning Flow that is not the learner's current active interaction. It retains Learning State and Concept Progress but has no open Task Attempt; resuming it creates a fresh Task Package from the preserved state.
 _Avoid_: Open background Agent, frozen Task Attempt, abandoned Learning Flow
 
 **Review Task**:
-The durable scheduled work item that makes one Concept's next Delayed Review discoverable without running a model or pre-generating a learner task. It progresses through Scheduled, Due, Started, Completed, or Cancelled and references the original Learning Flow.
+The durable scheduled work item that makes one Concept's next Delayed Review discoverable without running a model or pre-generating a learner task. It progresses through Scheduled, Due, Started, Completed, or Cancelled and references the original Learning Flow. An explicit learner-confirmed cancellation may cancel any unfinished Review Task; cancelling Started work abandons its open Attempt atomically and produces no evidence.
 _Avoid_: Task Package, background Agent, pre-generated review question
 
 **Review Cadence**:
@@ -257,7 +261,7 @@ The unified pause state reached after Kiln-AI presents learner-visible content t
 _Avoid_: Sleeping Agent, simulated learner response, chat message without persisted state
 
 **Learner Input Event**:
-The typed, immutable representation of one learner message entering a resumed Graph Run. Phase 0 event kinds are Answer Submitted, Continue Requested, Hint Requested, Clarification Asked, Flow Control Requested, and Unknown Input; the event records the original message and interpretation metadata.
+The typed, immutable representation of one learner message entering a resumed Graph Run. Phase 0 event kinds are Answer Submitted, Continue Requested, Hint Requested, Clarification Asked, Assistance Decided, Retry Requested, Flow Control Requested, and Unknown Input; the event records the original message and interpretation metadata.
 _Avoid_: Raw chat text, Teaching Action, accepted state transition
 
 **Mathematical Answer**:
@@ -277,8 +281,12 @@ A bounded deterministic evaluation of a confirmed Mathematical Answer against a 
 _Avoid_: String equality, universal computer algebra claim, model verdict
 
 **Inconclusive Assessment**:
-The outcome when required evaluation sources disagree or cannot establish a reliable result. It accepts no Learning Evidence and is not recorded as learner failure; a later independent attempt requires a Fresh Equivalent Task.
+The outcome when required evaluation sources disagree, a required closed evaluation contract remains invalid after its one repair, or a reliable result cannot otherwise be established. It accepts no Learning Evidence and is not recorded as learner failure; a later independent attempt requires a Fresh Equivalent Task.
 _Avoid_: Averaged confidence, failed attempt, accepted evidence
+
+**Model Contract Invalid**:
+An internal result in which a model response violates its closed contract, including a missing or wrong schema, missing required field, invalid enum, invalid collection shape, null required value, or unknown field. It is distinct from Provider Unavailable and never reaches the learner as raw JSON or a parser error. Each model responsibility follows its declared bounded repair or safe fallback.
+_Avoid_: Provider outage, learner input error, accepted model artifact
 
 **Learner Input Gate**:
 The graph-entry boundary that converts a structured UI/API action or free-form learner message into a Learner Input Event, then asks the Workflow Guard to validate whether that event is legal in the current Learning State. It cannot assess an answer, select pedagogy, load Skills, or mutate state.
@@ -291,6 +299,18 @@ _Avoid_: Teaching Node, intent-driven state mutation, general chat Agent
 **Clarification Gate**:
 The interaction node that classifies a Clarification Asked event as Procedural or Substantive. It may answer a procedural request without loading a Teaching Node Profile; substantive or uncertain requests require an explicit assistance warning and learner consent before routing to Hint or Explain.
 _Avoid_: Sixth Teaching Node Profile, Assessment, silent assistance
+
+**Unavailable Interaction**:
+A committed, learner-safe Interaction Boundary shown when an operation against an existing Learning Flow cannot safely reach its next interaction. It remains Awaiting Learner Input and permits Retry Requested and Flow Control until its bounded retry chain is exhausted. It never contains source, provider, model-contract, or private-assessment details.
+_Avoid_: HTTP error body, learner failure, terminal Flow by default
+
+**Pending Operation**:
+The durable, application-owned description of the operation that an Unavailable Interaction can resume. It carries only the identity and committed inputs needed to continue from durable state, such as a saved submission or Review Task, never a client-supplied replacement answer. It is cleared only when a successful next interaction commits or the Flow is explicitly left.
+_Avoid_: Client request cache, replaying an arbitrary command body, background job
+
+**Retry Chain**:
+The bounded sequence beginning at one Unavailable Interaction. The initial boundary has zero retries; each failed Retry Requested increments its count; a successful next interaction ends the chain. Phase 0 permits three failed retries, then leaves only Flow Control.
+_Avoid_: Unlimited automatic retry, a learner-failure count, one Flow-wide counter
 
 **Learning Stage**:
 A major phase of a Learning Flow: Diagnostic, Learning and Practice, Independent Test, or Delayed Review. A stage may use different Teaching Actions depending on the Mastery Criterion and available Learning Evidence.
@@ -441,7 +461,7 @@ The common execution wrapper that calls a model-producing node, submits its arti
 _Avoid_: Gate Policy, graph coordinator, autonomous retry loop
 
 **Node Execution Failed**:
-The terminal result of a Teaching Node execution whose envelope still fails the Output Gate after its single allowed repair. The failure is traced but creates no Task Attempt, exposes no partial output, and does not advance Learning State.
+The internal result of a Teaching Node execution whose envelope still fails the Output Gate after its single allowed repair. The failure is traced but creates no Task Attempt, exposes no partial output, and does not advance the intended Learning State transition; an existing Flow reaches an Unavailable Interaction for bounded learner-controlled retry.
 _Avoid_: Learner failure, incorrect answer, automatic re-routing
 
 **Execution Plan**:

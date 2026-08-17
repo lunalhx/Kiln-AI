@@ -92,13 +92,13 @@ curl -X POST http://localhost:8080/api/learning/flows/<flowId>/commands \
   -d '{"command": "answer_submitted", "interactionVersion": 1, "attemptId": "<attemptId>", "rawAnswer": "12x²−6x+7", "confirmedCanonical": "12*x^2-6*x+7", "rationale": null}'
 ```
 
-Every learner command is one closed discriminator — `answer_submitted`, `hint_requested`, `clarification_asked`, `assistance_decided`, `continue_requested`, or `flow_control_requested` — and carries the expected `interactionVersion` (plus `attemptId` when it targets an open Attempt). Query the latest committed interaction at any time:
+Every learner command is one closed discriminator — `answer_submitted`, `hint_requested`, `clarification_asked`, `assistance_decided`, `continue_requested`, `retry_requested`, or `flow_control_requested` — and carries the expected `interactionVersion` (plus `attemptId` when it targets an open Attempt). `retry_requested` has no answer payload: it resumes the saved durable operation from an unavailable interaction. Query the latest committed interaction at any time:
 
 ```bash
 curl http://localhost:8080/api/learning/flows/<flowId>
 ```
 
-The response exposes one closed committed-interaction union — `task`, `teaching`, `assistance_consent`, `transition`, or `unavailable` — with the closed command names the learner may issue against it. Due Review Tasks live under `/api/review-tasks`. Learner responses never contain expected answers, source identities, Fingerprints, or execution traces.
+The response exposes one closed committed-interaction union — `task`, `teaching`, `assistance_consent`, `transition`, or `unavailable` — with the closed command names the learner may issue against it. An unavailable interaction is recoverable and permits up to three explicit retries before only leaving remains. Due Review Tasks live under `/api/review-tasks`; any unfinished Review Cadence may be cancelled explicitly with `POST /api/review-tasks/{reviewId}/cancel` and an `Idempotency-Key`. One learner has at most one active Flow or unfinished Review Cadence for this reference Concept; a conflicting Start returns the existing Flow ID for recovery. Learner responses never contain expected answers, source identities, Fingerprints, or execution traces.
 
 ## Verification
 

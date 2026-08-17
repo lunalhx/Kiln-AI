@@ -4,7 +4,7 @@
 
 **Blocked by:** 10 — PostgreSQL 的恢复与 exactly-once 学习循环.
 
-**Status:** ready-for-agent
+**Status:** superseded — fail-closed 配置与 live smoke 并入 `learning-flow-reliability-and-reference-ui` 的 05 / 10.
 
 - [ ] Strong/Small 职责、每节点 repair 上限、16,000 字符 instruction cap 与 operator-owned output ceiling 均被执行并记录。
 - [ ] 缺失或无效的 operator 配置 fail closed；测试 fixture 不成为生产 fallback。

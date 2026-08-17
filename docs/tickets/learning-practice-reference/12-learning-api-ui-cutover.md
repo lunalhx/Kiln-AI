@@ -4,7 +4,7 @@
 
 **Blocked by:** 11 — 冻结的 Strong/Small 模型运行时.
 
-**Status:** ready-for-agent
+**Status:** superseded — 统一 API 与 reference UI 切换并入 `learning-flow-reliability-and-reference-ui` 的 09 / 10.
 
 - [ ] Learning Flow 与 Review Task resources 支持规范中的 closed command discriminator、Idempotency-Key、interactionVersion 和 attemptId 规则。
 - [ ] UI 只呈现 committed interaction 与 allowedEvents，且不会暴露答案、Rubric、Source Passage、Feedback Facts、Blackboard 或 execution trace。
