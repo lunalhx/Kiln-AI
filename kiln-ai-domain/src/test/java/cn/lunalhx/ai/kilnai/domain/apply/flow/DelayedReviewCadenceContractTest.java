@@ -32,6 +32,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
@@ -497,14 +498,15 @@ class DelayedReviewCadenceContractTest {
         ReviewStartResult.Boundary freshStarted = (ReviewStartResult.Boundary) harness.reviewStart().start(
                 fresh.reviewId(), UUID.randomUUID());
 
-        LearningFlowResult.Boundary outcome = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.SubmissionIgnored ignored = (LearningFlowResult.SubmissionIgnored) harness.useCase().submitAnswer(
                 flowId, freshStarted.interaction().interactionVersion(), UUID.randomUUID(),
                 started.interaction().attemptId(),
                 ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, ApplyScriptData.REVIEW_EXPECTED_EXPRESSION, null);
 
-        assertEquals(FlowStatus.TERMINAL, outcome.interaction().status(),
-                "a stale attempt of a cancelled Review must end safely instead of erroring");
-        assertTrue(outcome.interaction().learnerMessage().contains("复习已结束"));
+        assertEquals(SubmissionIgnoreReason.NOT_LEGAL_FOR_INTERACTION, ignored.reason(),
+                "a stale Attempt replaced by a later Interaction cannot be routed again");
+        assertEquals(freshStarted.interaction(), harness.flowStore().latestInteraction(flowId).orElseThrow(),
+                "routing a stale Attempt must not advance or rewrite the current Interaction");
         assertTrue(harness.reviewEvidence().isEmpty(),
                 "a stale attempt must never accept Review Evidence, PASS or FAIL");
         ReviewTask freshAfter = harness.review(fresh.reviewId());

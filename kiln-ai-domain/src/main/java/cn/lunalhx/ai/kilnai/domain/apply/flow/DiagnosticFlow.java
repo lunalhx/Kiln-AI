@@ -19,6 +19,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.FeedbackFacts;
 import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -87,6 +88,13 @@ public final class DiagnosticFlow {
         return executor.prepareTask(profile, diagnosticContext, false);
     }
 
+    /**
+     * One formal Diagnostic submission: atomically closes the Attempt and
+     * saves the submission, then runs isolated Assessment. A recovered closed
+     * Attempt resumes from the database-saved submission; the request body
+     * cannot replace it. A successor Independent already exposed is a
+     * duplicate and is ignored.
+     */
     public DiagnosticSubmissionResult submitDiagnostic(
             UUID flowId,
             ModelProfile profile,
@@ -106,13 +114,32 @@ public final class DiagnosticFlow {
             case SubmissionCloser.CloseResult.NotSubmittable notSubmittable ->
                     new DiagnosticSubmissionResult.NotSubmittable(notSubmittable.reason());
             case SubmissionCloser.CloseResult.Closed closedAttempt -> assess(flowId, profile, closedAttempt.attempt());
-            // A Diagnostic outcome has no Evidence or cadence state to make a
-            // resumed evaluation idempotent: re-running it would regenerate a
-            // duplicate Independent Attempt. The pre-existing behavior is kept:
-            // an already-closed Diagnostic Attempt is ignored, never re-evaluated.
             case SubmissionCloser.CloseResult.Recovered recovered ->
-                    new DiagnosticSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+                    recoverOrIgnore(flowId, profile, recovered.attempt());
         };
+    }
+
+    /**
+     * An already-closed Diagnostic Attempt carries its saved submission. When
+     * a successor Independent task was already exposed, the command is a
+     * duplicate whose outcome exists and nothing is re-run; otherwise the
+     * process crashed between closing and committing, and Assessment resumes
+     * from the database-saved submission. The exposed Independent package is
+     * the exactly-once guard: Diagnostic creates no Evidence.
+     */
+    private DiagnosticSubmissionResult recoverOrIgnore(
+            UUID flowId,
+            ModelProfile profile,
+            TaskAttempt closedAttempt
+    ) {
+        boolean independentAlreadyExposed = flowStore.exposedTaskPackageIds(flowId).stream()
+                .map(artifactStore::findPackage)
+                .flatMap(Optional::stream)
+                .anyMatch(taskPackage -> taskPackage.attemptPurpose() == AttemptPurpose.INDEPENDENT_TEST);
+        if (independentAlreadyExposed) {
+            return new DiagnosticSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
+        }
+        return assess(flowId, profile, closedAttempt);
     }
 
     private DiagnosticSubmissionResult assess(UUID flowId, ModelProfile profile, TaskAttempt closedAttempt) {

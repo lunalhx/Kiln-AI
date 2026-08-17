@@ -10,6 +10,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 
 import java.time.Clock;
 import java.util.List;
@@ -23,7 +24,9 @@ import java.util.UUID;
  * never produces a second evaluation or result. An already-closed attempt
  * returns its saved closed state as {@link CloseResult.Recovered}, so the
  * caller can resume the evaluation of the saved submission after a process
- * crash instead of discarding it.
+     * crash instead of discarding it. An already-submitted Attempt returns
+     * that saved submission without reading the request body, so a retry
+     * cannot replace or override it.
  */
 final class SubmissionCloser {
 
@@ -50,6 +53,9 @@ final class SubmissionCloser {
         TaskAttempt attempt = maybeAttempt.get();
         if (attempt.purpose() != expectedPurpose) {
             return new CloseResult.Ignored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+        }
+        if (attempt.status() == AttemptStatus.SUBMITTED && attempt.submission() != null) {
+            return new CloseResult.Recovered(attempt);
         }
         List<String> variables = packageVariables(attempt);
         Optional<CanonicalExpressionResolver.Resolution> resolution =

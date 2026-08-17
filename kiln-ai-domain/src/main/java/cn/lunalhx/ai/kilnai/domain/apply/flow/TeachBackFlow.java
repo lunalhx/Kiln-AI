@@ -26,6 +26,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.FeedbackFacts;
 
@@ -196,6 +197,9 @@ public final class TeachBackFlow {
         if (attempt.purpose() != AttemptPurpose.PRACTICE
                 || artifactStore.findTeachBackPackage(attempt.taskPackageId()).isEmpty()) {
             return new CloseOutcome.Ignored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+        }
+        if (attempt.status() == AttemptStatus.SUBMITTED && attempt.submission() != null) {
+            return new CloseOutcome.Recovered(attempt);
         }
         if (rawText == null || rawText.isBlank() || confirmedText == null || confirmedText.isBlank()) {
             return new CloseOutcome.NotSubmittable(SubmissionRejectionReason.UNPARSEABLE_RAW);

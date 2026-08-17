@@ -235,12 +235,13 @@ public final class LearningStateGraph {
         if (state.latestInteraction().kind() == InteractionKind.UNAVAILABLE) {
             return new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.NOT_LEGAL_FOR_INTERACTION);
         }
+        Optional<SubmissionIgnoreReason> ownership = ignoredAttemptOwnership(state, attemptId);
+        if (ownership.isPresent()) {
+            return new LearningFlowResult.SubmissionIgnored(ownership.get());
+        }
         AttemptPurpose purpose = artifactStore.findAttempt(attemptId)
                 .map(TaskAttempt::purpose)
-                .orElse(null);
-        if (purpose == null) {
-            return new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
-        }
+                .orElseThrow();
         return switch (purpose) {
             case DIAGNOSTIC -> submitDiagnostic(state, attemptId, rawDerivative, confirmedCanonical, rationale,
                     idempotencyKey, requestHash);
@@ -255,6 +256,21 @@ public final class LearningStateGraph {
                             idempotencyKey, requestHash);
             default -> new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         };
+    }
+
+    /**
+     * An Attempt must belong to the current Flow and be the Attempt addressed
+     * by the current Interaction. An unknown Attempt is not found; an Attempt
+     * already replaced by a later Interaction cannot be routed again.
+     */
+    private Optional<SubmissionIgnoreReason> ignoredAttemptOwnership(LearningState state, UUID attemptId) {
+        if (artifactStore.findAttempt(attemptId).isEmpty()) {
+            return Optional.of(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+        }
+        if (!Objects.equals(state.latestInteraction().attemptId(), attemptId)) {
+            return Optional.of(SubmissionIgnoreReason.NOT_LEGAL_FOR_INTERACTION);
+        }
+        return Optional.empty();
     }
 
     /**
@@ -326,11 +342,12 @@ public final class LearningStateGraph {
         if (state.latestInteraction().interactionVersion() != interactionVersion) {
             throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
         }
-        Optional<TaskAttempt> maybeAttempt = artifactStore.findAttempt(attemptId);
-        if (maybeAttempt.isEmpty()) {
-            return new LearningFlowResult.HintIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+        Optional<SubmissionIgnoreReason> ownership = ignoredAttemptOwnership(state, attemptId);
+        if (ownership.isPresent()) {
+            return new LearningFlowResult.HintIgnored(ownership.get());
         }
-        HintResult result = hintFlow.requestHint(state.flow().modelProfile(), maybeAttempt.get(), answerRequested, idempotencyKey);
+        TaskAttempt attempt = artifactStore.findAttempt(attemptId).orElseThrow();
+        HintResult result = hintFlow.requestHint(state.flow().modelProfile(), attempt, answerRequested, idempotencyKey);
         return switch (result) {
             case HintResult.Revealed revealed -> revealBoundary(state, revealed, idempotencyKey, requestHash);
             case HintResult.Unavailable unavailable -> boundary(
@@ -369,11 +386,11 @@ public final class LearningStateGraph {
         if (state.latestInteraction().interactionVersion() != interactionVersion) {
             throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
         }
-        Optional<TaskAttempt> maybeAttempt = artifactStore.findAttempt(attemptId);
-        if (maybeAttempt.isEmpty()) {
-            return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+        Optional<SubmissionIgnoreReason> ownership = ignoredAttemptOwnership(state, attemptId);
+        if (ownership.isPresent()) {
+            return new LearningFlowResult.ClarificationIgnored(ownership.get());
         }
-        TaskAttempt attempt = maybeAttempt.get();
+        TaskAttempt attempt = artifactStore.findAttempt(attemptId).orElseThrow();
         if (!attempt.isOpen()) {
             return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
@@ -424,11 +441,11 @@ public final class LearningStateGraph {
         if (state.latestInteraction().interactionVersion() != interactionVersion) {
             throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
         }
-        Optional<TaskAttempt> maybeAttempt = artifactStore.findAttempt(attemptId);
-        if (maybeAttempt.isEmpty()) {
-            return new LearningFlowResult.AssistanceIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
+        Optional<SubmissionIgnoreReason> ownership = ignoredAttemptOwnership(state, attemptId);
+        if (ownership.isPresent()) {
+            return new LearningFlowResult.AssistanceIgnored(ownership.get());
         }
-        TaskAttempt attempt = maybeAttempt.get();
+        TaskAttempt attempt = artifactStore.findAttempt(attemptId).orElseThrow();
         if (!attempt.isOpen()) {
             return new LearningFlowResult.AssistanceIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
