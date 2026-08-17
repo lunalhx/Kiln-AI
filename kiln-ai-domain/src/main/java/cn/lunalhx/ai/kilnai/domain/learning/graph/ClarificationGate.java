@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.learning.graph;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -56,5 +57,20 @@ public final class ClarificationGate {
                 .collect(Collectors.joining("；", "包含作答字段 ", "。")));
         answer.append("正式提交仅限一次，请按题目中给出的变量与输入方式填写。");
         return answer.toString();
+    }
+
+    /**
+     * The deterministic procedural answer of one Explain teaching interaction
+     * (spec: Explain clarification addresses the current Interaction rather
+     * than an Attempt). It restates only the teaching content already
+     * displayed — the principle, the worked example's problem and final
+     * result, and the Continue interface event — so no knowledge is added and
+     * the teaching boundary never changes.
+     */
+    public String proceduralTeachingAnswer(TeachingProjection teaching) {
+        Objects.requireNonNull(teaching, "teaching must not be null");
+        return "讲解说明：本页已展示一个原理说明和一个完整示例（题目：" + teaching.workedExample().problem()
+                + "，结果：" + teaching.workedExample().finalResult() + "）。"
+                + "您可以继续进入下一步，或就已展示的记号、步骤与界面操作提问。";
     }
 }

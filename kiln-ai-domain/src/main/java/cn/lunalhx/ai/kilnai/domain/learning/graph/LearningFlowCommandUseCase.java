@@ -143,9 +143,12 @@ public final class LearningFlowCommandUseCase {
     /**
      * The clarification-asked command of the closed learning command surface:
      * the Clarification Gate classifies the free-form message and the graph
-     * routes the answer — a direct procedural restatement, a temporary
-     * Explain inside the open Practice Attempt, or an assistance-consent
-     * request over an open Independent or Review Attempt.
+     * routes the answer — a direct procedural restatement, a refusal without
+     * teaching content, a temporary Explain inside the open Practice Attempt,
+     * or an assistance-consent request over an open Independent or Review
+     * Attempt. The {@code attemptId} is nullable because a standalone Explain
+     * clarification addresses the current Interaction Boundary without an
+     * Attempt ID (spec).
      */
     public LearningFlowResult clarificationAsked(
             UUID flowId,
@@ -156,7 +159,6 @@ public final class LearningFlowCommandUseCase {
     ) {
         requireUuidKey(idempotencyKey);
         Objects.requireNonNull(flowId, "flowId must not be null");
-        Objects.requireNonNull(attemptId, "attemptId must not be null");
         Objects.requireNonNull(message, "message must not be null");
         String hash = ApplyHash.sha256HexDelimited(
                 "clarify", flowId, interactionVersion, attemptId, message);

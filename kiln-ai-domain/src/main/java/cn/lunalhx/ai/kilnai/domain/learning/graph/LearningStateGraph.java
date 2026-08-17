@@ -37,6 +37,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackSubmissionResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
@@ -121,6 +122,24 @@ public final class LearningStateGraph {
 
     public static final String CLARIFICATION_EXPLAIN_MESSAGE =
             "以下是针对您疑问的讲解，之后请继续完成当前题目。";
+
+    /**
+     * The learner-visible refusal of a substantive or uncertain clarification
+     * on a Diagnostic or Teach-back task (ticket 06): this stage offers no
+     * concept help, so the message adds no teaching content and the open
+     * Attempt's purpose and evidence eligibility are never changed.
+     */
+    public static final String TASK_CLARIFICATION_NOT_OFFERED_MESSAGE =
+            "当前任务阶段不提供概念讲解。请按题目中已展示的格式与记号继续作答。";
+
+    /**
+     * The learner-visible refusal of a substantive or uncertain clarification
+     * on a standalone Explain teaching interaction (ticket 06): the
+     * explanation adds no further teaching content and the teaching boundary
+     * is left unchanged.
+     */
+    public static final String TEACHING_CLARIFICATION_NOT_OFFERED_MESSAGE =
+            "本次讲解不回答额外概念问题。您可以继续进入下一步，或就已展示内容的格式、记号与界面操作提问。";
 
     /**
      * The learner-visible message of an explicit leave (ADR-0015): any open
@@ -362,16 +381,23 @@ public final class LearningStateGraph {
 
     /**
      * The Graph Run of a clarification-asked command: the Clarification Gate
-     * classifies the free-form message and routes by the open Attempt's
-     * purpose. A procedural request is answered directly by the gate with a
-     * deterministic restatement of the Task Package's own format contract and
-     * recorded as procedural assistance — it never disqualifies an
-     * Independent attempt. A substantive or uncertain request on an open
-     * Apply Practice Attempt records the assistance and delivers a temporary
-     * Explain teaching boundary; on an open Independent Test or Review
-     * Attempt it first projects an assistance-consent request with no
-     * conversion, recording, or teaching content. Diagnostic and Teach-back
-     * attempts never take the clarification command.
+     * classifies the free-form message and routes by the current Interaction.
+     * On a standalone Explain teaching interaction the command addresses the
+     * current Interaction Boundary, never an Attempt (spec): a procedural
+     * request is answered with a deterministic restatement of the displayed
+     * teaching conditions and leaves the teaching boundary unchanged; a
+     * substantive or uncertain request adds no teaching content and keeps the
+     * same teaching boundary. On a Diagnostic or Teach-back task only
+     * procedural clarification is allowed — it restates the Task Package's own
+     * format contract and records the procedural assistance; a substantive or
+     * uncertain request adds no teaching content and never changes the Attempt
+     * purpose or its evidence eligibility (ticket 06). On an open Apply
+     * Practice Attempt a substantive or uncertain request records the
+     * assistance and delivers a temporary Explain teaching boundary; on an
+     * open Independent Test or Review Attempt it first projects an
+     * assistance-consent request with no conversion, recording, or teaching
+     * content. Practice, Independent, and Review keep their existing
+     * clarification and consent rules.
      */
     public LearningFlowResult clarificationAsked(
             UUID flowId,
@@ -382,11 +408,20 @@ public final class LearningStateGraph {
             String requestHash
     ) {
         Objects.requireNonNull(flowId, "flowId must not be null");
-        Objects.requireNonNull(attemptId, "attemptId must not be null");
         Objects.requireNonNull(message, "message must not be null");
         LearningState state = LearningState.rehydrate(flowStore, flowId);
         if (state.latestInteraction().interactionVersion() != interactionVersion) {
             throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+        }
+        // A standalone Explain (or any teaching interaction) addresses the
+        // current Interaction Boundary without an Attempt ID: its
+        // clarification neither requires nor uses one — any supplied Attempt
+        // ID is ignored because the current interaction is authoritative.
+        if (state.latestInteraction().kind() == InteractionKind.TEACHING) {
+            return explainClarification(state, message, idempotencyKey, requestHash);
+        }
+        if (attemptId == null) {
+            return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ATTEMPT_NOT_FOUND);
         }
         Optional<SubmissionIgnoreReason> ownership = ignoredAttemptOwnership(state, attemptId);
         if (ownership.isPresent()) {
@@ -396,19 +431,16 @@ public final class LearningStateGraph {
         if (!attempt.isOpen()) {
             return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
-        if (isTeachBackAttempt(attemptId) || attempt.purpose() == AttemptPurpose.DIAGNOSTIC) {
-            return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
-        }
-        ClarificationClassification classification;
-        try {
-            classification = clarificationGate.classify(
-                    state.flow().modelProfile(), message, taskTextOf(attempt));
-        } catch (ModelContractInvalidException exception) {
-            artifactStore.recordModelContractAudit(new ModelContractAudit(
-                    state.flow().flowId(), attempt.attemptId(), attempt.taskPackageId(),
-                    ModelContractAudit.CLARIFICATION, exception.violationCodes(), 0,
-                    java.util.UUID.randomUUID().toString(), ModelContractAudit.PROVIDER_CATEGORY));
-            classification = ClarificationClassification.UNCERTAIN;
+        ClarificationClassification classification = classifyClarification(state, attempt, null, message);
+        // Diagnostic and Teach-back accept procedural clarification only: a
+        // substantive or uncertain request adds no teaching content and changes
+        // neither the Attempt purpose nor its evidence eligibility.
+        if (attempt.purpose() == AttemptPurpose.DIAGNOSTIC || isTeachBackAttempt(attemptId)) {
+            return switch (classification) {
+                case PROCEDURAL -> answerProcedurally(state, attempt, idempotencyKey, requestHash);
+                case SUBSTANTIVE, UNCERTAIN ->
+                        taskClarificationRefused(state, attempt, idempotencyKey, requestHash);
+            };
         }
         return switch (classification) {
             case PROCEDURAL -> answerProcedurally(state, attempt, idempotencyKey, requestHash);
@@ -420,6 +452,109 @@ public final class LearningStateGraph {
                         SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
             };
         };
+    }
+
+    /**
+     * One classification of a clarification message against the learner-visible
+     * displayed content (a Task Package's task text or an Explain teaching
+     * interaction's content). A Model Contract Invalid falls back to
+     * {@code UNCERTAIN} and is recorded as a bounded clarification audit with
+     * only the available identity — never a raw invalid payload.
+     */
+    private ClarificationClassification classifyClarification(
+            LearningState state,
+            TaskAttempt attempt,
+            TeachingProjection teaching,
+            String message
+    ) {
+        String displayed = attempt != null ? taskTextOf(attempt) : teachingTextOf(teaching);
+        UUID auditAttemptId = attempt == null ? null : attempt.attemptId();
+        UUID auditTaskPackageId = attempt == null ? null : attempt.taskPackageId();
+        try {
+            return clarificationGate.classify(state.flow().modelProfile(), message, displayed);
+        } catch (ModelContractInvalidException exception) {
+            artifactStore.recordModelContractAudit(new ModelContractAudit(
+                    state.flow().flowId(), auditAttemptId, auditTaskPackageId,
+                    ModelContractAudit.CLARIFICATION, exception.violationCodes(), 0,
+                    UUID.randomUUID().toString(), ModelContractAudit.PROVIDER_CATEGORY));
+            return ClarificationClassification.UNCERTAIN;
+        }
+    }
+
+    /**
+     * The standalone Explain clarification path: the command addresses the
+     * current teaching Interaction Boundary and carries no Attempt ID. A
+     * procedural request is answered directly with a deterministic restatement
+     * of the displayed teaching conditions; a substantive or uncertain request
+     * is refused with no added teaching content. Either way the same teaching
+     * boundary is committed again, so the auditable record is the committed
+     * interaction and processed command (ticket 06).
+     */
+    private LearningFlowResult explainClarification(
+            LearningState state,
+            String message,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        TeachingProjection teaching = state.latestInteraction().teachingProjection();
+        ClarificationClassification classification = classifyClarification(state, null, teaching, message);
+        return switch (classification) {
+            case PROCEDURAL -> explainProceduralAnswer(state, teaching, idempotencyKey, requestHash);
+            case SUBSTANTIVE, UNCERTAIN ->
+                    teachingClarificationRefused(state, teaching, idempotencyKey, requestHash);
+        };
+    }
+
+    /**
+     * The procedural Explain clarification: the gate restates the displayed
+     * teaching conditions and the same teaching boundary is committed again.
+     * No Teaching Node Profile is loaded and no new Explain is generated.
+     */
+    private LearningFlowResult explainProceduralAnswer(
+            LearningState state,
+            TeachingProjection teaching,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        String answer = clarificationGate.proceduralTeachingAnswer(teaching);
+        return teachingBoundary(state, teaching, answer, idempotencyKey, requestHash);
+    }
+
+    /**
+     * The substantive or uncertain Explain clarification: no teaching content
+     * is added and the same teaching boundary is committed again with the
+     * refusal message.
+     */
+    private LearningFlowResult teachingClarificationRefused(
+            LearningState state,
+            TeachingProjection teaching,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        return teachingBoundary(state, teaching, TEACHING_CLARIFICATION_NOT_OFFERED_MESSAGE,
+                idempotencyKey, requestHash);
+    }
+
+    /**
+     * The substantive or uncertain clarification refusal on a Diagnostic or
+     * Teach-back task: no teaching content is added, no assistance is recorded,
+     * and the open Attempt's purpose and evidence eligibility are unchanged.
+     * The committed same-task boundary and processed command are the auditable
+     * record.
+     */
+    private LearningFlowResult taskClarificationRefused(
+            LearningState state,
+            TaskAttempt attempt,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        return taskBoundary(state, attempt, TASK_CLARIFICATION_NOT_OFFERED_MESSAGE,
+                idempotencyKey, requestHash);
+    }
+
+    private String teachingTextOf(TeachingProjection teaching) {
+        return teaching.principleSummary() + " " + teaching.workedExample().problem()
+                + " 结果：" + teaching.workedExample().finalResult();
     }
 
     /**
@@ -748,7 +883,9 @@ public final class LearningStateGraph {
     }
 
     private LearnerProjection projectionOf(TaskAttempt attempt) {
-        return packageOf(attempt).learnerProjection();
+        return artifactStore.findTeachBackPackage(attempt.taskPackageId())
+                .map(TeachBackTaskPackage::learnerProjection)
+                .orElseGet(() -> packageOf(attempt).learnerProjection());
     }
 
     private TaskPackage packageOf(TaskAttempt attempt) {

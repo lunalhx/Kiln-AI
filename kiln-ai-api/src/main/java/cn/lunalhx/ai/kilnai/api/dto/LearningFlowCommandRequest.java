@@ -12,9 +12,9 @@ import java.util.UUID;
  * {@code assistance_decided}, {@code continue_requested},
  * {@code retry_requested}, or {@code flow_control_requested}. Every command
  * carries the expected {@code interactionVersion}; commands targeting an
- * open Attempt also carry {@code attemptId}. {@code retry_requested} targets
- * the current Unavailable Interaction without an Attempt ID or answer
- * payload. {@code answer_submitted} reuses the existing raw answer,
+ * open Attempt also carry {@code attemptId}. {@code retry_requested} and an
+ * Explain {@code clarification_asked} target the current Interaction without
+ * an Attempt ID. {@code answer_submitted} reuses the existing raw answer,
  * learner-confirmed canonical representation, and optional rationale
  * contract; {@code hint_requested} may request the answer directly;
  * {@code clarification_asked} carries the free-form message;

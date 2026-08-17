@@ -26,6 +26,8 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -38,8 +40,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Mathematical Equivalence Check, so a confirmed wrong answer is a conclusive
  * failure and a confirmed correct answer passes. The Pedagogy Agent port
  * always returns an invalid plan, so every guarded decision runs the spec's
- * deterministic fallback; the Clarification Gate always classifies
- * conservatively as substantive, so an Independent or Review attempt first
+ * deterministic fallback; the Clarification Gate classifies as scripted or,
+ * by default, conservatively as substantive, so a Diagnostic or Teach-back
+ * clarification is refused and an Independent or Review attempt first
  * projects the assistance-consent boundary.
  */
 @TestConfiguration
@@ -51,6 +54,7 @@ public class ScriptedLearningGraphPortsConfiguration {
     private volatile boolean failNextApplyGeneration = false;
     private volatile boolean failNextExplainGeneration = false;
     private final AtomicInteger remainingInvalidAssessments = new AtomicInteger(0);
+    private final Deque<ClarificationClassification> scriptedClarifications = new ArrayDeque<>();
 
     public void failNextApplyGeneration() {
         this.failNextApplyGeneration = true;
@@ -62,6 +66,17 @@ public class ScriptedLearningGraphPortsConfiguration {
 
     public void failNextAssessments(int count) {
         this.remainingInvalidAssessments.set(count);
+    }
+
+    /**
+     * Scripts the next clarification classification (consumed in call order).
+     * Without a scripted classification the gate conservatively classifies as
+     * substantive, so a Diagnostic or Teach-back clarification is refused and
+     * an Independent or Review clarification first projects the consent
+     * boundary.
+     */
+    public void scriptClarification(ClarificationClassification classification) {
+        this.scriptedClarifications.addLast(classification);
     }
 
     @Bean
@@ -213,7 +228,10 @@ public class ScriptedLearningGraphPortsConfiguration {
     @Bean
     @Primary
     ClarificationClassifierPort scriptedClarificationClassifier() {
-        return (profile, message, taskText) -> ClarificationClassification.SUBSTANTIVE;
+        return (profile, message, taskText) -> {
+            ClarificationClassification next = scriptedClarifications.pollFirst();
+            return next == null ? ClarificationClassification.SUBSTANTIVE : next;
+        };
     }
 
     private static String sourceGapJson() {

@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -41,9 +40,6 @@ public class LearningFlowController {
 
     private final LearningFlowCommandUseCase useCase;
     private final LearningFlowResponseMapper responseMapper;
-
-    private static final Set<String> ATTEMPT_COMMANDS =
-            Set.of("answer_submitted", "hint_requested", "clarification_asked", "assistance_decided");
 
     public LearningFlowController(
             LearningFlowCommandUseCase useCase,
@@ -83,7 +79,7 @@ public class LearningFlowController {
                     flowId, interactionVersion, requireAttempt(request),
                     Boolean.TRUE.equals(request.answerRequested()), idempotencyKey);
             case "clarification_asked" -> useCase.clarificationAsked(
-                    flowId, interactionVersion, requireAttempt(request), requireMessage(request), idempotencyKey);
+                    flowId, interactionVersion, request.attemptId(), requireMessage(request), idempotencyKey);
             case "assistance_decided" -> useCase.assistanceDecided(
                     flowId, interactionVersion, requireAttempt(request),
                     Boolean.TRUE.equals(request.accept()), idempotencyKey);

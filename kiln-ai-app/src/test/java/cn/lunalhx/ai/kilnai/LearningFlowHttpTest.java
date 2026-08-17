@@ -3,6 +3,8 @@ package cn.lunalhx.ai.kilnai;
 import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse;
 import cn.lunalhx.ai.kilnai.api.dto.ReviewTaskView;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassification;
+import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningStateGraph;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -255,6 +257,84 @@ class LearningFlowHttpTest {
         assertEquals("teaching", converted.kind(),
                 "accepted assistance converts once before any teaching content is exposed");
         assertNotNull(converted.teaching());
+    }
+
+    @Test
+    void aDiagnosticClarificationIsProceduralOnlyAndSubstantiveRequestsAreRefused() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowResponse started = start(learnerId, UUID.randomUUID());
+        config.scriptClarification(ClarificationClassification.PROCEDURAL);
+        LearningFlowResponse procedural = command(started.flowId(), UUID.randomUUID(), Map.of(
+                "command", "clarification_asked",
+                "interactionVersion", started.interactionVersion(),
+                "attemptId", started.attemptId().toString(),
+                "message", "这道题是只填最终导数吗？"));
+        assertEquals("task", procedural.kind());
+        assertEquals(2, procedural.interactionVersion());
+        assertEquals(started.attemptId(), procedural.attemptId(),
+                "the procedural answer returns to the same open Diagnostic task");
+        assertEquals("DIAGNOSTIC", procedural.attemptPurpose(),
+                "the Diagnostic purpose is never changed");
+        assertTrue(procedural.learnerMessage().startsWith("答题说明"),
+                "the procedural answer restates the package's own format contract");
+        assertFalse(serialize(procedural).contains(ScriptedApplyPortsConfiguration.DIAGNOSTIC_EXPECTED),
+                "the expected answer must never reach the learner");
+
+        LearningFlowResponse refused = command(procedural.flowId(), UUID.randomUUID(), Map.of(
+                "command", "clarification_asked",
+                "interactionVersion", procedural.interactionVersion(),
+                "attemptId", started.attemptId().toString(),
+                "message", "为什么幂法则适用？"));
+        assertEquals("task", refused.kind());
+        assertEquals(LearningStateGraph.TASK_CLARIFICATION_NOT_OFFERED_MESSAGE, refused.learnerMessage(),
+                "a substantive Diagnostic clarification is refused without teaching content");
+        assertEquals("DIAGNOSTIC", refused.attemptPurpose(),
+                "the refusal never converts the Diagnostic purpose");
+        assertNull(refused.teaching(), "no teaching content is exposed");
+        assertFalse(serialize(refused).contains(ScriptedApplyPortsConfiguration.DIAGNOSTIC_EXPECTED));
+    }
+
+    @Test
+    void aStandaloneExplainClarificationTargetsTheInteractionWithoutAnAttemptId() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowResponse started = start(learnerId, UUID.randomUUID());
+        LearningFlowResponse teaching = command(started.flowId(), UUID.randomUUID(), Map.of(
+                "command", "answer_submitted",
+                "interactionVersion", started.interactionVersion(),
+                "attemptId", started.attemptId().toString(),
+                "rawAnswer", "3*x^2",
+                "confirmedCanonical", "3*x^2"));
+        assertEquals("teaching", teaching.kind(),
+                "a conclusive Diagnostic failure opens the standalone Explain teaching boundary");
+        assertNull(teaching.attemptId(), "the standalone Explain carries no Attempt");
+        assertNotNull(teaching.teaching());
+
+        config.scriptClarification(ClarificationClassification.PROCEDURAL);
+        LearningFlowResponse procedural = command(teaching.flowId(), UUID.randomUUID(), Map.of(
+                "command", "clarification_asked",
+                "interactionVersion", teaching.interactionVersion(),
+                "message", "这个示例的记号怎么读？"));
+        assertEquals("teaching", procedural.kind(),
+                "the procedural answer keeps the teaching interaction");
+        assertEquals(3, procedural.interactionVersion());
+        assertNull(procedural.attemptId(),
+                "Explain clarification addresses the current interaction without an Attempt ID");
+        assertEquals(teaching.teaching(), procedural.teaching(),
+                "the same teaching content is re-shown, no new Explain is generated");
+        assertTrue(procedural.learnerMessage().startsWith("讲解说明"),
+                "the procedural answer restates the displayed teaching conditions");
+
+        LearningFlowResponse refused = command(procedural.flowId(), UUID.randomUUID(), Map.of(
+                "command", "clarification_asked",
+                "interactionVersion", procedural.interactionVersion(),
+                "message", "为什么幂法则适用？"));
+        assertEquals("teaching", refused.kind(),
+                "the substantive refusal keeps the teaching interaction");
+        assertEquals(LearningStateGraph.TEACHING_CLARIFICATION_NOT_OFFERED_MESSAGE,
+                refused.learnerMessage(),
+                "a substantive Explain clarification adds no teaching content");
+        assertNotNull(refused.teaching());
+        assertNull(refused.attemptId());
     }
 
     @Test
