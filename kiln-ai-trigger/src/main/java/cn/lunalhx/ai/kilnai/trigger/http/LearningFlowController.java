@@ -89,6 +89,10 @@ public class LearningFlowController {
                     Boolean.TRUE.equals(request.accept()), idempotencyKey);
             case "continue_requested" -> useCase.continueRequested(
                     flowId, interactionVersion, idempotencyKey);
+            case "retry_requested" -> {
+                rejectRetryPayload(request);
+                yield useCase.retryRequested(flowId, interactionVersion, idempotencyKey);
+            }
             case "flow_control_requested" -> useCase.flowControlRequested(
                     flowId, interactionVersion, idempotencyKey);
             default -> throw new ApplicationException(
@@ -149,5 +153,23 @@ public class LearningFlowController {
                     ErrorCode.INVALID_ARGUMENT, "message is required for clarification_asked");
         }
         return request.message();
+    }
+
+    /**
+     * {@code retry_requested} resumes the server-saved Pending Operation and
+     * therefore rejects any learner answer, Attempt id, or original command
+     * body (ADR-0069).
+     */
+    private void rejectRetryPayload(LearningFlowCommandRequest request) {
+        if (request.attemptId() != null
+                || request.rawAnswer() != null
+                || request.confirmedCanonical() != null
+                || request.rationale() != null
+                || request.answerRequested() != null
+                || request.message() != null
+                || request.accept() != null) {
+            throw new ApplicationException(
+                    ErrorCode.INVALID_ARGUMENT, "retry_requested must not carry a business payload");
+        }
     }
 }

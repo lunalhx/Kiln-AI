@@ -1,6 +1,7 @@
 package cn.lunalhx.ai.kilnai.domain.learning.pedagogy;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDraftException;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 import java.util.Arrays;
@@ -37,6 +38,7 @@ public enum TeachingAction {
         return jsonName;
     }
 
+    @JsonCreator
     public static TeachingAction fromJson(String jsonName) {
         return Arrays.stream(values())
                 .filter(action -> action.jsonName.equals(jsonName))

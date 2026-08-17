@@ -1,5 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.learning.pedagogy;
 
+import cn.lunalhx.ai.kilnai.domain.apply.ModelProviderFailure;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDraftException;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.gate.GateContext;
@@ -53,7 +54,15 @@ public final class PedagogyPlanner {
         String systemPrompt = compiler.compile();
         String contextJson = compiler.serializeContext(facts, legalActions);
         for (int cycle = 1; cycle <= MAX_GENERATION_CYCLES; cycle++) {
-            String raw = port.generatePlan(profile, systemPrompt, contextJson);
+            String raw;
+            try {
+                raw = port.generatePlan(profile, systemPrompt, contextJson);
+            } catch (RuntimeException exception) {
+                if (ModelProviderFailure.isProviderOrConfiguration(exception)) {
+                    return new PedagogyDecision.Fallback(fallback);
+                }
+                throw exception;
+            }
             PedagogyPlan plan;
             try {
                 plan = PedagogyPlan.parse(raw);

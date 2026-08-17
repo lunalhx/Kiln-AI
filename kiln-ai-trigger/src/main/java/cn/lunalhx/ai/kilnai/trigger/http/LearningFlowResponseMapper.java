@@ -91,8 +91,8 @@ public class LearningFlowResponseMapper {
      * the Guard-legal actions of each union member. A task boundary carries
      * its Profile-owned learner events; a teaching boundary carries its
      * Explain events; an assistance-consent request offers the accept/refuse
-     * decision or leaving; an unavailable node offers Flow Control (a safe
-     * retry re-issues the original command); a terminal transition offers
+     * decision or leaving; an unavailable node offers retry and Flow Control
+     * until its Retry Chain is exhausted; a terminal transition offers
      * nothing further.
      */
     private List<String> allowedEvents(LearningFlowInteraction interaction) {
@@ -106,9 +106,22 @@ public class LearningFlowResponseMapper {
                     .distinct()
                     .toList();
             case ASSISTANCE_CONSENT -> List.of("assistance_decided", "flow_control_requested");
-            case UNAVAILABLE -> List.of("flow_control_requested");
+            case UNAVAILABLE -> retryEvents(interaction);
             case TRANSITION -> List.of();
         };
+    }
+
+    /**
+     * An unavailable boundary advertises retry and Flow Control until its
+     * Retry Chain is exhausted, after which only leaving remains (ADR-0069).
+     */
+    private List<String> retryEvents(LearningFlowInteraction interaction) {
+        boolean retry = flowStore.pendingOperation(interaction.flowId())
+                .map(pending -> pending.retryAdvertised())
+                .orElse(false);
+        return retry
+                ? List.of("retry_requested", "flow_control_requested")
+                : List.of("flow_control_requested");
     }
 
     private static String commandOf(ApplyLearnerEvent event) {

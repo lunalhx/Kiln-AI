@@ -13,6 +13,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+import cn.lunalhx.ai.kilnai.domain.apply.model.PendingOperation;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
@@ -127,7 +128,12 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
 
     @Override
     @Transactional
-    public void commitBoundary(LearningFlowInteraction interaction, LearningCheckpoint checkpoint, ProcessedCommand command) {
+    public void commitBoundary(
+            LearningFlowInteraction interaction,
+            LearningCheckpoint checkpoint,
+            ProcessedCommand command,
+            PendingOperation pending
+    ) {
         mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
                 UUID.randomUUID(),
                 interaction.flowId(),
@@ -150,6 +156,17 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 command.idempotencyKey(), command.requestHash(), command.flowId(),
                 writeJson(command.response()), command.createdAt()));
         mapper.updateFlowState(interaction.flowId(), interaction.status().name(), interaction.stage().name());
+        if (pending == null) {
+            mapper.deletePendingOperation(interaction.flowId());
+        } else {
+            mapper.upsertPendingOperation(interaction.flowId(), writeJson(pending), checkpoint.createdAt());
+        }
+    }
+
+    @Override
+    public Optional<PendingOperation> pendingOperation(UUID flowId) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        return mapper.findPendingOperation(flowId).map(payload -> readJson(payload, PendingOperation.class));
     }
 
     @Override

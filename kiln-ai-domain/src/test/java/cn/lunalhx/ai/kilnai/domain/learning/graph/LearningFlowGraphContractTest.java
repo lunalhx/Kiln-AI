@@ -36,6 +36,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.PendingOperation;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
@@ -572,7 +573,7 @@ class LearningFlowGraphContractTest {
     }
 
     @Test
-    void anExplainSourceGapCommitsOnlyATerminalBoundaryAndContinueIsIgnored() {
+    void anExplainSourceGapCommitsAnUnavailableBoundaryAndContinueIsIgnored() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())),
@@ -584,7 +585,8 @@ class LearningFlowGraphContractTest {
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
         assertEquals(2, unavailable.interaction().interactionVersion());
-        assertEquals(FlowStatus.TERMINAL, unavailable.interaction().status());
+        assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, unavailable.interaction().status());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, unavailable.interaction().stage());
         assertEquals(ExplainDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE, unavailable.interaction().learnerMessage());
         assertNull(unavailable.interaction().attemptId());
@@ -600,7 +602,120 @@ class LearningFlowGraphContractTest {
     }
 
     @Test
-    void aSecondInvalidExplainOutputCommitsOnlyATerminalBoundary() {
+    void anExistingFlowProviderFailureCommitsUnavailableAwaitingInputWithPendingOperationAndNoPartialArtifacts() {
+        ScriptedExplainGenerationModel explain = new ScriptedExplainGenerationModel(
+                1, List.of(ExplainScriptData.explainReadyJson()));
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                explain);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
+        assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, unavailable.interaction().status(),
+                "an existing-Flow provider failure is a recoverable Unavailable Interaction, not a terminal Flow");
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, harness.flowStore().findFlow(started.interaction().flowId())
+                .orElseThrow().status());
+        assertEquals(ExplainDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE, unavailable.interaction().learnerMessage());
+        assertNull(unavailable.interaction().attemptId());
+        assertNull(unavailable.interaction().teachingProjection());
+        PendingOperation pending = harness.flowStore().pendingOperation(started.interaction().flowId()).orElseThrow();
+        assertEquals(0, pending.failedRetryCount(),
+                "the initial unavailable boundary has retry count zero");
+        assertTrue(pending.retryAdvertised());
+        assertEquals(1, harness.artifacts().allPackages().size(),
+                "a provider failure must not persist a half-finished teaching artifact or a new Attempt");
+        assertTrue(harness.flowStore().allEvidence().isEmpty());
+        assertEquals(0, harness.flowStore().exposedExampleFingerprints(started.interaction().flowId()).size());
+        assertEquals(1, explain.calls().size());
+    }
+
+    @Test
+    void retryRequestedIsLegalOnlyOnUnavailableAndResumesTheSavedPendingOperationWithoutAClientAnswer() {
+        ScriptedExplainGenerationModel explain = new ScriptedExplainGenerationModel(
+                1, List.of(ExplainScriptData.explainReadyJson()));
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                explain);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.SubmissionIgnored illegal = (LearningFlowResult.SubmissionIgnored) harness.useCase()
+                .retryRequested(started.interaction().flowId(), 1, UUID.randomUUID());
+        assertEquals(SubmissionIgnoreReason.RETRY_NOT_LEGAL, illegal.reason());
+        assertEquals(1, started.interaction().interactionVersion());
+
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
+        UUID retryKey = UUID.randomUUID();
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase()
+                .retryRequested(unavailable.interaction().flowId(), 2, retryKey);
+        assertEquals(3, recovered.interaction().interactionVersion());
+        assertEquals(InteractionKind.TEACHING, recovered.interaction().kind());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, recovered.interaction().status());
+        assertNotNull(recovered.interaction().teachingProjection());
+        assertTrue(harness.flowStore().pendingOperation(started.interaction().flowId()).isEmpty(),
+                "a successful retry commits the next interaction and clears the Pending Operation");
+        assertEquals(2, explain.calls().size());
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase()
+                .retryRequested(unavailable.interaction().flowId(), 2, retryKey);
+        assertEquals(recovered.interaction(), replay.interaction(),
+                "a replayed retry Idempotency-Key returns the original committed interaction");
+    }
+
+    @Test
+    void threeFailedRetriesStopAdvertisingRetryAndFlowControlCanStillLeave() {
+        ScriptedExplainGenerationModel explain = new ScriptedExplainGenerationModel(4, List.of());
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                explain);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
+        UUID flowId = unavailable.interaction().flowId();
+        LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase()
+                .retryRequested(flowId, 2, UUID.randomUUID());
+        assertEquals(3, first.interaction().interactionVersion());
+        assertEquals(InteractionKind.UNAVAILABLE, first.interaction().kind());
+        assertEquals(1, harness.flowStore().pendingOperation(flowId).orElseThrow().failedRetryCount());
+        LearningFlowResult.Boundary second = (LearningFlowResult.Boundary) harness.useCase()
+                .retryRequested(flowId, 3, UUID.randomUUID());
+        assertEquals(2, harness.flowStore().pendingOperation(flowId).orElseThrow().failedRetryCount());
+        LearningFlowResult.Boundary third = (LearningFlowResult.Boundary) harness.useCase()
+                .retryRequested(flowId, 4, UUID.randomUUID());
+        assertEquals(5, third.interaction().interactionVersion());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, third.interaction().status());
+        PendingOperation exhausted = harness.flowStore().pendingOperation(flowId).orElseThrow();
+        assertEquals(3, exhausted.failedRetryCount());
+        assertFalse(exhausted.retryAdvertised(),
+                "after three failed retries the chain no longer advertises retry");
+        LearningFlowResult.SubmissionIgnored refused = (LearningFlowResult.SubmissionIgnored) harness.useCase()
+                .retryRequested(flowId, 5, UUID.randomUUID());
+        assertEquals(SubmissionIgnoreReason.RETRY_NOT_LEGAL, refused.reason());
+        assertEquals(5, harness.flowStore().latestInteraction(flowId).orElseThrow().interactionVersion());
+        LearningFlowResult.Boundary left = (LearningFlowResult.Boundary) harness.useCase()
+                .flowControlRequested(flowId, 5, UUID.randomUUID());
+        assertEquals(InteractionKind.TRANSITION, left.interaction().kind());
+        assertEquals(FlowStatus.TERMINAL, left.interaction().status());
+        assertEquals(LearningStateGraph.FLOW_LEAVE_MESSAGE, left.interaction().learnerMessage());
+        assertTrue(harness.flowStore().pendingOperation(flowId).isEmpty(),
+                "leaving an unavailable Flow clears the Pending Operation");
+        assertTrue(harness.flowStore().allEvidence().isEmpty());
+        assertEquals(1, harness.artifacts().allPackages().size());
+    }
+
+    @Test
+    void aSecondInvalidExplainOutputCommitsAnUnavailableBoundary() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())),
@@ -612,7 +727,8 @@ class LearningFlowGraphContractTest {
         LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
-        assertEquals(FlowStatus.TERMINAL, unavailable.interaction().status());
+        assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, unavailable.interaction().status());
         assertEquals(ExplainDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE, unavailable.interaction().learnerMessage());
         assertEquals(2, harness.explainGeneration().calls().size(),
                 "two invalid candidates must exhaust the single repair");
@@ -875,19 +991,20 @@ class LearningFlowGraphContractTest {
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
         assertEquals(4, unavailable.interaction().interactionVersion());
-        assertEquals(FlowStatus.TERMINAL, unavailable.interaction().status());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, unavailable.interaction().status());
+        assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "a failed follow-up generation must not accept Practice Evidence");
         assertEquals(3, harness.generation().calls().size());
-        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
-                unavailable.interaction().flowId(), 4, UUID.randomUUID(), practiceAttemptId,
-                ApplyScriptData.PRACTICE_CORRECT_DERIVATIVE, ApplyScriptData.PRACTICE_CORRECT_CANONICAL, null);
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase()
+                .retryRequested(unavailable.interaction().flowId(), 4, UUID.randomUUID());
         assertEquals(5, recovered.interaction().interactionVersion());
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, recovered.interaction().status());
         assertEquals(LearningStage.INDEPENDENT_TEST, recovered.interaction().stage());
         assertEquals(1, harness.flowStore().allEvidence().size(),
                 "the retry must recover the original outcome exactly once");
         assertEquals(4, harness.generation().calls().size());
+        assertTrue(harness.flowStore().pendingOperation(unavailable.interaction().flowId()).isEmpty());
     }
 
     @Test
@@ -2276,7 +2393,7 @@ class LearningFlowGraphContractTest {
         LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
-        assertEquals(FlowStatus.TERMINAL, unavailable.interaction().status(),
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, unavailable.interaction().status(),
                 "an unavailable fallback node projects a real safe boundary, never fabricated content");
         assertEquals(ExplainDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE, unavailable.interaction().learnerMessage());
         assertNull(unavailable.interaction().teachingProjection());

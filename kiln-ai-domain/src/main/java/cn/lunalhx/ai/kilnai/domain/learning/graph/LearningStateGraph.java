@@ -1,5 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.learning.graph;
 
+import cn.lunalhx.ai.kilnai.domain.apply.ModelProviderFailure;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ExplainFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.HintFlow;
@@ -23,6 +24,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.HintView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.IndependentSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.PendingOperation;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PracticeSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewSubmissionResult;
@@ -229,6 +231,9 @@ public final class LearningStateGraph {
         LearningState state = LearningState.rehydrate(flowStore, flowId);
         if (state.latestInteraction().interactionVersion() != interactionVersion) {
             throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+        }
+        if (state.latestInteraction().kind() == InteractionKind.UNAVAILABLE) {
+            return new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.NOT_LEGAL_FOR_INTERACTION);
         }
         AttemptPurpose purpose = artifactStore.findAttempt(attemptId)
                 .map(TaskAttempt::purpose)
@@ -485,6 +490,35 @@ public final class LearningStateGraph {
     }
 
     /**
+     * The Graph Run of a retry-requested command: legal only on an
+     * {@code unavailable} Interaction whose Retry Chain has not been
+     * exhausted. It rehydrates the saved Pending Operation and resumes that
+     * operation from durable state with no client answer payload (ADR-0069).
+     * A failed retry increments the chain and commits a new unavailable
+     * version; a successful next interaction clears the pending operation.
+     */
+    public LearningFlowResult retryRequested(
+            UUID flowId,
+            int interactionVersion,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        LearningState state = LearningState.rehydrate(flowStore, flowId);
+        if (state.latestInteraction().interactionVersion() != interactionVersion) {
+            throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+        }
+        if (state.latestInteraction().kind() != InteractionKind.UNAVAILABLE) {
+            return new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.RETRY_NOT_LEGAL);
+        }
+        PendingOperation pending = flowStore.pendingOperation(flowId).orElse(null);
+        if (pending == null || !pending.retryAdvertised()) {
+            return new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.RETRY_NOT_LEGAL);
+        }
+        return resumePending(state, pending, idempotencyKey, requestHash);
+    }
+
+    /**
      * The accepted assistance conversion: the temporary Explain teaching
      * content is generated, gated, and persisted before any durable mutation,
      * and only a delivered artifact converts the Attempt and cancels the
@@ -633,7 +667,7 @@ public final class LearningStateGraph {
                 FlowStatus.AWAITING_LEARNER_INPUT, state.latestInteraction().stage(),
                 attempt.attemptId(), attempt.purpose(), null, null, null, null,
                 new AssistanceConsentView(CONSENT_WARNING_MESSAGE, attempt.attemptId(), attempt.purpose()));
-        return commitBoundary(interaction, idempotencyKey, requestHash);
+        return commitBoundary(interaction, null, idempotencyKey, requestHash);
     }
 
     private LearningFlowResult revealBoundary(
@@ -725,9 +759,11 @@ public final class LearningStateGraph {
             case DiagnosticSubmissionResult.Failed failed ->
                     executeMove(state, decide(state, WorkflowGuard.DecisionContext.DIAGNOSTIC_FAILED, failed.facts()),
                             null, idempotencyKey, requestHash);
-            case DiagnosticSubmissionResult.IndependentUnavailable unavailable -> boundary(
-                    state, LearningStage.DIAGNOSTIC, null, null, null, unavailable.learnerMessage(), null,
-                    InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
+            case DiagnosticSubmissionResult.IndependentUnavailable unavailable -> commitUnavailable(
+                    state, LearningStage.DIAGNOSTIC, unavailable.learnerMessage(), null,
+                    new PendingOperation(PendingOperation.Kind.DELIVER_INDEPENDENT, null, null, null,
+                            unavailable.learnerMessage(), null, null, null, 0),
+                    idempotencyKey, requestHash);
             case DiagnosticSubmissionResult.NotSubmittable notSubmittable ->
                     new LearningFlowResult.SubmissionRejected(notSubmittable.reason());
             case DiagnosticSubmissionResult.Ignored ignored ->
@@ -778,7 +814,7 @@ public final class LearningStateGraph {
     /**
      * The mandated fresh verified Independent replacement of a Blocked or
      * Inconclusive judgment: generated with all applicable novelty exclusions,
-     * or a terminal unavailable boundary when no task can be prepared. No
+     * or a recoverable unavailable boundary when no task can be prepared. No
      * Evidence and no milestone change on either path.
      */
     private LearningFlowResult deliverIndependentReplacement(
@@ -793,9 +829,11 @@ public final class LearningStateGraph {
                     state, LearningStage.INDEPENDENT_TEST, delivered.attempt().attemptId(),
                     delivered.attempt().purpose(), delivered.learnerProjection(),
                     learnerMessage, null, InteractionKind.TASK, idempotencyKey, requestHash);
-            case ApplyDeliveryResult.Unavailable unavailable -> boundary(
-                    state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), null, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
+            case ApplyDeliveryResult.Unavailable unavailable -> commitUnavailable(
+                    state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), null,
+                    new PendingOperation(PendingOperation.Kind.DELIVER_INDEPENDENT_REPLACEMENT, null, null, null,
+                            learnerMessage, null, null, null, 0),
+                    idempotencyKey, requestHash);
         };
     }
 
@@ -915,9 +953,13 @@ public final class LearningStateGraph {
         return switch (result) {
             case TeachBackSubmissionResult.TeachBackAssessed assessed ->
                     routeTeachBackDecision(state, assessed, idempotencyKey, requestHash);
-            case TeachBackSubmissionResult.Unavailable unavailable -> boundary(
-                    state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), null, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
+            case TeachBackSubmissionResult.Unavailable unavailable -> commitUnavailable(
+                    state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), null,
+                    executeMoveSeed(new Decision(TeachingAction.TEACH_BACK, unavailable.learnerMessage(),
+                            fallbackIntent(WorkflowGuard.DecisionContext.TEACH_BACK_INCONCLUSIVE),
+                            continueFacts(state), WorkflowGuard.DecisionContext.TEACH_BACK_INCONCLUSIVE),
+                            null, null),
+                    idempotencyKey, requestHash);
             case TeachBackSubmissionResult.Ignored ignored ->
                     new LearningFlowResult.SubmissionIgnored(ignored.reason());
             case TeachBackSubmissionResult.NotSubmittable notSubmittable ->
@@ -967,14 +1009,14 @@ public final class LearningStateGraph {
                             ? RESUME_PRACTICE_MESSAGE
                             : neutralMessage(context),
                     fallbackIntent(context),
-                    facts);
+                    facts, context);
         }
         return switch (planner.plan(state.flow().modelProfile(), facts, moves.legalActions(), moves.fallback())) {
             case PedagogyPlanner.PedagogyDecision.PlanAccepted accepted ->
                     new Decision(accepted.plan().action(), accepted.plan().feedbackSummary(),
-                            accepted.plan().intent(), facts);
+                            accepted.plan().intent(), facts, context);
             case PedagogyPlanner.PedagogyDecision.Fallback fb ->
-                    new Decision(fb.action(), neutralMessage(context), fallbackIntent(context), facts);
+                    new Decision(fb.action(), neutralMessage(context), fallbackIntent(context), facts, context);
         };
     }
 
@@ -1022,7 +1064,7 @@ public final class LearningStateGraph {
     /**
      * The Explain move: a pure teaching action that delivers one
      * source-grounded teaching interaction with the guarded intent and
-     * sanitized Feedback Facts, or a terminal unavailable boundary when no
+     * sanitized Feedback Facts, or a recoverable unavailable boundary when no
      * teaching content can be prepared. It never creates a Task Package,
      * Attempt, Assessment, or Evidence. The delivered worked example becomes
      * the most recently exposed eligible Teach-back anchor.
@@ -1051,15 +1093,16 @@ public final class LearningStateGraph {
                         state, delivered.artifact().learnerProjection(), decision.learnerMessage(),
                         idempotencyKey, requestHash);
             }
-            case ExplainDeliveryResult.Unavailable unavailable -> boundary(
-                    state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), null, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
+            case ExplainDeliveryResult.Unavailable unavailable -> commitUnavailable(
+                    state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), null,
+                    executeMoveSeed(decision, evidence, null),
+                    idempotencyKey, requestHash);
         };
     }
 
     /**
      * The Apply Practice move: delivers a fresh verified task over the frozen
-     * Practice Blueprint, or a terminal unavailable boundary when no task can
+     * Practice Blueprint, or a recoverable unavailable boundary when no task can
      * be prepared. An optional reveal hint (H5 continuation) is projected on
      * the same boundary.
      */
@@ -1083,15 +1126,16 @@ public final class LearningStateGraph {
                         delivered.attempt().purpose(), delivered.learnerProjection(),
                         decision.learnerMessage(), hint, InteractionKind.TASK, idempotencyKey, requestHash);
             }
-            case ApplyDeliveryResult.Unavailable unavailable -> boundary(
-                    state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), hint, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
+            case ApplyDeliveryResult.Unavailable unavailable -> commitUnavailable(
+                    state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), hint,
+                    executeMoveSeed(decision, evidence, hint),
+                    idempotencyKey, requestHash);
         };
     }
 
     /**
      * The Teach-back move: delivers one anchored verified short-text task, or
-     * a terminal unavailable boundary when no anchored task can be prepared.
+     * a recoverable unavailable boundary when no anchored task can be prepared.
      * An optional reveal hint (H5 continuation) is projected on the same
      * boundary.
      */
@@ -1115,16 +1159,17 @@ public final class LearningStateGraph {
                         delivered.attempt().purpose(), delivered.learnerProjection(),
                         decision.learnerMessage(), hint, InteractionKind.TASK, idempotencyKey, requestHash);
             }
-            case TeachBackDeliveryResult.Unavailable unavailable -> boundary(
-                    state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), hint, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
+            case TeachBackDeliveryResult.Unavailable unavailable -> commitUnavailable(
+                    state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), hint,
+                    executeMoveSeed(decision, evidence, hint),
+                    idempotencyKey, requestHash);
         };
     }
 
     /**
      * The fresh Independent Test move: delivers a fresh verified Independent
      * task — legal only once the qualifying Apply Practice pass prerequisite
-     * of the current remediation cycle is satisfied — or a terminal
+     * of the current remediation cycle is satisfied — or a recoverable
      * unavailable boundary when no task can be prepared. An optional reveal
      * hint (H5 continuation) is projected on the same boundary.
      */
@@ -1148,9 +1193,10 @@ public final class LearningStateGraph {
                         delivered.attempt().purpose(), delivered.learnerProjection(),
                         decision.learnerMessage(), hint, InteractionKind.TASK, idempotencyKey, requestHash);
             }
-            case ApplyDeliveryResult.Unavailable unavailable -> boundary(
-                    state, LearningStage.LEARNING_AND_PRACTICE, null, null, null,
-                    unavailable.learnerMessage(), hint, InteractionKind.UNAVAILABLE, idempotencyKey, requestHash);
+            case ApplyDeliveryResult.Unavailable unavailable -> commitUnavailable(
+                    state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), hint,
+                    executeMoveSeed(decision, evidence, hint),
+                    idempotencyKey, requestHash);
         };
     }
 
@@ -1256,7 +1302,8 @@ public final class LearningStateGraph {
             TeachingAction action,
             String learnerMessage,
             String intent,
-            FeedbackFacts facts
+            FeedbackFacts facts,
+            WorkflowGuard.DecisionContext context
     ) {
 
         private Decision {
@@ -1264,6 +1311,7 @@ public final class LearningStateGraph {
             Objects.requireNonNull(learnerMessage, "learnerMessage must not be null");
             Objects.requireNonNull(intent, "intent must not be null");
             Objects.requireNonNull(facts, "facts must not be null");
+            Objects.requireNonNull(context, "context must not be null");
         }
     }
 
@@ -1279,11 +1327,13 @@ public final class LearningStateGraph {
             UUID idempotencyKey,
             String requestHash
     ) {
-        FlowStatus status = learnerProjection == null ? FlowStatus.TERMINAL : FlowStatus.AWAITING_LEARNER_INPUT;
+        FlowStatus status = learnerProjection == null
+                ? FlowStatus.TERMINAL
+                : FlowStatus.AWAITING_LEARNER_INPUT;
         LearningFlowInteraction interaction = new LearningFlowInteraction(
                 kind, state.flow().flowId(), state.latestInteraction().interactionVersion() + 1, status, stage,
                 attemptId, purpose, learnerProjection, learnerMessage, null, hint, null);
-        return commitBoundary(interaction, idempotencyKey, requestHash);
+        return commitBoundary(interaction, null, idempotencyKey, requestHash);
     }
 
     /**
@@ -1303,17 +1353,115 @@ public final class LearningStateGraph {
                 state.latestInteraction().interactionVersion() + 1,
                 FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.LEARNING_AND_PRACTICE,
                 null, null, null, learnerMessage, teachingProjection, null, null);
-        return commitBoundary(interaction, idempotencyKey, requestHash);
+        return commitBoundary(interaction, null, idempotencyKey, requestHash);
+    }
+
+    /**
+     * The durable Unavailable Interaction of an existing Flow (ADR-0069):
+     * {@code AWAITING_LEARNER_INPUT} with a saved Pending Operation. A retry
+     * of an already-unavailable boundary increments the Retry Chain; the
+     * first unavailable boundary starts at count zero.
+     */
+    private LearningFlowResult.Boundary commitUnavailable(
+            LearningState state,
+            LearningStage stage,
+            String learnerMessage,
+            HintView hint,
+            PendingOperation seed,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        PendingOperation pending = state.latestInteraction().kind() == InteractionKind.UNAVAILABLE
+                ? flowStore.pendingOperation(state.flow().flowId())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "unavailable interaction missing pending operation"))
+                        .withFailedRetry()
+                : seed;
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
+                InteractionKind.UNAVAILABLE, state.flow().flowId(),
+                state.latestInteraction().interactionVersion() + 1,
+                FlowStatus.AWAITING_LEARNER_INPUT, stage,
+                null, null, null, learnerMessage, null, hint, null);
+        return commitBoundary(interaction, pending, idempotencyKey, requestHash);
+    }
+
+    private PendingOperation executeMoveSeed(
+            Decision decision,
+            AcceptedLearningEvidence evidence,
+            HintView hint
+    ) {
+        return new PendingOperation(
+                PendingOperation.Kind.EXECUTE_MOVE,
+                decision.action(),
+                decision.context().name(),
+                decision.facts(),
+                decision.learnerMessage(),
+                decision.intent(),
+                evidence,
+                hint,
+                0);
+    }
+
+    private LearningFlowResult resumePending(
+            LearningState state,
+            PendingOperation pending,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        return switch (pending.kind()) {
+            case EXECUTE_MOVE -> executeMove(
+                    state,
+                    new Decision(
+                            pending.action(),
+                            pending.learnerMessage(),
+                            pending.intent(),
+                            pending.facts(),
+                            WorkflowGuard.DecisionContext.valueOf(pending.decisionContext())),
+                    pending.evidence(),
+                    idempotencyKey,
+                    requestHash);
+            case DELIVER_INDEPENDENT -> deliverIndependentAfterDiagnostic(state, idempotencyKey, requestHash);
+            case DELIVER_INDEPENDENT_REPLACEMENT ->
+                    deliverIndependentReplacement(state, pending.learnerMessage(), idempotencyKey, requestHash);
+        };
+    }
+
+    /**
+     * Resumes a Diagnostic pass whose Independent generation failed: the
+     * closed Diagnostic Attempt stays closed and a fresh Independent task is
+     * prepared from durable novelty exclusions.
+     */
+    private LearningFlowResult deliverIndependentAfterDiagnostic(
+            LearningState state,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        ApplyDeliveryResult delivery = practiceFlow.deliverIndependent(
+                state.flow().flowId(), state.flow().modelProfile());
+        return switch (delivery) {
+            case ApplyDeliveryResult.Delivered delivered -> boundary(
+                    state, LearningStage.INDEPENDENT_TEST, delivered.attempt().attemptId(),
+                    delivered.attempt().purpose(), delivered.learnerProjection(),
+                    DiagnosticFlow.NEUTRAL_TRANSITION_MESSAGE, null, InteractionKind.TASK,
+                    idempotencyKey, requestHash);
+            case ApplyDeliveryResult.Unavailable unavailable -> commitUnavailable(
+                    state, LearningStage.DIAGNOSTIC, unavailable.learnerMessage(), null,
+                    new PendingOperation(PendingOperation.Kind.DELIVER_INDEPENDENT, null, null, null,
+                            unavailable.learnerMessage(), null, null, null, 0),
+                    idempotencyKey, requestHash);
+        };
     }
 
     /**
      * The single durable commit of one Learner Interaction Boundary: the
      * learner-visible interaction, its checkpoint, and the processed command
      * persist atomically, so a replay always returns the original result and a
-     * restart resumes exactly from this point.
+     * restart resumes exactly from this point. A null pending operation
+     * clears any saved Pending Operation.
      */
     private LearningFlowResult.Boundary commitBoundary(
             LearningFlowInteraction interaction,
+            PendingOperation pending,
             UUID idempotencyKey,
             String requestHash
     ) {
@@ -1322,7 +1470,8 @@ public final class LearningStateGraph {
                 new LearningCheckpoint(UUID.randomUUID(), interaction.flowId(),
                         interaction.interactionVersion(), clock.instant()),
                 new ProcessedCommand(idempotencyKey, requestHash, interaction.flowId(),
-                        interaction, clock.instant()));
+                        interaction, clock.instant()),
+                pending);
         return new LearningFlowResult.Boundary(interaction);
     }
 }

@@ -274,9 +274,9 @@ class LearningFlowHttpTest {
         LearningFlowResponse unavailable = failed.getBody();
         assertEquals("unavailable", unavailable.kind(),
                 "a failed teaching generation projects the unavailable union member");
-        assertEquals("TERMINAL", unavailable.status());
-        assertEquals(List.of("flow_control_requested"), unavailable.allowedEvents(),
-                "an unavailable boundary offers Flow Control; a safe retry re-issues the command");
+        assertEquals("AWAITING_LEARNER_INPUT", unavailable.status());
+        assertEquals(List.of("retry_requested", "flow_control_requested"), unavailable.allowedEvents(),
+                "an unavailable boundary advertises bounded retry and Flow Control");
         assertNull(unavailable.teaching());
         assertNull(unavailable.task());
         assertFalse(serialize(unavailable).contains("openstax"));
@@ -291,18 +291,16 @@ class LearningFlowHttpTest {
         assertEquals(unavailable, replayed.getBody(),
                 "the same Idempotency-Key after a failed generation replays the committed unavailable boundary");
 
-        ResponseEntity<Map> freshRetry = commandRawMap(started.flowId(), UUID.randomUUID(), Map.of(
-                "command", "answer_submitted",
-                "interactionVersion", unavailable.interactionVersion(),
-                "attemptId", started.attemptId().toString(),
-                "rawAnswer", "3*x^2",
-                "confirmedCanonical", "3*x^2"));
-        assertEquals(HttpStatus.CONFLICT, freshRetry.getStatusCode(),
-                "a fresh-key retry of the closed Diagnostic attempt is ignored without a second evaluation");
+        LearningFlowResponse recovered = command(started.flowId(), UUID.randomUUID(), Map.of(
+                "command", "retry_requested",
+                "interactionVersion", unavailable.interactionVersion()));
+        assertEquals("teaching", recovered.kind(),
+                "retry_requested resumes the saved Pending Operation without a client answer");
+        assertNotNull(recovered.teaching());
 
         LearningFlowResponse left = command(started.flowId(), UUID.randomUUID(), Map.of(
                 "command", "flow_control_requested",
-                "interactionVersion", unavailable.interactionVersion()));
+                "interactionVersion", recovered.interactionVersion()));
         assertEquals("transition", left.kind(),
                 "Flow Control leaves the unavailable boundary through the closed command surface");
         assertTrue(left.learnerMessage().contains("已离开"));
@@ -316,6 +314,31 @@ class LearningFlowHttpTest {
                 "interactionVersion", started.interactionVersion()));
         assertEquals(HttpStatus.BAD_REQUEST, unknown.getStatusCode(),
                 "an unknown closed command discriminator must be rejected");
+    }
+
+    @Test
+    void retryRequestedRejectsABusinessPayloadAndIsIllegalOffUnavailable() {
+        LearningFlowResponse started = start(UUID.randomUUID(), UUID.randomUUID());
+        ResponseEntity<Map> onTask = commandRawMap(started.flowId(), UUID.randomUUID(), Map.of(
+                "command", "retry_requested",
+                "interactionVersion", started.interactionVersion()));
+        assertEquals(HttpStatus.CONFLICT, onTask.getStatusCode(),
+                "retry_requested is legal only on an unavailable Interaction Boundary");
+
+        config.failNextExplainGeneration();
+        LearningFlowResponse unavailable = command(started.flowId(), UUID.randomUUID(), Map.of(
+                "command", "answer_submitted",
+                "interactionVersion", started.interactionVersion(),
+                "attemptId", started.attemptId().toString(),
+                "rawAnswer", "3*x^2",
+                "confirmedCanonical", "3*x^2"));
+        assertEquals("unavailable", unavailable.kind());
+        ResponseEntity<Map> withAnswer = commandRawMap(started.flowId(), UUID.randomUUID(), Map.of(
+                "command", "retry_requested",
+                "interactionVersion", unavailable.interactionVersion(),
+                "rawAnswer", "should-not-override"));
+        assertEquals(HttpStatus.BAD_REQUEST, withAnswer.getStatusCode(),
+                "retry_requested must not carry a learner answer or original command body");
     }
 
     @Test

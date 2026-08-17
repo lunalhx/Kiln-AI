@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
+import cn.lunalhx.ai.kilnai.domain.apply.model.PendingOperation;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
@@ -48,6 +49,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     private final Map<UUID, AcceptedLearningEvidence> evidence = new HashMap<>();
     private final Map<UUID, ProcessedCommand> commands = new LinkedHashMap<>();
     private final Map<UUID, ReviewTask> reviews = new LinkedHashMap<>();
+    private final Map<UUID, PendingOperation> pendingOperations = new HashMap<>();
     private final ArtifactStore artifactStore;
     private final java.time.Clock clock;
 
@@ -134,7 +136,8 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     public synchronized void commitBoundary(
             LearningFlowInteraction interaction,
             LearningCheckpoint checkpoint,
-            ProcessedCommand command
+            ProcessedCommand command,
+            PendingOperation pending
     ) {
         Objects.requireNonNull(interaction, "interaction must not be null");
         Objects.requireNonNull(checkpoint, "checkpoint must not be null");
@@ -151,11 +154,23 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         // stage: a terminal boundary releases the Active Learning Work claim
         // of ADR-0070, an awaiting-input boundary holds it.
         FlowRecord current = flows.get(interaction.flowId());
-        if (current != null && current.status() != interaction.status()) {
+        if (current != null && (current.status() != interaction.status()
+                || current.stage() != interaction.stage())) {
             flows.put(current.flowId(), new FlowRecord(
                     current.flowId(), current.learnerId(), current.conceptId(),
                     interaction.status(), interaction.stage(), current.modelProfile(), current.createdAt()));
         }
+        if (pending == null) {
+            pendingOperations.remove(interaction.flowId());
+        } else {
+            pendingOperations.put(interaction.flowId(), pending);
+        }
+    }
+
+    @Override
+    public synchronized Optional<PendingOperation> pendingOperation(UUID flowId) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        return Optional.ofNullable(pendingOperations.get(flowId));
     }
 
     @Override

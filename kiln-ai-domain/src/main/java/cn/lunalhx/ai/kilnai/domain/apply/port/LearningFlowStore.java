@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
+import cn.lunalhx.ai.kilnai.domain.apply.model.PendingOperation;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
@@ -61,9 +62,35 @@ public interface LearningFlowStore {
      * Atomically persists one Learner Interaction Boundary: the learner-visible
      * interaction, its checkpoint, and the processed command that produced it.
      * Repeating a boundary for the same interaction version is a no-op, so a
-     * concurrent duplicate commit cannot corrupt state.
+     * concurrent duplicate commit cannot corrupt state. A null pending
+     * operation clears any saved Pending Operation for the Flow; a non-null
+     * value replaces it in the same commit.
      */
-    void commitBoundary(LearningFlowInteraction interaction, LearningCheckpoint checkpoint, ProcessedCommand command);
+    void commitBoundary(
+            LearningFlowInteraction interaction,
+            LearningCheckpoint checkpoint,
+            ProcessedCommand command,
+            PendingOperation pending);
+
+    /**
+     * Commits a boundary and clears any Pending Operation. Every successful
+     * next interaction and explicit leave uses this form so a recovered
+     * retry cannot resume a completed operation.
+     */
+    default void commitBoundary(
+            LearningFlowInteraction interaction,
+            LearningCheckpoint checkpoint,
+            ProcessedCommand command
+    ) {
+        commitBoundary(interaction, checkpoint, command, null);
+    }
+
+    /**
+     * The saved Pending Operation of one Flow's current Unavailable
+     * Interaction, if any. Empty after a successful next interaction or an
+     * explicit leave.
+     */
+    Optional<PendingOperation> pendingOperation(UUID flowId);
 
     Optional<LearningFlowInteraction> latestInteraction(UUID flowId);
 

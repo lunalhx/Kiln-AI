@@ -1,5 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.profile;
 
+import cn.lunalhx.ai.kilnai.domain.apply.ModelProviderFailure;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.SkillBundle;
 import cn.lunalhx.ai.kilnai.domain.apply.gate.ApplyGenerationDraftGatePolicy;
@@ -97,7 +98,17 @@ public final class ApplyProfileExecutor {
         String systemPrompt = compiler.compile(stack);
         String contextJson = compiler.serializeContext(context);
         for (int cycle = 1; cycle <= MAX_GENERATION_CYCLES; cycle++) {
-            String raw = generationPort.generate(profile, systemPrompt, contextJson);
+            String raw;
+            try {
+                raw = generationPort.generate(profile, systemPrompt, contextJson);
+            } catch (RuntimeException exception) {
+                if (ModelProviderFailure.isProviderOrConfiguration(exception)) {
+                    return new PreparedDelivery.Unavailable(
+                            TaskUnavailableReason.PROVIDER_UNAVAILABLE,
+                            ApplyDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE);
+                }
+                throw exception;
+            }
             Optional<PreparedDelivery> outcome = handleCandidate(
                     profile, context, stack, raw, cycle - 1, recordVerificationAudit);
             if (outcome.isPresent()) {

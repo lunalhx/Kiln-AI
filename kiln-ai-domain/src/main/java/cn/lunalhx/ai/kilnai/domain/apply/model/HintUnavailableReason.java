@@ -9,5 +9,6 @@ package cn.lunalhx.ai.kilnai.domain.apply.model;
  */
 public enum HintUnavailableReason {
     SOURCE_GAP,
-    NODE_EXECUTION_FAILED
+    NODE_EXECUTION_FAILED,
+    PROVIDER_UNAVAILABLE
 }

@@ -215,6 +215,27 @@ public final class LearningFlowCommandUseCase {
     }
 
     /**
+     * The retry-requested command of the closed learning command surface: it
+     * is legal only on an {@code unavailable} Interaction Boundary, carries
+     * no learner answer or original command body, and resumes the durable
+     * Pending Operation saved by the server (ADR-0069). A new Idempotency-Key
+     * identifies each explicit retry; a replayed key returns the original
+     * committed interaction.
+     */
+    public LearningFlowResult retryRequested(
+            UUID flowId,
+            int interactionVersion,
+            UUID idempotencyKey
+    ) {
+        requireUuidKey(idempotencyKey);
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        String hash = ApplyHash.sha256HexDelimited("retry", flowId, interactionVersion);
+        return FlowCommandReplay.replayOrRun(flowStore, idempotencyKey, hash,
+                interaction -> new LearningFlowResult.Boundary(interaction),
+                () -> graph.retryRequested(flowId, interactionVersion, idempotencyKey, hash));
+    }
+
+    /**
      * Resolves the operator-owned Model Profile for a new Flow. Any
      * configuration or provider failure is an initial preparation failure:
      * it persists nothing and surfaces as the generic 503, never an

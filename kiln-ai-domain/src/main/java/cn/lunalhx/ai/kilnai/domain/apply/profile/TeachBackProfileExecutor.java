@@ -1,5 +1,6 @@
 package cn.lunalhx.ai.kilnai.domain.apply.profile;
 
+import cn.lunalhx.ai.kilnai.domain.apply.ModelProviderFailure;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.SkillBundle;
 import cn.lunalhx.ai.kilnai.domain.apply.gate.TeachBackTaskPackageGatePolicy;
@@ -96,7 +97,17 @@ public final class TeachBackProfileExecutor {
         boolean repairUsed = false;
         boolean freshCandidateUsed = false;
         while (true) {
-            String raw = generationPort.generate(profile, systemPrompt, contextJson);
+            String raw;
+            try {
+                raw = generationPort.generate(profile, systemPrompt, contextJson);
+            } catch (RuntimeException exception) {
+                if (ModelProviderFailure.isProviderOrConfiguration(exception)) {
+                    return new PreparedDelivery.Unavailable(
+                            TeachBackUnavailableReason.PROVIDER_UNAVAILABLE,
+                            TeachBackDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE);
+                }
+                throw exception;
+            }
             Outcome outcome = handleCandidate(profile, context, raw,
                     (repairUsed ? 1 : 0) + (freshCandidateUsed ? 1 : 0));
             if (outcome instanceof Outcome.Ready ready) {

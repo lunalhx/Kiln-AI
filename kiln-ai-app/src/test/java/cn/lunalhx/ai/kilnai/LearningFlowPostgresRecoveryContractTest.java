@@ -174,7 +174,7 @@ class LearningFlowPostgresRecoveryContractTest {
     @BeforeEach
     void cleanDatabase() {
         jdbc.execute("""
-                TRUNCATE review_tasks, hint_requests, hint_ladders, teach_back_anchors,
+                TRUNCATE pending_operations, review_tasks, hint_requests, hint_ladders, teach_back_anchors,
                          teach_back_packages, teach_back_assessments, explain_artifacts,
                          revealed_solution_exposures, hint_ladder_exposures, example_exposures,
                          exposures, commands, checkpoints, interactions, evidence, assessments,
@@ -265,8 +265,8 @@ class LearningFlowPostgresRecoveryContractTest {
         LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, failKey, started.interaction().attemptId(),
                 "3*x^2", "3*x^2", "我猜的");
-        assertEquals(FlowStatus.TERMINAL, unavailable.interaction().status(),
-                "a failed Explain generation must stop at the terminal unavailable boundary");
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, unavailable.interaction().status(),
+                "a failed Explain generation must stop at the recoverable unavailable boundary");
         assertEquals(ExplainDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE,
                 unavailable.interaction().learnerMessage());
 
@@ -287,7 +287,7 @@ class LearningFlowPostgresRecoveryContractTest {
                 flowId, 1, failKey, started.interaction().attemptId(),
                 "3*x^2", "3*x^2", "我猜的");
         assertEquals(unavailable.interaction(), replay.interaction(),
-                "the replayed failure command must return its original committed terminal interaction");
+                "the replayed failure command must return its original committed unavailable interaction");
         assertEquals(1, store.allPackages().size(),
                 "a replay must never generate a second candidate package");
     }

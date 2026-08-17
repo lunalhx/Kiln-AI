@@ -255,6 +255,28 @@ public interface ApplyFlowMapper {
     Optional<CommandRow> findCommand(UUID idempotencyKey);
 
     @Insert("""
+            INSERT INTO pending_operations (flow_id, operation, created_at)
+            VALUES (#{flowId}, CAST(#{operationJson} AS JSONB), #{createdAt})
+            ON CONFLICT (flow_id) DO UPDATE
+            SET operation = CAST(#{operationJson} AS JSONB), created_at = #{createdAt}
+            """)
+    void upsertPendingOperation(
+            @Param("flowId") UUID flowId,
+            @Param("operationJson") String operationJson,
+            @Param("createdAt") Instant createdAt
+    );
+
+    @Update("DELETE FROM pending_operations WHERE flow_id = #{flowId}")
+    void deletePendingOperation(UUID flowId);
+
+    @Select("""
+            SELECT operation::text AS operation_json
+            FROM pending_operations
+            WHERE flow_id = #{flowId}
+            """)
+    Optional<String> findPendingOperation(UUID flowId);
+
+    @Insert("""
             INSERT INTO sources (source_pack_id, version, passages, created_at)
             VALUES (#{sourcePackId}, #{version}, CAST(#{passagesJson} AS JSONB), #{createdAt})
             ON CONFLICT (source_pack_id) DO NOTHING

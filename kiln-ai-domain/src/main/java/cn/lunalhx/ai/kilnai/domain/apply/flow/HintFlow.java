@@ -148,7 +148,15 @@ public final class HintFlow {
         String systemPrompt = compiler.compile();
         String contextJson = compiler.serializeContext(buildContext(attempt, taskPackage));
         for (int cycle = 1; cycle <= MAX_GENERATION_CYCLES; cycle++) {
-            String raw = generationPort.generate(profile, systemPrompt, contextJson);
+            String raw;
+            try {
+                raw = generationPort.generate(profile, systemPrompt, contextJson);
+            } catch (RuntimeException exception) {
+                if (cn.lunalhx.ai.kilnai.domain.apply.ModelProviderFailure.isProviderOrConfiguration(exception)) {
+                    return new GeneratedLadder.Unavailable(HintUnavailableReason.PROVIDER_UNAVAILABLE);
+                }
+                throw exception;
+            }
             HintGenerationDraft draft;
             try {
                 draft = HintGenerationDraft.parse(raw);
