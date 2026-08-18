@@ -164,7 +164,7 @@ class LearningFlowPostgresSuccessPathTest {
     @BeforeEach
     void cleanDatabase() {
         jdbc.execute("""
-                TRUNCATE pending_operations, review_tasks, hint_requests, hint_ladders, teach_back_anchors,
+                TRUNCATE active_learning_work, pending_operations, review_tasks, hint_requests, hint_ladders, teach_back_anchors,
                          teach_back_packages, teach_back_assessments, explain_artifacts,
                          revealed_solution_exposures, hint_ladder_exposures, example_exposures,
                          exposures, commands, checkpoints, interactions, evidence, assessments,
@@ -190,6 +190,31 @@ class LearningFlowPostgresSuccessPathTest {
             assertTrue(tables.contains(required),
                     "the baseline must persist the " + required + " table");
         }
+    }
+
+    @Test
+    void replayingAnAlreadyCommittedBoundaryDoesNotWriteAnotherCheckpointOrCommand() {
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary)
+                useCase.start(UUID.randomUUID(), UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        int checkpointsBefore = jdbc.queryForObject(
+                "SELECT count(*) FROM checkpoints WHERE flow_id = ?", Integer.class, flowId);
+        int commandsBefore = jdbc.queryForObject(
+                "SELECT count(*) FROM commands WHERE flow_id = ?", Integer.class, flowId);
+        UUID duplicateKey = UUID.randomUUID();
+
+        flowStore.commitBoundary(
+                started.interaction(),
+                new LearningCheckpoint(UUID.randomUUID(), flowId, 1, Instant.now()),
+                new LearningFlowStore.ProcessedCommand(
+                        duplicateKey, "duplicate", flowId, started.interaction(), Instant.now()));
+
+        assertEquals(checkpointsBefore, jdbc.queryForObject(
+                "SELECT count(*) FROM checkpoints WHERE flow_id = ?", Integer.class, flowId));
+        assertEquals(commandsBefore, jdbc.queryForObject(
+                "SELECT count(*) FROM commands WHERE flow_id = ?", Integer.class, flowId));
+        assertTrue(flowStore.findCommand(duplicateKey).isEmpty(),
+                "a duplicate interaction version must not create a second processed command");
     }
 
     @Test

@@ -30,57 +30,51 @@ public interface ApplyFlowMapper {
     );
 
     /**
-     * The conditional Start claim of ADR-0070: inserts the non-terminal Flow
-     * only when no Active Learning Work — a non-terminal Flow or an unfinished
-     * Review Task — already exists for the learner and Concept, so a racing
-     * different-key Start loses cleanly instead of throwing a unique violation.
-     * The partial unique index on non-terminal flows is the second guard.
+     * The single cross-table Active Learning Work claim of ADR-0070. It is
+     * deliberately separate from the Flow and Review tables so a Start and a
+     * Review transition contend on the same database row.
      */
     @Insert("""
-            INSERT INTO flows (id, learner_id, concept_id, status, stage, model_profile, created_at)
-            SELECT #{id}, #{learnerId}, #{conceptId}, #{status}, #{stage},
-                   CAST(#{modelProfileJson} AS JSONB), #{createdAt}
-            WHERE NOT EXISTS (
-                SELECT 1 FROM flows
-                WHERE learner_id = #{learnerId} AND concept_id = #{conceptId} AND status <> 'TERMINAL'
-            )
-            AND NOT EXISTS (
-                SELECT 1 FROM review_tasks
-                WHERE learner_id = #{learnerId} AND concept_id = #{conceptId}
-                  AND status IN ('SCHEDULED', 'DUE', 'STARTED')
-            )
-            ON CONFLICT (learner_id, concept_id) WHERE status <> 'TERMINAL' DO NOTHING
+            INSERT INTO active_learning_work (
+                learner_id, concept_id, flow_id, claimed_at
+            ) VALUES (#{learnerId}, #{conceptId}, #{flowId}, #{claimedAt})
+            ON CONFLICT (learner_id, concept_id) DO NOTHING
             """)
-    int insertFlowConditional(
-            @Param("id") UUID id,
+    int claimActiveWork(
             @Param("learnerId") UUID learnerId,
             @Param("conceptId") UUID conceptId,
-            @Param("status") String status,
-            @Param("stage") String stage,
-            @Param("modelProfileJson") String modelProfileJson,
-            @Param("createdAt") Instant createdAt
+            @Param("flowId") UUID flowId,
+            @Param("claimedAt") Instant claimedAt
     );
 
     @Select("""
-            SELECT id
-            FROM flows
-            WHERE learner_id = #{learnerId} AND concept_id = #{conceptId} AND status <> 'TERMINAL'
-            LIMIT 1
+            SELECT flow_id
+            FROM active_learning_work
+            WHERE learner_id = #{learnerId} AND concept_id = #{conceptId}
             """)
-    UUID findActiveWorkFlowId(
+    UUID findActiveLearningWork(
             @Param("learnerId") UUID learnerId,
             @Param("conceptId") UUID conceptId);
 
-    @Select("""
-            SELECT flow_id
-            FROM review_tasks
-            WHERE learner_id = #{learnerId} AND concept_id = #{conceptId}
-              AND status IN ('SCHEDULED', 'DUE', 'STARTED')
-            LIMIT 1
+    /**
+     * A terminal Flow releases its claim only after its unfinished Review
+     * work has also been released. This keeps the claim through the atomic
+     * Independent-pass-to-Review scheduling transition.
+     */
+    @Update("""
+            DELETE FROM active_learning_work claim
+            WHERE claim.flow_id = #{flowId}
+              AND EXISTS (
+                  SELECT 1 FROM flows flow
+                  WHERE flow.id = claim.flow_id AND flow.status = 'TERMINAL'
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM review_tasks review
+                  WHERE review.flow_id = claim.flow_id
+                    AND review.status IN ('SCHEDULED', 'DUE', 'STARTED')
+              )
             """)
-    UUID findUnfinishedReviewFlowId(
-            @Param("learnerId") UUID learnerId,
-            @Param("conceptId") UUID conceptId);
+    int releaseActiveWorkIfUnused(@Param("flowId") UUID flowId);
 
     /**
      * Mirrors one committed interaction's status and stage onto its Flow, so
@@ -116,7 +110,7 @@ public interface ApplyFlowMapper {
             )
             ON CONFLICT (flow_id, interaction_version) DO NOTHING
             """)
-    void insertInteraction(InteractionRow row);
+    int insertInteraction(InteractionRow row);
 
     @Select("""
             SELECT id, flow_id, interaction_version, kind, status, stage, attempt_id, attempt_purpose,
@@ -245,7 +239,7 @@ public interface ApplyFlowMapper {
             VALUES (#{idempotencyKey}, #{requestHash}, #{flowId}, CAST(#{responseJson} AS JSONB), #{createdAt})
             ON CONFLICT (idempotency_key) DO NOTHING
             """)
-    void insertCommand(CommandRow row);
+    int insertCommand(CommandRow row);
 
     @Select("""
             SELECT idempotency_key, request_hash, flow_id, response::text AS response_json, created_at

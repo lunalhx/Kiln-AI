@@ -1627,13 +1627,13 @@ public final class LearningStateGraph {
             UUID idempotencyKey,
             String requestHash
     ) {
-        flowStore.commitBoundary(
+        LearningFlowInteraction committed = flowStore.commitBoundary(
                 interaction,
                 new LearningCheckpoint(UUID.randomUUID(), interaction.flowId(),
                         interaction.interactionVersion(), clock.instant()),
                 new ProcessedCommand(idempotencyKey, requestHash, interaction.flowId(),
                         interaction, clock.instant()),
                 pending);
-        return new LearningFlowResult.Boundary(interaction);
+        return new LearningFlowResult.Boundary(committed);
     }
 }

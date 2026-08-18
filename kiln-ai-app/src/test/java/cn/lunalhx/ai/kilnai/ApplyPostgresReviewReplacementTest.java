@@ -88,7 +88,7 @@ class ApplyPostgresReviewReplacementTest {
     @BeforeEach
     void cleanDatabase() {
         jdbc.execute("""
-                TRUNCATE review_tasks, exposures, commands, checkpoints,
+                TRUNCATE active_learning_work, review_tasks, exposures, commands, checkpoints,
                          interactions, evidence, assessments, verifications,
                          attempts, packages, sources, flows RESTART IDENTITY CASCADE
                 """);

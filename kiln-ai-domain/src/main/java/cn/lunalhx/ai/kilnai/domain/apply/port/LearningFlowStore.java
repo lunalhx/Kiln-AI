@@ -62,11 +62,13 @@ public interface LearningFlowStore {
      * Atomically persists one Learner Interaction Boundary: the learner-visible
      * interaction, its checkpoint, and the processed command that produced it.
      * Repeating a boundary for the same interaction version is a no-op, so a
-     * concurrent duplicate commit cannot corrupt state. A null pending
-     * operation clears any saved Pending Operation for the Flow; a non-null
-     * value replaces it in the same commit.
+     * concurrent duplicate commit cannot corrupt state; the committed
+     * interaction is returned so a racing caller projects durable state rather
+     * than its local candidate. A null pending operation clears any saved
+     * Pending Operation for the Flow; a non-null value replaces it in the same
+     * commit.
      */
-    void commitBoundary(
+    LearningFlowInteraction commitBoundary(
             LearningFlowInteraction interaction,
             LearningCheckpoint checkpoint,
             ProcessedCommand command,
@@ -77,12 +79,12 @@ public interface LearningFlowStore {
      * next interaction and explicit leave uses this form so a recovered
      * retry cannot resume a completed operation.
      */
-    default void commitBoundary(
+    default LearningFlowInteraction commitBoundary(
             LearningFlowInteraction interaction,
             LearningCheckpoint checkpoint,
             ProcessedCommand command
     ) {
-        commitBoundary(interaction, checkpoint, command, null);
+        return commitBoundary(interaction, checkpoint, command, null);
     }
 
     /**

@@ -71,9 +71,16 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
+    @Transactional
     public void insertFlow(FlowRecord flow) {
         mapper.insertFlow(flow.flowId(), flow.learnerId(), flow.conceptId(),
                 flow.status().name(), flow.stage().name(), writeJson(flow.modelProfile()), flow.createdAt());
+        if (flow.status() != FlowStatus.TERMINAL
+                && mapper.claimActiveWork(
+                flow.learnerId(), flow.conceptId(), flow.flowId(), flow.createdAt()) == 0) {
+            throw new ActiveWorkConflictException(
+                    mapper.findActiveLearningWork(flow.learnerId(), flow.conceptId()));
+        }
     }
 
     @Override
@@ -88,56 +95,62 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     public Optional<UUID> activeWorkFlowId(UUID learnerId, UUID conceptId) {
         Objects.requireNonNull(learnerId, "learnerId must not be null");
         Objects.requireNonNull(conceptId, "conceptId must not be null");
-        UUID activeFlow = mapper.findActiveWorkFlowId(learnerId, conceptId);
-        if (activeFlow != null) {
-            return Optional.of(activeFlow);
-        }
-        return Optional.ofNullable(mapper.findUnfinishedReviewFlowId(learnerId, conceptId));
+        return Optional.ofNullable(mapper.findActiveLearningWork(learnerId, conceptId));
     }
 
     @Override
     @Transactional
     public LearningFlowInteraction bindStart(StartBind bind) {
         Objects.requireNonNull(bind, "bind must not be null");
-        int inserted = mapper.insertFlowConditional(
-                bind.flowId(), bind.learnerId(), bind.conceptId(),
-                FlowStatus.AWAITING_LEARNER_INPUT.name(), LearningStage.DIAGNOSTIC.name(),
-                writeJson(bind.modelProfile()), clock.instant());
-        if (inserted == 0) {
+        Instant committedAt = clock.instant();
+        if (mapper.claimActiveWork(
+                bind.learnerId(), bind.conceptId(), bind.flowId(), committedAt) == 0) {
             // A racing different-key Start lost the Active Work claim; the
             // learner recovers through the existing Flow id.
             UUID winner = activeWorkFlowId(bind.learnerId(), bind.conceptId()).orElse(bind.flowId());
             throw new ActiveWorkConflictException(winner);
         }
+        mapper.insertFlow(
+                bind.flowId(), bind.learnerId(), bind.conceptId(),
+                FlowStatus.AWAITING_LEARNER_INPUT.name(), LearningStage.DIAGNOSTIC.name(),
+                writeJson(bind.modelProfile()), committedAt);
         mapper.insertSource(bind.source().sourcePackId(), bind.source().version(),
-                writeJson(bind.source().passages()), clock.instant());
+                writeJson(bind.source().passages()), committedAt);
         TaskAttempt attempt = openAttempt(bind.taskPackage());
         mapper.insertVerification(UUID.randomUUID(), bind.taskPackage().taskPackageId(),
-                writeJson(bind.verificationVerdict()), clock.instant());
+                writeJson(bind.verificationVerdict()), committedAt);
         mapper.recordExposure(
                 bind.flowId(),
                 bind.taskPackage().taskPackageId(),
                 bind.taskPackage().privateAssessorProjection().taskFingerprint().value(),
                 bind.taskPackage().privateAssessorProjection().solutionFingerprint().value(),
-                clock.instant());
+                committedAt);
         LearningFlowInteraction interaction = new LearningFlowInteraction(
                 InteractionKind.TASK, bind.flowId(), 1, FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DIAGNOSTIC, attempt.attemptId(), AttemptPurpose.DIAGNOSTIC,
                 bind.taskPackage().learnerProjection(), null, null, null, null);
-        insertBoundary(bind.flowId(), 1, interaction,
-                bind.idempotencyKey(), bind.requestHash(), clock.instant());
-        return interaction;
+        return insertBoundary(bind.flowId(), 1, interaction,
+                bind.idempotencyKey(), bind.requestHash(), committedAt);
     }
 
     @Override
     @Transactional
-    public void commitBoundary(
+    public LearningFlowInteraction commitBoundary(
             LearningFlowInteraction interaction,
             LearningCheckpoint checkpoint,
             ProcessedCommand command,
             PendingOperation pending
     ) {
-        mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
+        Optional<ApplyFlowMapper.CommandRow> existingCommand = mapper.findCommand(command.idempotencyKey());
+        if (existingCommand.isPresent()) {
+            if (!existingCommand.get().requestHash().equals(command.requestHash())) {
+                throw new ApplicationException(
+                        ErrorCode.CONFLICT,
+                        "Idempotency-Key was already used for another command");
+            }
+            return readJson(existingCommand.get().responseJson(), LearningFlowInteraction.class);
+        }
+        int interactionInserted = mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
                 UUID.randomUUID(),
                 interaction.flowId(),
                 interaction.interactionVersion(),
@@ -152,18 +165,27 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 interaction.hint() == null ? null : writeJson(interaction.hint()),
                 interaction.assistanceConsent() == null ? null : writeJson(interaction.assistanceConsent()),
                 checkpoint.createdAt()));
+        if (interactionInserted == 0) {
+            return latestInteraction(interaction.flowId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "duplicate interaction has no committed response"));
+        }
         mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
                 checkpoint.checkpointId(), checkpoint.flowId(), checkpoint.interactionVersion(),
                 checkpoint.createdAt()));
-        mapper.insertCommand(new ApplyFlowMapper.CommandRow(
+        if (mapper.insertCommand(new ApplyFlowMapper.CommandRow(
                 command.idempotencyKey(), command.requestHash(), command.flowId(),
-                writeJson(command.response()), command.createdAt()));
+                writeJson(command.response()), command.createdAt())) == 0) {
+            throw new IllegalStateException("processed command was concurrently committed");
+        }
         mapper.updateFlowState(interaction.flowId(), interaction.status().name(), interaction.stage().name());
+        mapper.releaseActiveWorkIfUnused(interaction.flowId());
         if (pending == null) {
             mapper.deletePendingOperation(interaction.flowId());
         } else {
             mapper.upsertPendingOperation(interaction.flowId(), writeJson(pending), checkpoint.createdAt());
         }
+        return interaction;
     }
 
     @Override
@@ -368,6 +390,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                     current.reviewId(), current.learnerId(), current.conceptId(), current.flowId(),
                     current.reviewNumber(), ReviewTaskStatus.CANCELLED, current.dueAt(), current.createdAt(),
                     current.startedAt(), null, current.completedAt(), bind.cancelledAt());
+            mapper.releaseActiveWorkIfUnused(current.flowId());
         }
         ReviewTaskStore.ReviewCancellation outcome = new ReviewTaskStore.ReviewCancellation(
                 cancelled, flowInteraction);
@@ -556,9 +579,8 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 InteractionKind.TASK, bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
                 bind.taskPackage().learnerProjection(), null, null, null, null);
-        insertBoundary(bind.flowId(), bind.interactionVersion(), interaction,
-                bind.idempotencyKey(), bind.requestHash(), bind.startedAt());
-        return Optional.of(interaction);
+        return Optional.of(insertBoundary(bind.flowId(), bind.interactionVersion(), interaction,
+                bind.idempotencyKey(), bind.requestHash(), bind.startedAt()));
     }
 
     @Override
@@ -614,12 +636,11 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                         InteractionKind.TASK, review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                         LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
                         replacementProjection, bind.learnerMessage(), null, null, null);
-        insertBoundary(review.flowId(), bind.interactionVersion(), interaction,
-                bind.idempotencyKey(), bind.requestHash(), clock.instant());
-        return Optional.of(interaction);
+        return Optional.of(insertBoundary(review.flowId(), bind.interactionVersion(), interaction,
+                bind.idempotencyKey(), bind.requestHash(), clock.instant()));
     }
 
-    private void insertBoundary(
+    private LearningFlowInteraction insertBoundary(
             UUID flowId,
             int interactionVersion,
             LearningFlowInteraction interaction,
@@ -627,7 +648,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
             String requestHash,
             Instant createdAt
     ) {
-        mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
+        int interactionInserted = mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
                 UUID.randomUUID(),
                 interaction.flowId(),
                 interaction.interactionVersion(),
@@ -642,12 +663,21 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 interaction.hint() == null ? null : writeJson(interaction.hint()),
                 interaction.assistanceConsent() == null ? null : writeJson(interaction.assistanceConsent()),
                 createdAt));
+        if (interactionInserted == 0) {
+            return latestInteraction(flowId)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "duplicate interaction has no committed response"));
+        }
         mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
                 UUID.randomUUID(), flowId, interactionVersion, createdAt));
-        mapper.insertCommand(new ApplyFlowMapper.CommandRow(
+        if (mapper.insertCommand(new ApplyFlowMapper.CommandRow(
                 idempotencyKey, requestHash, flowId,
-                writeJson(interaction), createdAt));
+                writeJson(interaction), createdAt)) == 0) {
+            throw new IllegalStateException("processed command was concurrently committed");
+        }
         mapper.updateFlowState(interaction.flowId(), interaction.status().name(), interaction.stage().name());
+        mapper.releaseActiveWorkIfUnused(interaction.flowId());
+        return interaction;
     }
 
     private ReviewTask toReviewTask(ApplyFlowMapper.ReviewTaskRow row) {

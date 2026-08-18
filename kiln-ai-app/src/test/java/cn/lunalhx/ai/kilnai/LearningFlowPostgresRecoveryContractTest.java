@@ -176,7 +176,7 @@ class LearningFlowPostgresRecoveryContractTest {
     @BeforeEach
     void cleanDatabase() {
         jdbc.execute("""
-                TRUNCATE pending_operations, review_tasks, hint_requests, hint_ladders, teach_back_anchors,
+                TRUNCATE active_learning_work, pending_operations, review_tasks, hint_requests, hint_ladders, teach_back_anchors,
                          teach_back_packages, teach_back_assessments, explain_artifacts,
                          revealed_solution_exposures, hint_ladder_exposures, example_exposures,
                          exposures, commands, checkpoints, interactions, evidence, assessments,

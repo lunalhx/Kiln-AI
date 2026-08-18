@@ -81,7 +81,7 @@ class ApplyPostgresTeachBackStoreTest {
     @BeforeEach
     void cleanDatabase() {
         jdbc.execute("""
-                TRUNCATE teach_back_assessments, teach_back_packages,
+                TRUNCATE active_learning_work, teach_back_assessments, teach_back_packages,
                          teach_back_anchors, hint_requests, hint_ladders,
                          review_tasks, exposures, commands, checkpoints,
                          interactions, evidence, assessments, verifications,

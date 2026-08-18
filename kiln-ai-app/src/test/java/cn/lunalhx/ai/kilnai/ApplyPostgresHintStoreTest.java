@@ -86,7 +86,7 @@ class ApplyPostgresHintStoreTest {
     @BeforeEach
     void cleanDatabase() {
         jdbc.execute("""
-                TRUNCATE hint_requests, hint_ladders, review_tasks,
+                TRUNCATE active_learning_work, hint_requests, hint_ladders, review_tasks,
                          exposures, commands, checkpoints,
                          interactions, evidence, assessments, verifications,
                          attempts, packages, sources, flows RESTART IDENTITY CASCADE

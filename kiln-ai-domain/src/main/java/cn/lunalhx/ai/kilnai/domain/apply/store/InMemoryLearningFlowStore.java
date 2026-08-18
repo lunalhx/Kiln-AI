@@ -126,15 +126,14 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
                 InteractionKind.TASK, bind.flowId(), 1, FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DIAGNOSTIC, attempt.attemptId(), AttemptPurpose.DIAGNOSTIC,
                 bind.taskPackage().learnerProjection(), null, null, null, null);
-        commitBoundary(interaction,
+        return commitBoundary(interaction,
                 new LearningCheckpoint(UUID.randomUUID(), bind.flowId(), 1, clock.instant()),
                 new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
                         interaction, clock.instant()));
-        return interaction;
     }
 
     @Override
-    public synchronized void commitBoundary(
+    public synchronized LearningFlowInteraction commitBoundary(
             LearningFlowInteraction interaction,
             LearningCheckpoint checkpoint,
             ProcessedCommand command,
@@ -143,10 +142,22 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         Objects.requireNonNull(interaction, "interaction must not be null");
         Objects.requireNonNull(checkpoint, "checkpoint must not be null");
         Objects.requireNonNull(command, "command must not be null");
+        ProcessedCommand existingCommand = commands.get(command.idempotencyKey());
+        if (existingCommand != null) {
+            if (!existingCommand.requestHash().equals(command.requestHash())) {
+                throw new ApplicationException(
+                        ErrorCode.CONFLICT,
+                        "Idempotency-Key was already used for another command");
+            }
+            return existingCommand.response();
+        }
         List<LearningFlowInteraction> history = interactions.computeIfAbsent(
                 interaction.flowId(), key -> new ArrayList<>());
         if (history.stream().anyMatch(item -> item.interactionVersion() == interaction.interactionVersion())) {
-            return;
+            return history.stream()
+                    .filter(item -> item.interactionVersion() == interaction.interactionVersion())
+                    .findFirst()
+                    .orElseThrow();
         }
         history.add(interaction);
         checkpoints.computeIfAbsent(checkpoint.flowId(), key -> new ArrayList<>()).add(checkpoint);
@@ -166,6 +177,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         } else {
             pendingOperations.put(interaction.flowId(), pending);
         }
+        return interaction;
     }
 
     @Override
@@ -460,11 +472,10 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
                 InteractionKind.TASK, bind.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                 LearningStage.DELAYED_REVIEW, attempt.attemptId(), AttemptPurpose.REVIEW,
                 bind.taskPackage().learnerProjection(), null, null, null, null);
-        commitBoundary(interaction,
+        return Optional.of(commitBoundary(interaction,
                 new LearningCheckpoint(UUID.randomUUID(), bind.flowId(), bind.interactionVersion(), clock.instant()),
                 new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
-                        interaction, clock.instant()));
-        return Optional.of(interaction);
+                        interaction, clock.instant())));
     }
 
     @Override
@@ -499,11 +510,10 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
                         InteractionKind.TASK, review.flowId(), bind.interactionVersion(), FlowStatus.AWAITING_LEARNER_INPUT,
                         LearningStage.DELAYED_REVIEW, replacement.attemptId(), AttemptPurpose.REVIEW,
                         replacementProjection, bind.learnerMessage(), null, null, null);
-        commitBoundary(interaction,
+        return Optional.of(commitBoundary(interaction,
                 new LearningCheckpoint(UUID.randomUUID(), review.flowId(), bind.interactionVersion(), clock.instant()),
                 new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), review.flowId(),
-                        interaction, clock.instant()));
-        return Optional.of(interaction);
+                        interaction, clock.instant())));
     }
 
     @Override

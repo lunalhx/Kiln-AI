@@ -85,7 +85,7 @@ class ApplyPostgresRecoveryTest {
     @BeforeEach
     void cleanDatabase() {
         jdbc.execute("""
-                TRUNCATE review_tasks, exposures, example_exposures,
+                TRUNCATE active_learning_work, review_tasks, exposures, example_exposures,
                          hint_ladder_exposures, revealed_solution_exposures,
                          commands, checkpoints,
                          interactions, evidence, assessments, verifications,
