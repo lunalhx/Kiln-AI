@@ -4,10 +4,10 @@
 
 **Blocked by:** 05 — 模型契约失败闭合并按职责恢复; 09 — Reference UI 按已提交 Interaction 呈现完整生命周期.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 每个真实 Model Port 都经 operator catalog 与冻结 Model Profile；adapter 不再解析或修补契约。
-- [ ] 旧 direct-flow 写路径与未再使用的兼容映射已删除；公开 HTTP 对旧 Apply 端点为 404。
-- [ ] ArchUnit 保持模块边界与 scheduler 无模型调用；whole-flow / HTTP / PostgreSQL / Playwright 契约均为绿色。
-- [ ] live smoke 非阻塞、使用 ephemeral state、至少覆盖一次真实生成与一次真实提交，且不创建 Evidence。
-- [ ] README / CONTEXT / 相关旧票状态与最终行为一致；不迁移旧 Flow 或旧 Review cadence。
+- [x] 每个真实 Model Port 都经 operator catalog 与冻结 Model Profile；adapter 不再解析或修补契约。
+- [x] 旧 direct-flow 写路径与未再使用的兼容映射已删除；公开 HTTP 对旧 Apply 端点为 404。
+- [x] ArchUnit 保持模块边界与 scheduler 无模型调用；whole-flow / HTTP / PostgreSQL / Playwright 契约均为绿色。
+- [x] live smoke 非阻塞、使用 ephemeral state、至少覆盖一次真实生成与一次真实提交，且不创建 Evidence。
+- [x] README / CONTEXT / 相关旧票状态与最终行为一致；不迁移旧 Flow 或旧 Review cadence。

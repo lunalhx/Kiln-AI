@@ -15,14 +15,14 @@ import java.time.Duration;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Reference UI coverage of the unified Learning Flow API: the closed
- * interaction union (task, teaching, transition) is rendered from committed
- * interactions and the closed commands drive the loop — answer submission,
- * review start and submission, and the explicit leave — while private fields
- * never reach the DOM.
+ * Reference UI coverage of the unified Learning Flow API: committed
+ * interactions are rendered as learner-facing regions and the closed
+ * commands drive the loop — answer submission, review start and submission,
+ * and the explicit leave — while private fields never reach the DOM.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(ScriptedLearningGraphPortsConfiguration.class)
@@ -46,11 +46,15 @@ class LearningFlowUiTest {
             page.click("#start");
             page.waitForFunction("() => document.getElementById('task').textContent.includes('设 f(x)')");
             String diagnostic = page.innerText("#view");
-            assertTrue(diagnostic.contains("\"kind\": \"task\""));
-            assertTrue(diagnostic.contains("DIAGNOSTIC"));
+            assertTrue(diagnostic.contains("当前阶段：诊断"));
+            assertTrue(diagnostic.contains("当前任务：诊断"));
             assertFalse(diagnostic.contains("12*x^2 - 6*x + 7"), "expected answer must not reach the UI");
             assertFalse(diagnostic.contains("openstax"), "source identities must not reach the UI");
             assertFalse(diagnostic.contains("fingerprint"), "fingerprints must not reach the UI");
+            assertTrue(page.locator("[data-answer-field='final_derivative']").count() == 1,
+                    "the returned mathematical answer field must be rendered dynamically");
+            assertTrue(page.locator("[data-answer-field='rule_rationale']").count() == 1,
+                    "the returned rationale field must be rendered dynamically");
 
             page.fill("#derivative", "f'(x) = 12x²−6x+7");
             assertTrue(page.inputValue("#canonical").equals("12*x^2-6*x+7"),
@@ -58,24 +62,23 @@ class LearningFlowUiTest {
             page.click("#submit");
             page.waitForFunction("() => document.getElementById('task').textContent.includes('设 g(x)')");
             String independent = page.innerText("#view");
-            assertTrue(independent.contains("INDEPENDENT_TEST"));
+            assertTrue(independent.contains("当前阶段：独立测试"));
             assertTrue(page.innerText("#notice").contains("独立练习"),
                     "the neutral transition message must state only the next interaction");
             assertFalse(independent.contains("15*x^2 - 2"), "expected answer must not reach the UI");
 
             page.fill("#derivative", "15*x^2 - 2");
             page.click("#submit");
-            page.waitForFunction("() => document.getElementById('view').textContent.includes('\"kind\": \"transition\"')");
+            page.waitForFunction("() => document.getElementById('view').textContent.includes('当前状态：已完成')");
             String terminal = page.innerText("#view");
-            assertTrue(terminal.contains("TERMINAL"));
-            assertTrue(terminal.contains("INDEPENDENT"), "the safe milestone must be visible");
+            assertEquals("独立", page.innerText("#current-milestone"), "the safe milestone must be visible");
             assertFalse(terminal.contains("15*x^2 - 2"), "no answer facts in the terminal message");
             assertFalse(terminal.contains("fingerprint"));
             assertFalse(terminal.contains("assessment"));
 
             page.waitForFunction("() => document.getElementById('reviews').textContent.includes('Review 1')");
             String upcoming = page.innerText("#reviews");
-            assertTrue(upcoming.contains("SCHEDULED"), "the upcoming Review must be visible");
+            assertTrue(upcoming.contains("已安排"), "the upcoming Review must be visible");
             assertTrue(upcoming.contains("即将到来，暂不可操作"),
                     "Scheduled Review work is upcoming and never actionable");
             assertFalse(upcoming.contains("15*x^2 - 2"), "no answer facts in the Review collection");
@@ -85,7 +88,7 @@ class LearningFlowUiTest {
             page.reload();
             page.waitForFunction("() => document.getElementById('reviews').textContent.includes('可以开始')");
             String ready = page.innerText("#reviews");
-            assertTrue(ready.contains("DUE"), "the arrived Review must be Due");
+            assertTrue(ready.contains("可以开始"), "the arrived Review must be Due");
             assertTrue(ready.contains("可以开始"),
                     "the reference UI must switch from upcoming to ready-to-start");
             assertFalse(ready.contains("15*x^2 - 2"));
@@ -94,9 +97,9 @@ class LearningFlowUiTest {
             page.click(".start-review");
             page.waitForFunction("() => document.getElementById('task').textContent.includes('设 h(x)')");
             String reviewView = page.innerText("#view");
-            assertTrue(reviewView.contains("DELAYED_REVIEW"), "the Review interaction must be in Delayed Review");
-            assertTrue(reviewView.contains("REVIEW"), "the Review attempt purpose must be visible");
-            assertTrue(reviewView.contains("AWAITING_LEARNER_INPUT"));
+            assertTrue(reviewView.contains("当前阶段：延迟复习"), "the Review interaction must be in Delayed Review");
+            assertTrue(reviewView.contains("当前任务：复习"), "the Review attempt purpose must be visible");
+            assertTrue(reviewView.contains("当前状态：等待作答"));
             assertFalse(reviewView.contains("8*x^3 - 6*x"), "the Review expected answer must never reach the UI");
             assertFalse(reviewView.contains("fingerprint"));
             assertFalse(reviewView.contains("openstax"));
@@ -105,10 +108,9 @@ class LearningFlowUiTest {
 
             page.fill("#derivative", "8*x^3 - 6*x");
             page.click("#submit");
-            page.waitForFunction("() => document.getElementById('view').textContent.includes('\"kind\": \"transition\"')");
+            page.waitForFunction("() => document.getElementById('view').textContent.includes('当前状态：已完成')");
             String afterReview1 = page.innerText("#view");
-            assertTrue(afterReview1.contains("TERMINAL"));
-            assertTrue(afterReview1.contains("INDEPENDENT"),
+            assertEquals("独立", page.innerText("#current-milestone"),
                     "three Review passes keep Current Milestone Independent");
             assertFalse(afterReview1.contains("8*x^3 - 6*x"), "no answer facts in the Review completion message");
 
@@ -117,8 +119,7 @@ class LearningFlowUiTest {
             passReviewInUi(page, 4, "21*x^2 - 2", Duration.ofDays(22));
 
             String durable = page.innerText("#view");
-            assertTrue(durable.contains("TERMINAL"));
-            assertTrue(durable.contains("DURABLE"),
+            assertEquals("持久", page.innerText("#current-milestone"),
                     "the fourth Review pass must show Durable in the reference UI");
             page.waitForFunction("() => document.getElementById('reviews').textContent.includes('暂无即将到来的复习')");
             assertTrue(page.innerText("#reviews").contains("暂无即将到来的复习"),
@@ -133,6 +134,7 @@ class LearningFlowUiTest {
         try (Playwright playwright = Playwright.create();
              Browser browser = playwright.chromium().launch()) {
             Page page = browser.newPage();
+            page.onDialog(dialog -> dialog.accept());
             page.navigate("http://127.0.0.1:" + port + "/");
             page.click("#start");
             page.waitForFunction("() => document.getElementById('task').textContent.includes('设 f(x)')");
@@ -140,9 +142,9 @@ class LearningFlowUiTest {
             page.fill("#derivative", "3*x^2");
             page.fill("#rationale", "我猜的");
             page.click("#submit");
-            page.waitForFunction("() => document.getElementById('view').textContent.includes('\"kind\": \"teaching\"')");
+            page.waitForFunction("() => document.getElementById('teaching-region').hidden === false");
             String teaching = page.innerText("#view");
-            assertTrue(teaching.contains("LEARNING_AND_PRACTICE"));
+            assertTrue(teaching.contains("当前阶段：学习与练习"));
             assertTrue(page.innerText("#teaching").contains("例题"),
                     "the worked example must be rendered for the learner");
             assertTrue(page.innerText("#teaching").contains("15x² − 4x"),
@@ -154,11 +156,11 @@ class LearningFlowUiTest {
                     "Continue must be offered on the teaching boundary");
 
             page.click("#leave");
-            page.waitForFunction("() => document.getElementById('view').textContent.includes('\"kind\": \"transition\"')");
+            page.waitForFunction("() => document.getElementById('view').textContent.includes('当前状态：已完成')");
             String left = page.innerText("#view");
-            assertTrue(page.innerText("#task").contains("已离开"),
+            assertTrue(page.innerText("#transition-message").contains("已离开"),
                     "the explicit leave must render its transition message");
-            assertTrue(left.contains("TERMINAL"));
+            assertTrue(left.contains("当前状态：已完成"));
             assertFalse(left.contains("15x² − 4x"), "the teaching content must not persist after leaving");
         }
     }
@@ -174,9 +176,9 @@ class LearningFlowUiTest {
                 + reviewNumber + "')");
         page.waitForFunction("() => document.getElementById('reviews').textContent.includes('可以开始')");
         page.click(".start-review");
-        page.waitForFunction("() => document.getElementById('derivative').disabled === false");
+        page.waitForFunction("() => { const field = document.getElementById('derivative'); return field !== null && field.disabled === false; }");
         page.fill("#derivative", expected);
         page.click("#submit");
-        page.waitForFunction("() => document.getElementById('view').textContent.includes('TERMINAL')");
+        page.waitForFunction("() => document.getElementById('view').textContent.includes('当前状态：已完成')");
     }
 }

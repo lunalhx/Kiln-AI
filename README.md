@@ -14,7 +14,7 @@ and a failed Diagnostic enters `Explain -> Apply Practice (Hints) -> Teach-back 
 
 The five first-party Skill Bundles (`apply.task-first`, `reasoning.rule-application`, `representation.formal-expression`, `verification.structured-task-contract`, `subject.calculus-notation`) are frozen, versioned, and immutable; the Explain, Hint, and Teach-back reference stacks add one Action Bundle each over the shared immutable `subject.calculus-notation@1.0.0`. Only the Action Bundle contributes draft fields. Each Profile compiles an immutable English system prompt and receives execution data as a closed JSON object.
 
-RAG, ingestion, authentication, Learner Memory, and the other four Teaching Node Profiles (Explain, Retrieve, Teach-back, Hint) are intentionally out of scope for this slice.
+RAG, ingestion, authentication, Learner Memory, and the Retrieve Teaching Node Profile are intentionally out of scope for this slice. Explain, Apply, Hint, and Teach-back are the implemented reference Profiles.
 
 ## Six-Module Hexagonal Architecture
 
@@ -69,6 +69,13 @@ An ArchUnit test in `kiln-ai-domain` prevents the domain from depending on Sprin
    ```
 
 Flyway applies the Learning Flow schema automatically. The learner UI is served at `http://localhost:8080/`.
+
+Release verification uses a destructive fresh database. For a local release rehearsal, remove the Compose volume before starting PostgreSQL again; there is no migration path for obsolete Flow or Review cadence data:
+
+```bash
+docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml down -v
+docker compose --env-file deploy/local/.env -f deploy/local/compose.yaml up -d
+```
 
 ## Try The Learning Flow
 

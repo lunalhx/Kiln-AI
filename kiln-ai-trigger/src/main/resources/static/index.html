@@ -2,279 +2,799 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Kiln-AI 学习练习</title>
   <style>
-    body { font-family: sans-serif; max-width: 760px; margin: 2rem auto; }
-    button, input, textarea { margin: 0.25rem 0; padding: 0.4rem 0.6rem; }
-    pre { background: #f4f4f4; padding: 1rem; white-space: pre-wrap; }
-    #task { font-size: 1.1rem; margin: 0.75rem 0; white-space: pre-wrap; }
-    #error { color: #b00020; white-space: pre-wrap; }
-    #notice { color: #b26a00; margin: 0.5rem 0; white-space: pre-wrap; }
-    #teaching { border-left: 4px solid #1a7f37; padding-left: 0.75rem; margin: 0.75rem 0; white-space: pre-wrap; }
-    .row { margin: 0.4rem 0; }
-    .reviews { margin-top: 1rem; }
-    .review { border: 1px solid #ddd; padding: 0.5rem 0.75rem; margin: 0.4rem 0; }
-    .review .upcoming { color: #555; }
-    .review .ready { color: #1a7f37; font-weight: 600; }
-    .review .resumable { color: #b26a00; font-weight: 600; }
+    :root {
+      color-scheme: light;
+      --ink: #17212b;
+      --muted: #5d6b78;
+      --line: #d9e1e8;
+      --surface: #f6f8fa;
+      --accent: #1769aa;
+      --accent-soft: #eaf3fb;
+      --warning: #8a5b00;
+      --warning-soft: #fff7df;
+      --success: #176b45;
+      --success-soft: #e9f7ef;
+      --danger: #a52626;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      color: var(--ink);
+      line-height: 1.55;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 1.5rem;
+      background: #fff;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 0.25rem; }
+    h2 { font-size: 1.2rem; }
+    button, input, textarea { font: inherit; border: 1px solid #aebdca; border-radius: 0.35rem; padding: 0.5rem 0.65rem; }
+    button { color: #fff; background: var(--accent); border-color: var(--accent); cursor: pointer; }
+    button.secondary { color: var(--ink); background: #fff; border-color: #aebdca; }
+    button.danger { background: #fff; color: var(--danger); border-color: #d99b9b; }
+    button:disabled, input:disabled, textarea:disabled { opacity: 0.55; cursor: not-allowed; }
+    input, textarea { width: min(100%, 34rem); box-sizing: border-box; background: #fff; }
+    textarea { min-height: 4.5rem; resize: vertical; }
+    input[readonly] { background: var(--surface); color: var(--muted); }
+    .topline, .toolbar, .field-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    .topline { justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+    .muted { color: var(--muted); }
+    .small { font-size: 0.9rem; }
+    .stage-nav { margin: 1rem 0; }
+    .stage-nav ol { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; list-style: none; padding: 0; margin: 0; }
+    .stage-nav li { border: 1px solid var(--line); border-radius: 0.4rem; padding: 0.55rem; color: var(--muted); background: var(--surface); text-align: center; }
+    .stage-nav li.current { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); font-weight: 700; }
+    .progress, .interaction, .region, .reviews { border: 1px solid var(--line); border-radius: 0.55rem; padding: 1rem; margin-top: 1rem; }
+    .progress dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin: 0; }
+    .progress dt { color: var(--muted); font-size: 0.85rem; }
+    .progress dd { margin: 0.15rem 0 0; font-weight: 700; }
+    #view { background: var(--surface); border-radius: 0.4rem; padding: 0.75rem; }
+    #view p:last-child { margin-bottom: 0; }
+    #interaction-heading { outline: none; }
+    #interaction-heading:focus-visible { box-shadow: 0 0 0 3px #a9d4f5; border-radius: 0.2rem; }
+    #notice { min-height: 1.5rem; color: var(--warning); background: var(--warning-soft); padding: 0.55rem 0.7rem; margin-top: 0.75rem; white-space: pre-wrap; }
+    #error { min-height: 1.5rem; color: var(--danger); margin-top: 0.75rem; white-space: pre-wrap; }
+    #task-region { border-left: 4px solid var(--accent); }
+    #teaching-region { border-left: 4px solid var(--success); background: var(--success-soft); }
+    #consent-region { border-left: 4px solid var(--warning); background: var(--warning-soft); }
+    #transition-region { border-left: 4px solid var(--accent); background: var(--accent-soft); }
+    #unavailable-region { border-left: 4px solid var(--warning); background: var(--warning-soft); }
+    #hint-region { border: 1px solid #c9d9e8; border-radius: 0.4rem; padding: 0.75rem; margin-top: 0.9rem; background: #f4f9fd; }
+    #hint-content, #teaching-content, #task { white-space: pre-wrap; }
+    #answer-fields { display: grid; gap: 0.9rem; margin-top: 1rem; }
+    .answer-field { display: grid; gap: 0.35rem; }
+    .answer-field label { font-weight: 650; }
+    .canonical-preview { display: grid; gap: 0.25rem; color: var(--muted); font-size: 0.9rem; }
+    .canonical-preview input { font-size: 0.95rem; }
+    .unsupported-field { color: var(--warning); background: var(--warning-soft); padding: 0.5rem; border-radius: 0.3rem; }
+    .reviews { margin-bottom: 1rem; }
+    .review { border-top: 1px solid var(--line); padding: 0.75rem 0; }
+    .review:first-child { border-top: 0; padding-top: 0; }
+    .review:last-child { padding-bottom: 0; }
+    .review-line { color: var(--muted); }
+    .review .ready { color: var(--success); font-weight: 650; }
+    .review .resumable { color: var(--warning); font-weight: 650; }
+    .review .cancel-review { margin-top: 0.5rem; }
+    @media (max-width: 640px) {
+      body { padding: 1rem; }
+      .stage-nav ol, .progress dl { grid-template-columns: 1fr 1fr; }
+    }
   </style>
 </head>
 <body>
-  <h1>Kiln-AI 学习练习</h1>
-  <div class="row">
-    <button id="start">开始诊断</button>
-    <button id="refresh" disabled>刷新</button>
-    <button id="leave" disabled>离开本流程</button>
-    <button id="retry" disabled>重试</button>
-  </div>
-  <div id="task"></div>
-  <div id="teaching"></div>
-  <div id="notice"></div>
-    <div class="row">
-      <label>答案 <input id="derivative" size="36" disabled></label>
+  <header>
+    <div class="topline">
+      <div>
+        <h1>Kiln-AI 学习练习</h1>
+        <p id="concept-name" class="muted">当前概念：多项式求导</p>
+      </div>
+      <div class="toolbar" aria-label="流程操作">
+        <button id="start" data-write-control type="button">开始诊断</button>
+        <button id="refresh" class="secondary" type="button" disabled>刷新已提交状态</button>
+        <button id="leave" class="secondary" data-write-control type="button" disabled>离开本流程</button>
+        <button id="retry" class="secondary" data-write-control type="button" disabled>重试请求</button>
+      </div>
     </div>
-    <div class="row">
-      <label>确认表达式 <input id="canonical" size="36" disabled></label>
-    </div>
-  <div class="row">
-    <label>理由（可选）<textarea id="rationale" rows="2" cols="36" disabled></textarea></label>
-  </div>
-  <div class="row">
-    <button id="submit" disabled>提交答案</button>
-    <button id="hint" disabled>请求提示</button>
-    <button id="answer" disabled>请求完整解答</button>
-    <button id="continue" disabled>继续</button>
-    <button id="accept-help" disabled>接受帮助</button>
-    <button id="refuse-help" disabled>拒绝帮助</button>
-  </div>
-  <div class="row">
-    <label>澄清提问 <textarea id="clarify" rows="2" cols="36"></textarea></label>
-    <button id="clarify-send" disabled>发送</button>
-  </div>
-  <pre id="error"></pre>
-  <pre id="view"></pre>
-  <div id="reviews" class="reviews"></div>
+    <nav id="stage-navigation" class="stage-nav" aria-label="学习阶段">
+      <ol>
+        <li data-stage="DIAGNOSTIC">诊断</li>
+        <li data-stage="LEARNING_AND_PRACTICE">学习与练习</li>
+        <li data-stage="INDEPENDENT_TEST">独立测试</li>
+        <li data-stage="DELAYED_REVIEW">延迟复习</li>
+      </ol>
+    </nav>
+    <section id="progress-region" class="progress" aria-labelledby="progress-heading">
+      <h2 id="progress-heading">学习进度</h2>
+      <dl>
+        <div><dt>当前里程碑</dt><dd id="current-milestone">尚未开始</dd></div>
+        <div><dt>最高里程碑</dt><dd id="highest-milestone">尚未开始</dd></div>
+        <div><dt>当前阶段</dt><dd id="progress-stage">尚未开始</dd></div>
+      </dl>
+    </section>
+  </header>
+
+  <main>
+    <section class="interaction" aria-labelledby="interaction-heading">
+      <div id="view" role="status" aria-live="polite" aria-atomic="true">
+        <h2 id="interaction-heading" tabindex="-1">准备开始</h2>
+        <p id="status-label">当前状态：尚未开始</p>
+        <p id="stage-label">当前阶段：尚未开始</p>
+        <p id="attempt-purpose-label">当前任务：尚未开始</p>
+      </div>
+      <div id="notice" role="status" aria-live="polite"></div>
+      <section id="task-region" class="region" aria-labelledby="task-heading" hidden>
+        <h3 id="task-heading">当前任务</h3>
+        <div id="task"></div>
+        <div id="hint-region" aria-labelledby="hint-heading" hidden>
+          <h3 id="hint-heading">提示</h3>
+          <div id="hint-content"></div>
+          <div id="hint-detail"></div>
+        </div>
+        <div id="answer-fields"></div>
+      </section>
+      <section id="teaching-region" class="region" aria-labelledby="teaching-heading" hidden>
+        <h3 id="teaching-heading">讲解</h3>
+        <div id="teaching"><div id="teaching-content"></div></div>
+      </section>
+      <section id="consent-region" class="region" aria-labelledby="consent-heading" hidden>
+        <h3 id="consent-heading">帮助确认</h3>
+        <p id="consent-message"></p>
+      </section>
+      <section id="transition-region" class="region" aria-labelledby="transition-heading" hidden>
+        <h3 id="transition-heading">流程更新</h3>
+        <p id="transition-message"></p>
+      </section>
+      <section id="unavailable-region" class="region" aria-labelledby="unavailable-heading" hidden>
+        <h3 id="unavailable-heading">暂时无法继续</h3>
+        <p id="unavailable-message"></p>
+      </section>
+      <div class="toolbar field-actions" aria-label="当前交互操作">
+        <button id="submit" data-write-control type="button" disabled>提交</button>
+        <button id="hint" class="secondary" data-write-control type="button" disabled>请求提示</button>
+        <button id="answer" class="secondary" data-write-control type="button" disabled>请求完整解答</button>
+        <button id="continue" data-write-control type="button" disabled>继续</button>
+        <button id="accept-help" data-write-control type="button" disabled>接受帮助</button>
+        <button id="refuse-help" class="secondary" data-write-control type="button" disabled>拒绝帮助</button>
+      </div>
+      <div class="field-actions" aria-label="程序性澄清">
+        <label for="clarify">澄清提问</label>
+        <textarea id="clarify" data-write-control rows="2" disabled></textarea>
+        <button id="clarify-send" class="secondary" data-write-control type="button" disabled>发送</button>
+      </div>
+      <p id="error" role="alert" aria-live="assertive"></p>
+    </section>
+    <section id="reviews" class="reviews" aria-labelledby="reviews-heading">
+      <h2 id="reviews-heading">延迟复习</h2>
+      <div id="review-list"><p class="muted">正在读取复习安排……</p></div>
+    </section>
+  </main>
+
   <script>
-    const learnerId = localStorage.getItem('kiln.learnerId') || crypto.randomUUID();
-    localStorage.setItem('kiln.learnerId', learnerId);
-    let flow = null;
-    let lastRequest = null;
-    const view = document.getElementById('view');
-    const error = document.getElementById('error');
-    const task = document.getElementById('task');
-    const teaching = document.getElementById('teaching');
-    const notice = document.getElementById('notice');
-    const derivative = document.getElementById('derivative');
-    const canonical = document.getElementById('canonical');
-    const rationale = document.getElementById('rationale');
-    const start = document.getElementById('start');
-    const refresh = document.getElementById('refresh');
-    const leave = document.getElementById('leave');
-    const retry = document.getElementById('retry');
-    const submit = document.getElementById('submit');
-    const hint = document.getElementById('hint');
-    const answer = document.getElementById('answer');
-    const cont = document.getElementById('continue');
-    const acceptHelp = document.getElementById('accept-help');
-    const refuseHelp = document.getElementById('refuse-help');
-    const clarify = document.getElementById('clarify');
-    const clarifySend = document.getElementById('clarify-send');
-    const reviews = document.getElementById('reviews');
-    const key = () => crypto.randomUUID();
-    const headers = (k) => ({ 'Content-Type': 'application/json', 'Idempotency-Key': k });
+    (() => {
+      'use strict';
 
-    const render = (data) => {
-      flow = data;
-      view.textContent = JSON.stringify(data, null, 2);
-      error.textContent = '';
-      start.disabled = false;
-      const events = data.allowedEvents || [];
-      const answerable = events.includes('answer_submitted');
-      derivative.disabled = !answerable;
-      canonical.disabled = !answerable;
-      rationale.disabled = !answerable;
-      submit.disabled = !answerable;
-      hint.disabled = !events.includes('hint_requested');
-      answer.disabled = !events.includes('hint_requested');
-      cont.disabled = !events.includes('continue_requested');
-      acceptHelp.disabled = !events.includes('assistance_decided');
-      refuseHelp.disabled = !events.includes('assistance_decided');
-      clarifySend.disabled = !events.includes('clarification_asked');
-      leave.disabled = !events.includes('flow_control_requested');
-      retry.disabled = data.kind !== 'unavailable' || !lastRequest;
-      refresh.disabled = false;
-      task.textContent = '';
-      teaching.textContent = '';
-      notice.textContent = data.learnerMessage || '';
-      if (data.task) {
-        task.textContent = data.task.taskText;
-      }
-      if (data.teaching) {
-        const example = data.teaching.workedExample;
-        teaching.textContent = data.teaching.principleSummary + '\n\n例题：' + example.problem
-          + '\n' + example.steps.map((step, index) => (index + 1) + '. ' + step.expression
-            + '（' + step.ruleReference + '）' + step.explanation).join('\n')
-          + '\n结果：' + example.finalResult;
-      }
-      if (data.consent) {
-        notice.textContent = data.consent.warning;
-      }
-      if (data.kind === 'transition' || data.kind === 'unavailable') {
-        task.textContent = data.learnerMessage || '';
-      }
-      if (data.status === 'TERMINAL') {
-        loadReviews();
-      }
-    };
+      const STORAGE = {
+        learnerId: 'kiln.learnerId',
+        activeFlowId: 'kiln.activeFlowId',
+        pendingMutation: 'kiln.pendingMutation'
+      };
+      const STAGES = [
+        ['DIAGNOSTIC', '诊断'],
+        ['LEARNING_AND_PRACTICE', '学习与练习'],
+        ['INDEPENDENT_TEST', '独立测试'],
+        ['DELAYED_REVIEW', '延迟复习']
+      ];
+      const STAGE_LABELS = Object.fromEntries(STAGES);
+      const PURPOSE_LABELS = {
+        DIAGNOSTIC: '诊断', PRACTICE: '练习', INDEPENDENT_TEST: '独立测试', REVIEW: '复习'
+      };
+      const MILESTONE_LABELS = {
+        UNASSESSED: '尚未评估', LEARNING: '学习与练习', INDEPENDENT: '独立', DURABLE: '持久'
+      };
+      const STATUS_LABELS = {
+        READY: '准备中', RUNNING: '处理中', AWAITING_LEARNER_INPUT: '等待作答',
+        TERMINAL: '已完成', FAILED: '需要重新开始'
+      };
+      const KIND_LABELS = {
+        task: '题目', teaching: '讲解', assistance_consent: '帮助确认',
+        transition: '流程更新', unavailable: '暂时无法继续'
+      };
+      const REVIEW_STATUS_LABELS = { SCHEDULED: '已安排', DUE: '可以开始', STARTED: '已开始' };
+      const ATTEMPT_COMMANDS = new Set([
+        'answer_submitted', 'hint_requested', 'clarification_asked', 'assistance_decided'
+      ]);
 
-    const showError = async (response) => {
-      let body = '';
-      try { body = JSON.stringify(await response.json()); } catch (e) { body = response.statusText; }
-      error.textContent = response.status + ' ' + body;
-      view.textContent = JSON.stringify(flow, null, 2);
-    };
+      const learnerId = localStorage.getItem(STORAGE.learnerId) || crypto.randomUUID();
+      localStorage.setItem(STORAGE.learnerId, learnerId);
+      let flow = null;
+      let activeFlowId = localStorage.getItem(STORAGE.activeFlowId);
+      let pendingMutation = readPendingMutation();
+      let reviewItems = [];
+      let reviewsLoaded = false;
+      let startupReady = false;
+      let writeInFlight = false;
+      const fields = new Map();
 
-    const send = async (body) => {
-      const k = key();
-      lastRequest = { url: '/api/learning/flows/' + flow.flowId + '/commands', idempotencyKey: k, body };
-      const response = await fetch(lastRequest.url, {
-        method: 'POST', headers: headers(k), body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        if (response.status === 409 || response.status === 422) { lastRequest = null; }
-        return showError(response);
+      const $ = (id) => document.getElementById(id);
+      const start = $('start');
+      const refresh = $('refresh');
+      const leave = $('leave');
+      const retry = $('retry');
+      const submit = $('submit');
+      const hint = $('hint');
+      const answer = $('answer');
+      const continueButton = $('continue');
+      const acceptHelp = $('accept-help');
+      const refuseHelp = $('refuse-help');
+      const clarify = $('clarify');
+      const clarifySend = $('clarify-send');
+
+      function readPendingMutation() {
+        const serialized = localStorage.getItem(STORAGE.pendingMutation);
+        if (!serialized) return null;
+        try {
+          const parsed = JSON.parse(serialized);
+          return parsed && parsed.url && parsed.idempotencyKey && parsed.kind ? parsed : null;
+        } catch (ignored) {
+          return null;
+        }
       }
-      lastRequest = null;
-      render(await response.json());
-    };
 
-    const command = (body) => {
-      body.interactionVersion = flow.interactionVersion;
-      if (flow.attemptId && !body.attemptId) { body.attemptId = flow.attemptId; }
-      send(body);
-    };
+      function savePendingMutation(mutation) {
+        pendingMutation = mutation;
+        localStorage.setItem(STORAGE.pendingMutation, JSON.stringify(mutation));
+      }
 
-    start.onclick = async () => {
-      start.disabled = true;
-      error.textContent = '';
-      notice.textContent = '正在准备诊断题目，请稍候……';
-      try {
-        const response = await fetch('/api/learning/flows', {
-          method: 'POST', headers: headers(key()),
-          body: JSON.stringify({ learnerId })
+      function clearPendingMutation() {
+        pendingMutation = null;
+        localStorage.removeItem(STORAGE.pendingMutation);
+      }
+
+      function setActiveFlow(id) {
+        activeFlowId = id;
+        localStorage.setItem(STORAGE.activeFlowId, id);
+      }
+
+      function clearActiveFlow() {
+        activeFlowId = null;
+        flow = null;
+        localStorage.removeItem(STORAGE.activeFlowId);
+        renderEmpty();
+      }
+
+      function key() { return crypto.randomUUID(); }
+
+      function label(mapping, value, fallback) { return mapping[value] || fallback; }
+
+      function setText(id, value) { $(id).textContent = value || ''; }
+
+      function setHidden(id, hidden) { $(id).hidden = hidden; }
+
+      function setAvailable(control, available) {
+        control.dataset.available = available ? 'true' : 'false';
+        control.disabled = writeInFlight || !available;
+      }
+
+      function setWriteBusy(busy) {
+        writeInFlight = busy;
+        document.querySelectorAll('[data-write-control]').forEach((control) => {
+          control.disabled = writeInFlight || control.dataset.available !== 'true';
         });
-        if (!response.ok) {
-          await showError(response);
-          start.disabled = false;
+        updateStartAvailability();
+        refresh.disabled = writeInFlight || !(flow || activeFlowId);
+      }
+
+      function updateStartAvailability() {
+        const hasPendingStart = pendingMutation && pendingMutation.kind === 'start';
+        const canStart = startupReady && !hasPendingStart &&
+          (!flow || (flow.status === 'TERMINAL' && reviewsLoaded && reviewItems.length === 0));
+        setAvailable(start, canStart);
+      }
+
+      function updateStageNavigation(stage) {
+        document.querySelectorAll('#stage-navigation [data-stage]').forEach((item) => {
+          const current = item.dataset.stage === stage;
+          item.classList.toggle('current', current);
+          if (current) item.setAttribute('aria-current', 'step');
+          else item.removeAttribute('aria-current');
+        });
+      }
+
+      function renderProgress(progress, stage) {
+        if (!progress) {
+          setText('current-milestone', '尚未开始');
+          setText('highest-milestone', '尚未开始');
+          setText('progress-stage', '尚未开始');
+          updateStageNavigation(null);
           return;
         }
-        render(await response.json());
-      } catch (exception) {
-        start.disabled = false;
-        error.textContent = '开始诊断失败，请检查服务连接后重试。';
+        setText('current-milestone', label(MILESTONE_LABELS, progress.currentMilestone, '当前进度'));
+        setText('highest-milestone', label(MILESTONE_LABELS, progress.highestMilestoneReached, '尚未开始'));
+        setText('progress-stage', label(STAGE_LABELS, stage || progress.stage, '当前阶段'));
+        updateStageNavigation(stage || progress.stage);
       }
-    };
 
-    refresh.onclick = async () => {
-      if (!flow) { return; }
-      const response = await fetch('/api/learning/flows/' + flow.flowId);
-      if (!response.ok) { return showError(response); }
-      render(await response.json());
-    };
-
-    submit.onclick = () => command({
-      command: 'answer_submitted',
-      rawAnswer: derivative.value,
-      confirmedCanonical: canonical.value,
-      rationale: rationale.value || null
-    });
-
-    const canonicalize = (raw) => {
-      const superscripts = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4',
-        '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' };
-      let value = raw
-        .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, character => '^' + superscripts[character])
-        .replace(/−/g, '-')
-        .replace(/[×·]/g, '*')
-        .replace(/′/g, "'")
-        .replace(/^f\s*'\s*\(\s*x\s*\)\s*=\s*/, '');
-      value = value.replace(/(\d)([a-zA-Z])/g, '$1*$2');
-      return value.trim().replace(/\s+/g, ' ');
-    };
-
-    derivative.oninput = () => {
-      canonical.value = canonicalize(derivative.value);
-    };
-
-    hint.onclick = () => command({ command: 'hint_requested', answerRequested: false });
-    answer.onclick = () => command({ command: 'hint_requested', answerRequested: true });
-    cont.onclick = () => command({ command: 'continue_requested' });
-    acceptHelp.onclick = () => command({ command: 'assistance_decided', accept: true });
-    refuseHelp.onclick = () => command({ command: 'assistance_decided', accept: false });
-    leave.onclick = () => command({ command: 'flow_control_requested' });
-
-    clarifySend.onclick = () => {
-      const message = clarify.value.trim();
-      if (!message) { return; }
-      clarify.value = '';
-      command({ command: 'clarification_asked', message });
-    };
-
-    retry.onclick = async () => {
-      if (!lastRequest) { return; }
-      const response = await fetch(lastRequest.url, {
-        method: 'POST', headers: headers(lastRequest.idempotencyKey), body: JSON.stringify(lastRequest.body)
-      });
-      if (!response.ok) { return showError(response); }
-      lastRequest = null;
-      render(await response.json());
-    };
-
-    const loadReviews = async () => {
-      const response = await fetch('/api/review-tasks?learnerId=' + encodeURIComponent(learnerId));
-      if (!response.ok) { return; }
-      const items = await response.json();
-      reviews.textContent = '';
-      if (items.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'review';
-        empty.textContent = '暂无即将到来的复习。';
-        reviews.appendChild(empty);
-        return;
+      function clearInteractionRegions() {
+        ['task-region', 'teaching-region', 'consent-region', 'transition-region', 'unavailable-region', 'hint-region']
+          .forEach((id) => setHidden(id, true));
+        ['task', 'teaching-content', 'consent-message', 'transition-message', 'unavailable-message', 'hint-content']
+          .forEach((id) => setText(id, ''));
+        $('hint-detail').replaceChildren();
+        $('answer-fields').replaceChildren();
+        fields.clear();
       }
-      items.forEach((item) => {
-        const entry = document.createElement('div');
-        entry.className = 'review';
-        const resumable = item.startable && item.status === 'STARTED';
-        const line = document.createElement('div');
-        line.className = resumable ? 'resumable' : (item.startable ? 'ready' : 'upcoming');
-        line.textContent = 'Review ' + item.reviewNumber + ' · ' + item.status + ' · 到期时间 '
-          + new Date(item.dueAt).toLocaleString()
-          + (resumable ? '（系统未能确定上次结果，可继续）'
-             : item.startable ? '（可以开始）' : '（即将到来，暂不可操作）');
-        entry.appendChild(line);
-        if (item.startable) {
-          const button = document.createElement('button');
-          button.className = 'start-review';
-          button.textContent = resumable ? '继续复习' : '开始复习';
-          button.dataset.reviewId = item.reviewId;
-          button.onclick = () => startReview(item.reviewId);
-          entry.appendChild(button);
+
+      function renderTeaching(teaching) {
+        const content = $('teaching-content');
+        content.replaceChildren();
+        const principle = document.createElement('p');
+        principle.textContent = teaching.principleSummary || '';
+        content.appendChild(principle);
+        const example = teaching.workedExample;
+        if (!example) return;
+        const title = document.createElement('h4');
+        title.textContent = '例题';
+        content.appendChild(title);
+        const problem = document.createElement('p');
+        problem.textContent = example.problem || '';
+        content.appendChild(problem);
+        const steps = document.createElement('ol');
+        (example.steps || []).forEach((step) => {
+          const item = document.createElement('li');
+          item.textContent = [step.expression, step.ruleReference, step.explanation].filter(Boolean).join('：');
+          steps.appendChild(item);
+        });
+        content.appendChild(steps);
+        const result = document.createElement('p');
+        result.textContent = '结果：' + (example.finalResult || '');
+        content.appendChild(result);
+      }
+
+      function renderHint(hintView) {
+        setHidden('hint-region', false);
+        setText('hint-heading', '提示 H' + hintView.level);
+        setText('hint-content', hintView.learnerContent || '');
+        const detail = $('hint-detail');
+        detail.replaceChildren();
+        if (hintView.level < 5) return;
+        if (Array.isArray(hintView.reasoningSteps) && hintView.reasoningSteps.length > 0) {
+          const heading = document.createElement('h4');
+          heading.textContent = '思路';
+          detail.appendChild(heading);
+          const steps = document.createElement('ol');
+          hintView.reasoningSteps.forEach((step) => {
+            const item = document.createElement('li');
+            item.textContent = step;
+            steps.appendChild(item);
+          });
+          detail.appendChild(steps);
         }
-        reviews.appendChild(entry);
-      });
-    };
+        if (hintView.proposedFinalAnswer) {
+          const finalAnswer = document.createElement('p');
+          finalAnswer.textContent = '完整答案：' + hintView.proposedFinalAnswer;
+          detail.appendChild(finalAnswer);
+        }
+      }
 
-    const startReview = async (reviewId) => {
-      const response = await fetch('/api/review-tasks/' + reviewId + '/start', {
-        method: 'POST', headers: headers(key())
-      });
-      if (!response.ok) { return showError(response); }
-      render(await response.json());
-      loadReviews();
-    };
+      function safeFieldId(id) { return String(id || 'answer-field').replace(/[^a-zA-Z0-9_-]/g, '-'); }
 
-    loadReviews();
+      function canonicalize(raw) {
+        const superscripts = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' };
+        const value = String(raw || '')
+          .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, (character) => '^' + superscripts[character])
+          .replace(/−/g, '-').replace(/[×·]/g, '*').replace(/′/g, "'")
+          .replace(/^f\s*'\s*\(\s*x\s*\)\s*=\s*/, '')
+          .replace(/(\d)([a-zA-Z])/g, '$1*$2');
+        return value.trim().replace(/\s+/g, ' ');
+      }
+
+      function appendMathField(container, field, index) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'answer-field';
+        wrapper.dataset.answerField = field.id;
+        const inputId = index === 0 && field.id === 'final_derivative' ? 'derivative' : 'answer-' + safeFieldId(field.id);
+        const inputLabel = document.createElement('label');
+        inputLabel.htmlFor = inputId;
+        inputLabel.textContent = field.label;
+        const input = document.createElement('input');
+        input.id = inputId;
+        input.type = 'text';
+        input.required = Boolean(field.required);
+        input.dataset.writeControl = 'true';
+        input.dataset.fieldId = field.id;
+        input.setAttribute('aria-describedby', inputId + '-canonical');
+        const previewLabel = document.createElement('label');
+        previewLabel.className = 'canonical-preview';
+        previewLabel.textContent = '确认表达式';
+        const preview = document.createElement('input');
+        preview.id = index === 0 && field.id === 'final_derivative' ? 'canonical' : 'canonical-' + safeFieldId(field.id);
+        preview.type = 'text';
+        preview.readOnly = true;
+        preview.setAttribute('aria-label', field.label + '的确认表达式');
+        preview.dataset.canonicalFor = field.id;
+        previewLabel.htmlFor = preview.id;
+        previewLabel.appendChild(preview);
+        input.addEventListener('input', () => { preview.value = canonicalize(input.value); });
+        wrapper.append(inputLabel, input, previewLabel);
+        container.appendChild(wrapper);
+        fields.set(field.id, { field, input, preview });
+      }
+
+      function appendShortTextField(container, field) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'answer-field';
+        wrapper.dataset.answerField = field.id;
+        const inputId = field.id === 'rule_rationale' ? 'rationale' : 'answer-' + safeFieldId(field.id);
+        const labelElement = document.createElement('label');
+        labelElement.htmlFor = inputId;
+        labelElement.textContent = field.label;
+        const input = document.createElement('textarea');
+        input.id = inputId;
+        input.rows = 3;
+        input.required = Boolean(field.required);
+        input.dataset.writeControl = 'true';
+        input.dataset.fieldId = field.id;
+        wrapper.append(labelElement, input);
+        container.appendChild(wrapper);
+        fields.set(field.id, { field, input, preview: null });
+      }
+
+      function renderTaskFields(answerFields) {
+        const container = $('answer-fields');
+        let unsupported = false;
+        (answerFields || []).forEach((field) => {
+          if (field.kind === 'mathematical_expression') appendMathField(container, field, fields.size);
+          else if (field.kind === 'short_text') appendShortTextField(container, field);
+          else {
+            unsupported = true;
+            const wrapper = document.createElement('div');
+            wrapper.className = 'unsupported-field';
+            wrapper.dataset.answerField = field.id || 'unknown';
+            wrapper.textContent = '当前题目包含暂不支持的回答格式，暂时不能提交。';
+            container.appendChild(wrapper);
+          }
+        });
+        return !unsupported;
+      }
+
+      function renderTask(taskView) {
+        setHidden('task-region', false);
+        setText('task', taskView.taskText || '');
+        const supported = renderTaskFields(taskView.answerFields);
+        if (!supported) setText('error', '当前题目的回答格式暂不支持提交。');
+        fields.forEach(({ input }) => { input.dataset.available = supported ? 'true' : 'false'; });
+      }
+
+      function render(data) {
+        flow = data;
+        setActiveFlow(data.flowId);
+        clearInteractionRegions();
+        setText('error', '');
+        const stageLabel = label(STAGE_LABELS, data.stage, '当前阶段');
+        const kindLabel = label(KIND_LABELS, data.kind, '当前交互');
+        const statusLabel = label(STATUS_LABELS, data.status, '处理中');
+        const purposeLabel = label(PURPOSE_LABELS, data.attemptPurpose, '当前交互');
+        setText('interaction-heading', kindLabel + ' · ' + stageLabel);
+        setText('status-label', '当前状态：' + statusLabel);
+        setText('stage-label', '当前阶段：' + stageLabel);
+        setText('attempt-purpose-label', '当前任务：' + purposeLabel);
+        renderProgress(data.progress, data.stage);
+        setText('notice', data.learnerMessage || '');
+        if (data.task) renderTask(data.task);
+        if (data.teaching) { setHidden('teaching-region', false); renderTeaching(data.teaching); }
+        if (data.consent) { setHidden('consent-region', false); setText('consent-message', data.consent.warning || ''); }
+        if (data.hint) renderHint(data.hint);
+        if (data.kind === 'transition') { setHidden('transition-region', false); setText('transition-message', data.learnerMessage || ''); }
+        if (data.kind === 'unavailable') { setHidden('unavailable-region', false); setText('unavailable-message', data.learnerMessage || ''); }
+        renderControls(data);
+        if (data.status === 'TERMINAL') loadReviews();
+        $('interaction-heading').focus();
+      }
+
+      function renderEmpty() {
+        flow = null;
+        clearInteractionRegions();
+        setText('interaction-heading', '准备开始');
+        setText('status-label', '当前状态：尚未开始');
+        setText('stage-label', '当前阶段：尚未开始');
+        setText('attempt-purpose-label', '当前任务：尚未开始');
+        setText('notice', '开始一次诊断，了解当前的学习起点。');
+        renderProgress(null, null);
+        renderControls(null);
+      }
+
+      function renderControls(data) {
+        const events = new Set((data && data.allowedEvents) || []);
+        const supported = fields.size > 0 && !document.querySelector('.unsupported-field');
+        setAvailable(submit, events.has('answer_submitted') && supported);
+        document.querySelectorAll('#answer-fields [data-write-control]').forEach((control) => {
+          setAvailable(control, events.has('answer_submitted') && supported);
+        });
+        setAvailable(hint, events.has('hint_requested'));
+        setAvailable(answer, events.has('hint_requested'));
+        setAvailable(continueButton, events.has('continue_requested'));
+        setAvailable(acceptHelp, events.has('assistance_decided'));
+        setAvailable(refuseHelp, events.has('assistance_decided'));
+        setAvailable(clarifySend, events.has('clarification_asked'));
+        setAvailable(clarify, events.has('clarification_asked'));
+        setAvailable(leave, events.has('flow_control_requested'));
+        const durableRetry = data && data.kind === 'unavailable' && events.has('retry_requested');
+        setAvailable(retry, Boolean(pendingMutation) || durableRetry);
+        retry.textContent = pendingMutation ? '重试请求' : durableRetry ? '重试准备' : '重试请求';
+        refresh.disabled = writeInFlight || !(flow || activeFlowId);
+        updateStartAvailability();
+      }
+
+      function buildCommand(command, extra) {
+        const body = Object.assign({ command, interactionVersion: flow.interactionVersion }, extra || {});
+        if (flow.attemptId && ATTEMPT_COMMANDS.has(command) && !body.attemptId) body.attemptId = flow.attemptId;
+        return body;
+      }
+
+      function mutationFor(url, kind, idempotencyKey, body) {
+        return { url, kind, idempotencyKey, body: body || null };
+      }
+
+      function genericError(status) {
+        if (!status) return '网络连接暂时不可用，原请求已保留，可以重试。';
+        if (status === 404) return '当前学习流程已不存在，请重新开始。';
+        if (status === 409) return '页面状态已经更新，正在读取最新进度。';
+        if (status === 422) return '请检查输入后再提交；你刚才填写的内容仍保留在页面上。';
+        if (status === 503) return '服务暂时不可用，原请求已保留，可以稍后重试。';
+        if (status >= 500) return '当前操作未完成，原请求已保留，可以稍后重试。';
+        return '当前操作未完成，请稍后再试。';
+      }
+
+      function showError(status) { setText('error', genericError(status)); }
+
+      async function responseJson(response) {
+        try { return await response.clone().json(); } catch (ignored) { return null; }
+      }
+
+      async function handleMutationError(response, mutation) {
+        if (response.status === 404 && mutation.kind.startsWith('flow-')) {
+          clearActiveFlow();
+          showError(404);
+          return;
+        }
+        if (response.status === 409) {
+          clearPendingMutation();
+          if (mutation.kind === 'start') {
+            const body = await responseJson(response);
+            if (body && body.flowId) { setActiveFlow(body.flowId); await loadCommittedFlow(false); return; }
+          }
+          if (mutation.kind.startsWith('flow-') && activeFlowId) { await loadCommittedFlow(false); return; }
+          showError(409);
+          await loadReviews();
+          return;
+        }
+        if (response.status === 422) clearPendingMutation();
+        showError(response.status);
+      }
+
+      function applyMutationResponse(mutation, data) {
+        if (mutation.kind === 'review-cancel') {
+          if (data && data.flow) render(data.flow);
+          else if (activeFlowId) loadCommittedFlow(false);
+          loadReviews();
+          return;
+        }
+        if (data && data.flowId) render(data);
+        if (mutation.kind === 'review-start') loadReviews();
+      }
+
+      async function performMutation(mutation) {
+        if (writeInFlight) return;
+        savePendingMutation(mutation);
+        setWriteBusy(true);
+        try {
+          const response = await fetch(mutation.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Idempotency-Key': mutation.idempotencyKey },
+            body: mutation.body ? JSON.stringify(mutation.body) : undefined
+          });
+          if (!response.ok) { await handleMutationError(response, mutation); return; }
+          const data = await response.json();
+          clearPendingMutation();
+          applyMutationResponse(mutation, data);
+        } catch (exception) {
+          showError();
+        } finally {
+          setWriteBusy(false);
+          renderControls(flow);
+        }
+      }
+
+      async function replayPendingMutation() {
+        if (pendingMutation) await performMutation(pendingMutation);
+      }
+
+      async function sendFlowCommand(body) {
+        if (!flow) return;
+        await performMutation(mutationFor(
+          '/api/learning/flows/' + flow.flowId + '/commands', 'flow-command', key(), body));
+      }
+
+      function submitAnswer() {
+        if (!flow || writeInFlight) return;
+        let math = null;
+        const textResponses = [];
+        for (const entry of fields.values()) {
+          if (entry.field.kind === 'mathematical_expression') math = math || entry;
+          else if (entry.field.kind === 'short_text') textResponses.push(entry);
+          if (entry.field.required && !entry.input.value.trim()) {
+            setText('error', '请完成必填回答后再提交。');
+            entry.input.focus();
+            return;
+          }
+        }
+        if (document.querySelector('.unsupported-field')) { setText('error', '当前题目的回答格式暂不支持提交。'); return; }
+        if (math) {
+          if (!math.input.value.trim()) { setText('error', '请先填写答案。'); math.input.focus(); return; }
+          const rationaleEntry = textResponses.find((entry) => entry.field.id === 'rule_rationale');
+          sendFlowCommand(buildCommand('answer_submitted', {
+            rawAnswer: math.input.value,
+            confirmedCanonical: math.preview.value,
+            rationale: rationaleEntry ? (rationaleEntry.input.value || null) : null
+          }));
+          return;
+        }
+        if (textResponses.length === 1) {
+          const response = textResponses[0].input.value;
+          sendFlowCommand(buildCommand('answer_submitted', {
+            rawAnswer: response, confirmedCanonical: response, rationale: null
+          }));
+          return;
+        }
+        setText('error', '当前题目的回答格式暂不支持提交。');
+      }
+
+      async function loadCommittedFlow(startup) {
+        if (!activeFlowId) {
+          if (startup) startupReady = true;
+          renderEmpty();
+          return true;
+        }
+        try {
+          const response = await fetch('/api/learning/flows/' + activeFlowId);
+          if (response.status === 404) {
+            clearActiveFlow();
+            if (startup) startupReady = true;
+            return true;
+          }
+          if (!response.ok) { showError(response.status); if (startup) startupReady = false; return false; }
+          render(await response.json());
+          if (startup) startupReady = true;
+          updateStartAvailability();
+          return true;
+        } catch (exception) {
+          showError();
+          if (startup) startupReady = false;
+          return false;
+        }
+      }
+
+      async function loadReviews() {
+        try {
+          const response = await fetch('/api/review-tasks?learnerId=' + encodeURIComponent(learnerId));
+          if (!response.ok) { showError(response.status); reviewsLoaded = false; updateStartAvailability(); return; }
+          reviewItems = await response.json();
+          reviewsLoaded = true;
+          renderReviews();
+          updateStartAvailability();
+        } catch (exception) {
+          showError();
+          reviewsLoaded = false;
+          updateStartAvailability();
+        }
+      }
+
+      function reviewDescription(item) {
+        const status = REVIEW_STATUS_LABELS[item.status] || '待处理';
+        const resumable = item.startable && item.status === 'STARTED';
+        const hintText = resumable ? '（系统未能确定上次结果，可继续）'
+          : item.startable ? '（可以开始）' : '（即将到来，暂不可操作）';
+        return 'Review ' + item.reviewNumber + ' · ' + status + ' · 到期时间 '
+          + new Date(item.dueAt).toLocaleString() + hintText;
+      }
+
+      function renderReviews() {
+        const list = $('review-list');
+        list.replaceChildren();
+        if (reviewItems.length === 0) {
+          const empty = document.createElement('p');
+          empty.className = 'muted';
+          empty.textContent = '暂无即将到来的复习。';
+          list.appendChild(empty);
+          return;
+        }
+        reviewItems.forEach((item) => {
+          const entry = document.createElement('article');
+          entry.className = 'review';
+          entry.dataset.status = item.status;
+          const line = document.createElement('div');
+          const resumable = item.startable && item.status === 'STARTED';
+          line.className = 'review-line ' + (resumable ? 'resumable' : item.startable ? 'ready' : '');
+          line.textContent = reviewDescription(item);
+          entry.appendChild(line);
+          if (item.startable) {
+            const startReviewButton = document.createElement('button');
+            startReviewButton.type = 'button';
+            startReviewButton.className = 'start-review';
+            startReviewButton.dataset.reviewId = item.reviewId;
+            startReviewButton.dataset.writeControl = 'true';
+            startReviewButton.dataset.available = 'true';
+            startReviewButton.textContent = resumable ? '继续复习' : '开始复习';
+            startReviewButton.addEventListener('click', () => startReview(item.reviewId));
+            entry.appendChild(startReviewButton);
+          }
+          if (['SCHEDULED', 'DUE', 'STARTED'].includes(item.status)) {
+            const cancelButton = document.createElement('button');
+            cancelButton.type = 'button';
+            cancelButton.className = 'cancel-review danger';
+            cancelButton.dataset.reviewId = item.reviewId;
+            cancelButton.dataset.writeControl = 'true';
+            cancelButton.dataset.available = 'true';
+            cancelButton.textContent = '取消此复习';
+            cancelButton.addEventListener('click', () => cancelReview(item));
+            entry.appendChild(cancelButton);
+          }
+          list.appendChild(entry);
+        });
+        setWriteBusy(writeInFlight);
+      }
+
+      async function startReview(reviewId) {
+        if (writeInFlight) return;
+        await performMutation(mutationFor(
+          '/api/review-tasks/' + reviewId + '/start', 'review-start', key(), null));
+      }
+
+      async function cancelReview(item) {
+        if (writeInFlight || !window.confirm('确认取消这项未完成的复习吗？')) return;
+        await performMutation(mutationFor(
+          '/api/review-tasks/' + item.reviewId + '/cancel', 'review-cancel', key(), null));
+      }
+
+      start.addEventListener('click', async () => {
+        if (writeInFlight || (pendingMutation && pendingMutation.kind === 'start')) return;
+        await performMutation(mutationFor('/api/learning/flows', 'start', key(), { learnerId }));
+      });
+      refresh.addEventListener('click', () => { loadCommittedFlow(false); });
+      submit.addEventListener('click', submitAnswer);
+      hint.addEventListener('click', () => sendFlowCommand(buildCommand('hint_requested', { answerRequested: false })));
+      answer.addEventListener('click', () => sendFlowCommand(buildCommand('hint_requested', { answerRequested: true })));
+      continueButton.addEventListener('click', () => sendFlowCommand(buildCommand('continue_requested')));
+      acceptHelp.addEventListener('click', () => sendFlowCommand(buildCommand('assistance_decided', { accept: true })));
+      refuseHelp.addEventListener('click', () => sendFlowCommand(buildCommand('assistance_decided', { accept: false })));
+      leave.addEventListener('click', () => {
+        if (!flow || !window.confirm('确认离开本次学习吗？未提交的题目将被放弃。')) return;
+        sendFlowCommand(buildCommand('flow_control_requested'));
+      });
+      clarifySend.addEventListener('click', () => {
+        const message = clarify.value.trim();
+        if (message) sendFlowCommand(buildCommand('clarification_asked', { message }));
+      });
+      retry.addEventListener('click', () => {
+        if (pendingMutation) { replayPendingMutation(); return; }
+        if (flow && flow.kind === 'unavailable' && (flow.allowedEvents || []).includes('retry_requested')) {
+          sendFlowCommand({ command: 'retry_requested', interactionVersion: flow.interactionVersion });
+        }
+      });
+
+      (async () => {
+        // Restore the durable Flow before allowing a new Start. A failed GET
+        // keeps activeFlowId in storage and therefore keeps Start disabled.
+        await loadCommittedFlow(true);
+        if (startupReady) await loadReviews();
+        renderControls(flow);
+      })();
+    })();
   </script>
 </body>
 </html>

@@ -62,17 +62,18 @@ class ApplyModelAdapterTest {
     }
 
     @Test
-    void generationStripsMarkdownFencesAroundTheClosedJsonContract() {
-        ScriptedChatModel model = new ScriptedChatModel("""
+    void generationReturnsProviderTextWithoutRepairingTheModelContract() {
+        String providerText = """
                 ```json
                 {"outcome":"source_gap"}
                 ```
-                """);
+                """;
+        ScriptedChatModel model = new ScriptedChatModel(providerText);
         ApplyModelAdapter adapter = adapter(model);
 
         String raw = adapter.generate(PROFILE, "compiled prompt", "{}");
 
-        assertEquals("{\"outcome\":\"source_gap\"}", raw);
+        assertEquals(providerText, raw);
     }
 
     @Test

@@ -81,7 +81,7 @@ class LearningFlowReviewReplacementUiTest {
             ports.failNextReviewGeneration();
             page.fill("#derivative", "x^2^3");
             page.click("#submit");
-            page.waitForFunction("() => document.getElementById('view').textContent.includes('\"kind\": \"unavailable\"')");
+            page.waitForFunction("() => document.getElementById('unavailable-region').hidden === false");
             String unavailable = page.innerText("#view");
             assertTrue(page.innerText("#notice").contains("未能确定"),
                     "the neutral unavailable message must be shown");
@@ -99,10 +99,10 @@ class LearningFlowReviewReplacementUiTest {
             page.waitForFunction("() => document.getElementById('task').textContent.includes('设 p(x)')");
             assertFalse(page.isDisabled("#derivative"),
                     "the resumed Review must be answerable");
-            page.waitForFunction("() => document.getElementById('reviews').textContent.includes('STARTED')");
+            page.waitForFunction("() => document.getElementById('reviews').textContent.includes('已开始')");
 
             String bound = page.innerText("#reviews");
-            assertTrue(bound.contains("STARTED"),
+            assertTrue(bound.contains("已开始"),
                     "after resuming, the Review shows as bound work");
             assertFalse(bound.contains("可继续"),
                     "a resumed Review with an open attempt must not advertise a continuation");

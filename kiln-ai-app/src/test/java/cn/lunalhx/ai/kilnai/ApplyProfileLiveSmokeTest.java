@@ -1,5 +1,4 @@
 package cn.lunalhx.ai.kilnai;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
@@ -49,6 +48,9 @@ import cn.lunalhx.ai.kilnai.infrastructure.adapter.model.ApplyModelAdapter;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.model.OpenAiCompatibleChatClientFactory;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.model.OperatorCatalog;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.model.OperatorCatalogProperties;
+import cn.lunalhx.ai.kilnai.infrastructure.adapter.model.OperatorModelProfileAdapter;
+import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
+import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -69,11 +71,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The real-model smoke test for the Learning Flow reference. It compiles the
  * real Apply five-Bundle prompt, resolves the operator-configured model from
- * {@code deploy/local/.env}, and runs a complete Diagnostic start through the
- * Learning Flow command surface against the provider with zero tools in
- * ephemeral in-memory storage. It is never a CI oracle: it runs only when
- * {@code KILN_LIVE_SMOKE=true}, it is non-blocking, and it creates no Learning
- * Evidence.
+ * {@code deploy/local/.env}, and runs a Diagnostic start plus a submission when
+ * a verified task is delivered through the Learning Flow command surface
+ * against the provider with zero tools in ephemeral in-memory storage. It is
+ * never a CI oracle: it runs only when {@code KILN_LIVE_SMOKE=true}, it is
+ * non-blocking, and it creates no Learning Evidence.
  */
 @Tag("live")
 @EnabledIfEnvironmentVariable(named = "KILN_LIVE_SMOKE", matches = "true")
@@ -124,12 +126,7 @@ class ApplyProfileLiveSmokeTest {
                 artifacts, flowStore, assessment, verification,
                 new ReviewTaskScheduler((ReviewTaskStore) flowStore),
                 executor, (ReviewTaskStore) flowStore, ReviewApplyFixture.reviewContext(), Clock.systemUTC());
-        OperatorModelProfilePort profilePort = () -> new ModelProfile(
-                new ModelProfile.ModelBinding("openai-compatible", "https://api.smoke.test/v1",
-                        "smoke", "smoke-strong", "KILN_APPLY_SMOKE_STRONG"),
-                new ModelProfile.ModelBinding("openai-compatible", "https://api.smoke.test/v1",
-                        "smoke", "smoke-small", "KILN_APPLY_SMOKE_SMALL"),
-                2048);
+        OperatorModelProfilePort profilePort = new OperatorModelProfileAdapter(catalog, secrets);
         LearningStateGraph graph = new LearningStateGraph(
                 artifacts, flowStore, (ReviewTaskStore) flowStore, diagnosticFlow, independentFlow,
                 practiceFlow, reviewFlow, explainFlow, hintFlow, teachBackFlow,
@@ -137,7 +134,19 @@ class ApplyProfileLiveSmokeTest {
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
                 flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort);
 
-        LearningFlowResult result = useCase.start(UUID.randomUUID(), UUID.randomUUID());
+        UUID learnerId = UUID.randomUUID();
+        UUID startKey = UUID.randomUUID();
+        LearningFlowResult result;
+        try {
+            result = useCase.start(learnerId, startKey);
+        } catch (ApplicationException exception) {
+            assertEquals(ErrorCode.SERVICE_UNAVAILABLE, exception.errorCode(),
+                    "live smoke must expose provider/configuration failure only as the generic unavailable outcome");
+            assertTrue(flowStore.activeWorkFlowId(learnerId, DiagnosticApplyFixture.CONCEPT_ID).isEmpty(),
+                    "an unavailable initial smoke start must not claim active work");
+            assertTrue(flowStore.allEvidence().isEmpty(), "an unavailable smoke start must never create evidence");
+            return;
+        }
 
         assertInstanceOf(LearningFlowResult.Boundary.class, result);
         LearningFlowResult.Boundary boundary = (LearningFlowResult.Boundary) result;
@@ -148,6 +157,16 @@ class ApplyProfileLiveSmokeTest {
             assertFalse(projection.taskText().contains("openstax"), "no source identities");
             assertFalse(projection.taskText().contains("sec-3.3"), "no source anchors");
             assertFalse(projection.taskText().contains("fingerprint"), "no fingerprints");
+
+            LearningFlowResult submitted = useCase.submitAnswer(
+                    boundary.interaction().flowId(),
+                    boundary.interaction().interactionVersion(),
+                    UUID.randomUUID(),
+                    boundary.interaction().attemptId(),
+                    "0",
+                    "0",
+                    "");
+            assertNotNull(submitted, "a delivered smoke task must accept a real submission command");
         } else {
             assertNotNull(boundary.interaction().learnerMessage(),
                     "a declined task must still surface the neutral message");

@@ -267,7 +267,7 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
 
     @Override
     public String generate(ModelProfile profile, String compiledSystemPrompt, String executionContextJson) {
-        return extractJson(complete(profile, strong(profile), compiledSystemPrompt, executionContextJson));
+        return complete(profile, strong(profile), compiledSystemPrompt, executionContextJson);
     }
 
     public String verify(
@@ -278,7 +278,7 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("task_package", taskPackage);
         data.put("execution_context", context);
-        return extractJson(complete(profile, strong(profile), TASK_VERIFIER_SYSTEM, writeJson(data)));
+        return complete(profile, strong(profile), TASK_VERIFIER_SYSTEM, writeJson(data));
     }
 
     public String assess(ModelProfile profile, ResponseAssessmentContext context) {
@@ -295,7 +295,7 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
         data.put("anchor_content", context.anchorContent());
         data.put("learner_response", context.learnerResponse());
         data.put("purpose", context.purpose());
-        return extractJson(complete(profile, strong(profile), TEACH_BACK_ASSESSMENT_SYSTEM, writeJson(data)));
+        return complete(profile, strong(profile), TEACH_BACK_ASSESSMENT_SYSTEM, writeJson(data));
     }
 
     public String verify(
@@ -306,7 +306,7 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("task_package", taskPackage);
         data.put("execution_context", context);
-        return extractJson(complete(profile, strong(profile), TEACH_BACK_TASK_VERIFIER_SYSTEM, writeJson(data)));
+        return complete(profile, strong(profile), TEACH_BACK_TASK_VERIFIER_SYSTEM, writeJson(data));
     }
 
     @Override
@@ -318,11 +318,11 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("message", message);
         data.put("task_text", taskText);
-        return extractJson(complete(profile, small(profile), CLARIFICATION_CLASSIFIER_SYSTEM, writeJson(data)));
+        return complete(profile, small(profile), CLARIFICATION_CLASSIFIER_SYSTEM, writeJson(data));
     }
 
     private String judge(ModelProfile profile, ResponseAssessmentContext context) {
-        return extractJson(complete(profile, strong(profile), RESPONSE_ASSESSMENT_SYSTEM, writeJson(context)));
+        return complete(profile, strong(profile), RESPONSE_ASSESSMENT_SYSTEM, writeJson(context));
     }
 
     /**
@@ -382,23 +382,6 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
         } catch (JsonProcessingException exception) {
             throw providerFailure(exception);
         }
-    }
-
-    static String extractJson(String content) {
-        String trimmed = content.trim();
-        if (trimmed.startsWith("```")) {
-            int newline = trimmed.indexOf('\n');
-            int fence = trimmed.lastIndexOf("```");
-            if (newline > 0 && fence > newline) {
-                trimmed = trimmed.substring(newline + 1, fence).trim();
-            }
-        }
-        int start = trimmed.indexOf('{');
-        int end = trimmed.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            return trimmed.substring(start, end + 1);
-        }
-        return trimmed;
     }
 
     private static ApplicationException providerFailure(Exception exception) {

@@ -221,7 +221,7 @@ The versioned storage for large or private execution artifacts such as source pa
 _Avoid_: Learning Blackboard, Concept Progress, model context window
 
 **Learning StateGraph**:
-The primary Phase 0 coordination runtime. It advances one Learning Flow through explicit deterministic gates and model-backed nodes, owns checkpoints and resumability, and returns control to the graph after every node execution.
+The primary Phase 0 coordination runtime. It advances one Learning Flow through explicit deterministic gates and the implemented model-backed Profiles, owns checkpoints and resumability, and returns control to the graph after every node execution.
 _Avoid_: Group chat, persistent Supervisor, autonomous Agent network
 
 **Graph Run**:
@@ -369,7 +369,7 @@ The typed output of the Pedagogy Agent containing a concise learner-feedback sum
 _Avoid_: Execution Plan, Skill Stack, state mutation
 
 **Teaching Node Profile**:
-The stable execution sandbox for one Teaching Action. Phase 0 has exactly five profiles—Explain, Retrieve, Apply, Teach-back, and Hint—defining permitted context, tools, budgets, base envelope, validation, tracing, and state restrictions. A Profile contains no duplicate pedagogical method prompt and is invoked on demand without private state or inter-profile messaging.
+The stable execution sandbox for one Teaching Action. Phase 0's reference path has four implemented Profiles—Explain, Apply, Teach-back, and Hint—defining permitted context, tools, budgets, base envelope, validation, tracing, and state restrictions. Retrieve remains outside this slice. A Profile contains no duplicate pedagogical method prompt and is invoked on demand without private state or inter-profile messaging.
 _Avoid_: Teaching Agent, Worker Agent, autonomous process, private memory, microservice
 
 **Router**:
@@ -389,7 +389,7 @@ The machine-readable declaration of a Skill Bundle's schema version, stable iden
 _Avoid_: Skill instructions, model-selected tool description
 
 **Skill Resolver**:
-The deterministic component that maps a selected Teaching Node Profile and required Capability Tags to registered Skill IDs and versions, validates applicability, dependencies, conflicts, and budgets, and provides a safe fallback when the proposed route is invalid.
+The deterministic fixed-stack binding used by the reference Profiles. It validates the selected immutable Skill Bundles and budgets before execution; dynamic Skill routing and model-selected Skill IDs remain outside this slice.
 _Avoid_: Pedagogy Agent, Skill Loader, free-form LLM choice
 
 **Skill Loader**:

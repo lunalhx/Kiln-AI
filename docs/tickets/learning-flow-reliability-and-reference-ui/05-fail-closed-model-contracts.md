@@ -4,10 +4,10 @@
 
 **Blocked by:** 02 — 原子 Start 与唯一 Active Learning Work.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Infrastructure adapter 只做 transport，返回 raw content；Domain 拒绝缺字段、类型错误、null、非法 enum、非法集合和未知字段。
-- [ ] 上述三个评估职责各一次 repair，第二次无效即为 Inconclusive，走既有 replacement，不接受 Evidence。
-- [ ] 不合格 Task Verification 只作废该 candidate，并走既有 fresh-candidate 策略；Pedagogy / Clarification 保持既有安全 fallback。
-- [ ] 不持久化、不返回 raw invalid JSON / prompt / 学习者作答；审计仅含 identity、responsibility、violation codes、repair count、correlation ID、provider category。
-- [ ] `MODEL_CONTRACT_INVALID` 不映射成 503；HTTP 体保持学习者安全。
+- [x] Infrastructure adapter 只做 transport，返回 raw content；Domain 拒绝缺字段、类型错误、null、非法 enum、非法集合和未知字段。
+- [x] 上述三个评估职责各一次 repair，第二次无效即为 Inconclusive，走既有 replacement，不接受 Evidence。
+- [x] 不合格 Task Verification 只作废该 candidate，并走既有 fresh-candidate 策略；Pedagogy / Clarification 保持既有安全 fallback。
+- [x] 不持久化、不返回 raw invalid JSON / prompt / 学习者作答；审计仅含 identity、responsibility、violation codes、repair count、correlation ID、provider category。
+- [x] `MODEL_CONTRACT_INVALID` 不映射成 503；HTTP 体保持学习者安全。
