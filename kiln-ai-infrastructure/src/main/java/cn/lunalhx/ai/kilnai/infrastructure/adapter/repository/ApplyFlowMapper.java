@@ -618,6 +618,40 @@ public interface ApplyFlowMapper {
             SELECT id, learner_id, concept_id, flow_id, review_number, status, due_at,
                    created_at, started_at, open_attempt_id, completed_at, cancelled_at
             FROM review_tasks
+            WHERE id = #{reviewId}
+            FOR UPDATE
+            """)
+    Optional<ReviewTaskRow> findReviewTaskForUpdate(UUID reviewId);
+
+    @Insert("""
+            INSERT INTO review_cancellation_commands (
+                idempotency_key, review_id, request_hash, response, created_at
+            ) VALUES (
+                #{idempotencyKey}, #{reviewId}, #{requestHash},
+                CAST(#{responseJson} AS JSONB), #{createdAt}
+            )
+            ON CONFLICT (idempotency_key) DO NOTHING
+            """)
+    int insertReviewCancellation(ReviewCancellationRow row);
+
+    @Select("""
+            SELECT idempotency_key, review_id, request_hash, response::text AS response_json, created_at
+            FROM review_cancellation_commands
+            WHERE idempotency_key = #{idempotencyKey}
+            """)
+    Optional<ReviewCancellationRow> findReviewCancellation(UUID idempotencyKey);
+
+    @Update("""
+            UPDATE review_tasks
+            SET status = 'CANCELLED', cancelled_at = #{cancelledAt}, open_attempt_id = NULL
+            WHERE id = #{reviewId} AND status IN ('SCHEDULED', 'DUE', 'STARTED')
+            """)
+    int cancelReview(@Param("reviewId") UUID reviewId, @Param("cancelledAt") Instant cancelledAt);
+
+    @Select("""
+            SELECT id, learner_id, concept_id, flow_id, review_number, status, due_at,
+                   created_at, started_at, open_attempt_id, completed_at, cancelled_at
+            FROM review_tasks
             WHERE learner_id = #{learnerId} AND concept_id = #{conceptId} AND status = 'STARTED'
             LIMIT 1
             """)
@@ -847,6 +881,15 @@ public interface ApplyFlowMapper {
             UUID openAttemptId,
             Instant completedAt,
             Instant cancelledAt
+    ) {
+    }
+
+    record ReviewCancellationRow(
+            UUID idempotencyKey,
+            UUID reviewId,
+            String requestHash,
+            String responseJson,
+            Instant createdAt
     ) {
     }
 

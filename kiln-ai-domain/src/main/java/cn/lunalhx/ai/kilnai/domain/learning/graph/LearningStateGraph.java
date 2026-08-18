@@ -15,7 +15,6 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceConsentView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
-import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptConversionOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.DiagnosticSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
@@ -616,12 +615,13 @@ public final class LearningStateGraph {
     /**
      * The Graph Run of a flow-control-requested command: the learner
      * explicitly leaves the Flow (ADR-0015). Any open Attempt is closed as
-     * Abandoned first — no submission, Assessment, or Evidence, and no
-     * Mastery Milestone change — and a STARTED Review whose open Attempt was
-     * abandoned is cancelled so it never stays bound to a closed Attempt. The
-     * run then stops at a terminal transition boundary carrying only the
-     * leave message; a network disconnect or ordinary delay is never an
-     * explicit Flow Control Requested event and leaves the attempt open.
+     * Abandoned first — no submission, Assessment, Evidence, or Mastery
+     * Milestone change — while a Started Review remains Started until the
+     * learner explicitly uses the independent Review cancellation resource
+     * (ADR-0073). The run then stops at a terminal transition boundary
+     * carrying only the leave message; a network disconnect or ordinary delay
+     * is never an explicit Flow Control Requested event and leaves the attempt
+     * open.
      */
     public LearningFlowResult flowControlRequested(
             UUID flowId,
@@ -639,12 +639,7 @@ public final class LearningStateGraph {
             artifactStore.findAttempt(attemptId)
                     .filter(TaskAttempt::isOpen)
                     .ifPresent(attempt -> {
-                        AttemptCloseOutcome abandoned = artifactStore.abandonAttempt(attempt.attemptId());
-                        if (abandoned.result() == AttemptCloseOutcome.Result.CLOSED
-                                && attempt.purpose() == AttemptPurpose.REVIEW) {
-                            reviewStore.cancelStartedReview(
-                                    state.flow().learnerId(), state.flow().conceptId(), clock.instant());
-                        }
+                        artifactStore.abandonAttempt(attempt.attemptId());
                     });
         }
         return boundary(

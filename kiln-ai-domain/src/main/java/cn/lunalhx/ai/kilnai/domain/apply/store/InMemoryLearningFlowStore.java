@@ -49,6 +49,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     private final Map<UUID, AcceptedLearningEvidence> evidence = new HashMap<>();
     private final Map<UUID, ProcessedCommand> commands = new LinkedHashMap<>();
     private final Map<UUID, ReviewTask> reviews = new LinkedHashMap<>();
+    private final Map<UUID, CancellationRecord> reviewCancellations = new HashMap<>();
     private final Map<UUID, PendingOperation> pendingOperations = new HashMap<>();
     private final ArtifactStore artifactStore;
     private final java.time.Clock clock;
@@ -303,6 +304,47 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
+    public synchronized ReviewTaskStore.ReviewCancellation cancelReview(
+            ReviewTaskStore.ReviewCancellationBind bind
+    ) {
+        Objects.requireNonNull(bind, "bind must not be null");
+        CancellationRecord recorded = reviewCancellations.get(bind.idempotencyKey());
+        if (recorded != null) {
+            if (!recorded.reviewId().equals(bind.reviewId())
+                    || !recorded.requestHash().equals(bind.requestHash())) {
+                throw new ApplicationException(ErrorCode.CONFLICT,
+                        "Idempotency-Key was already used for another Review cancellation");
+            }
+            return recorded.outcome();
+        }
+
+        ReviewTask current = reviews.get(bind.reviewId());
+        if (current == null) {
+            throw new ApplicationException(ErrorCode.REVIEW_NOT_FOUND, "review task not found");
+        }
+        LearningFlowInteraction terminalInteraction = null;
+        ReviewTask cancelled = current;
+        if (current.isUnfinished()) {
+            if (current.status() == ReviewTaskStatus.STARTED) {
+                if (current.openAttemptId() != null && artifactStore != null) {
+                    artifactStore.abandonAttempt(current.openAttemptId());
+                }
+                terminalInteraction = commitReviewCancellationBoundary(current.flowId(), bind.cancelledAt());
+            }
+            cancelled = new ReviewTask(
+                    current.reviewId(), current.learnerId(), current.conceptId(), current.flowId(),
+                    current.reviewNumber(), ReviewTaskStatus.CANCELLED, current.dueAt(), current.createdAt(),
+                    current.startedAt(), null, current.completedAt(), bind.cancelledAt());
+            reviews.put(cancelled.reviewId(), cancelled);
+        }
+        ReviewTaskStore.ReviewCancellation outcome = new ReviewTaskStore.ReviewCancellation(
+                cancelled, terminalInteraction);
+        reviewCancellations.put(bind.idempotencyKey(),
+                new CancellationRecord(bind.reviewId(), bind.requestHash(), outcome));
+        return outcome;
+    }
+
+    @Override
     public synchronized Optional<ReviewTask> findStartedReview(UUID learnerId, UUID conceptId) {
         return reviews.values().stream()
                 .filter(review -> review.learnerId().equals(learnerId))
@@ -502,6 +544,35 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
                 review.startedAt(), null, review.completedAt(), clock.instant());
     }
 
+    private LearningFlowInteraction commitReviewCancellationBoundary(UUID flowId, Instant cancelledAt) {
+        LearningFlowInteraction previous = latestInteraction(flowId)
+                .orElseThrow(() -> new IllegalStateException("started Review flow has no interaction"));
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
+                InteractionKind.TRANSITION,
+                flowId,
+                previous.interactionVersion() + 1,
+                FlowStatus.TERMINAL,
+                LearningStage.DELAYED_REVIEW,
+                null,
+                null,
+                null,
+                ReviewTaskStore.REVIEW_CANCELLED_MESSAGE,
+                null,
+                null,
+                null);
+        interactions.computeIfAbsent(flowId, key -> new ArrayList<>()).add(interaction);
+        checkpoints.computeIfAbsent(flowId, key -> new ArrayList<>()).add(
+                new LearningCheckpoint(UUID.randomUUID(), flowId, interaction.interactionVersion(), cancelledAt));
+        FlowRecord current = flows.get(flowId);
+        if (current != null) {
+            flows.put(flowId, new FlowRecord(
+                    current.flowId(), current.learnerId(), current.conceptId(),
+                    FlowStatus.TERMINAL, LearningStage.DELAYED_REVIEW,
+                    current.modelProfile(), current.createdAt()));
+        }
+        return interaction;
+    }
+
     @Override
     public synchronized boolean evidenceExists(UUID attemptId) {
         return evidence.containsKey(attemptId);
@@ -521,5 +592,12 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     @Override
     public synchronized Optional<ProcessedCommand> findCommand(UUID idempotencyKey) {
         return Optional.ofNullable(commands.get(idempotencyKey));
+    }
+
+    private record CancellationRecord(
+            UUID reviewId,
+            String requestHash,
+            ReviewTaskStore.ReviewCancellation outcome
+    ) {
     }
 }

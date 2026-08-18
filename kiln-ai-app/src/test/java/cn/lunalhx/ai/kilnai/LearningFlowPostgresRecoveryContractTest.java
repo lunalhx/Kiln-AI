@@ -51,6 +51,8 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.MasteryMilestone;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPort;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ConceptProgressProjector;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewCancellationResult;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewCancellationUseCase;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.repository.ApplyFlowMapper;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.repository.PostgresApplyFlowStore;
@@ -433,6 +435,63 @@ class LearningFlowPostgresRecoveryContractTest {
                 "the cancellation must survive the restart exactly once");
         assertEquals(1, fresh.allEvidence().size(),
                 "the conversion must leave exactly the original Independent Evidence");
+    }
+
+    @Test
+    void postgresReviewCancellationReplaysItsIndependentLedgerAndLeavesNoEvidenceOrMilestoneChange() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowCommandUseCase useCase = graph(store);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary)
+                useCase.start(learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
+                "12x²−6x+7", "12*x^2-6*x+7", null);
+        LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
+                ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
+        ReviewTask review = store.unfinishedReviewsFor(learnerId).get(0);
+        store.markDueReviewsDue(review.dueAt().plusSeconds(1));
+        ReviewStartResult.Boundary reviewStarted = (ReviewStartResult.Boundary)
+                reviewStart.start(review.reviewId(), UUID.randomUUID());
+        ConceptProgress before = new ConceptProgressProjector().projectFor(
+                store, learnerId, DiagnosticApplyFixture.CONCEPT_ID);
+        UUID cancellationKey = UUID.randomUUID();
+
+        ReviewCancellationUseCase cancellation = new ReviewCancellationUseCase(store, store, clock);
+        ReviewCancellationResult cancelled = cancellation.cancel(review.reviewId(), cancellationKey);
+
+        assertEquals(ReviewTaskStatus.CANCELLED, cancelled.reviewTask().status());
+        assertEquals(AttemptStatus.ABANDONED,
+                store.findAttempt(reviewStarted.interaction().attemptId()).orElseThrow().status());
+        assertEquals(FlowStatus.TERMINAL, cancelled.flowInteraction().status());
+        assertEquals(cancelled.flowInteraction(), store.latestInteraction(flowId).orElseThrow());
+        assertEquals(before, new ConceptProgressProjector().projectFor(
+                store, learnerId, DiagnosticApplyFixture.CONCEPT_ID));
+        assertEquals(1, store.allEvidence().size(),
+                "cancellation must leave only the original Independent Evidence");
+        assertTrue(store.findCommand(cancellationKey).isEmpty(),
+                "Review cancellation must not use the Learning Flow command ledger");
+
+        PostgresApplyFlowStore restartedStore = freshStore();
+        ReviewCancellationResult replayed = new ReviewCancellationUseCase(
+                restartedStore, restartedStore, clock).cancel(review.reviewId(), cancellationKey);
+        assertEquals(cancelled, replayed,
+                "a fresh store instance must replay the committed cancellation outcome");
+        LearningFlowInteraction terminal = store.latestInteraction(flowId).orElseThrow();
+        ReviewCancellationResult terminalReplay = cancellation.cancel(review.reviewId(), UUID.randomUUID());
+        assertEquals(ReviewTaskStatus.CANCELLED, terminalReplay.reviewTask().status());
+        assertEquals(terminal, store.latestInteraction(flowId).orElseThrow(),
+                "a new key on terminal work must not create a second Flow boundary");
+        assertEquals(FlowStatus.TERMINAL, completed.interaction().status(),
+                "the original Independent Flow must already be terminal before cancellation");
+
+        LearningFlowCommandUseCase restarted = freshUseCase();
+        LearningFlowResult.Boundary next = (LearningFlowResult.Boundary)
+                restarted.start(learnerId, UUID.randomUUID());
+        assertNotEquals(flowId, next.interaction().flowId(),
+                "cancellation must release Active Learning Work for a new Diagnostic");
     }
 
     @Test

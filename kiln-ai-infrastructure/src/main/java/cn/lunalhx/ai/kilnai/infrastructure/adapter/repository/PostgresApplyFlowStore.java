@@ -37,6 +37,8 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
 import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
+import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
+import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.transaction.annotation.Transactional;
@@ -334,6 +336,88 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     @Override
     public Optional<ReviewTask> findReview(UUID reviewId) {
         return mapper.findReviewTask(reviewId).map(this::toReviewTask);
+    }
+
+    @Override
+    @Transactional
+    public ReviewTaskStore.ReviewCancellation cancelReview(
+            ReviewTaskStore.ReviewCancellationBind bind
+    ) {
+        Objects.requireNonNull(bind, "bind must not be null");
+        Optional<ReviewTaskStore.ReviewCancellation> replay = findReviewCancellation(bind);
+        if (replay.isPresent()) {
+            return replay.get();
+        }
+
+        ReviewTask current = mapper.findReviewTaskForUpdate(bind.reviewId())
+                .map(this::toReviewTask)
+                .orElseThrow(() -> new ApplicationException(
+                        ErrorCode.REVIEW_NOT_FOUND,
+                        "review task not found"));
+        ReviewTask cancelled = current;
+        LearningFlowInteraction flowInteraction = null;
+        if (current.isUnfinished()) {
+            if (current.status() == ReviewTaskStatus.STARTED) {
+                if (current.openAttemptId() != null) {
+                    mapper.abandonOpenAttempt(current.openAttemptId(), bind.cancelledAt());
+                }
+                flowInteraction = commitReviewCancellationBoundary(current.flowId(), bind.cancelledAt());
+            }
+            mapper.cancelReview(bind.reviewId(), bind.cancelledAt());
+            cancelled = new ReviewTask(
+                    current.reviewId(), current.learnerId(), current.conceptId(), current.flowId(),
+                    current.reviewNumber(), ReviewTaskStatus.CANCELLED, current.dueAt(), current.createdAt(),
+                    current.startedAt(), null, current.completedAt(), bind.cancelledAt());
+        }
+        ReviewTaskStore.ReviewCancellation outcome = new ReviewTaskStore.ReviewCancellation(
+                cancelled, flowInteraction);
+        int inserted = mapper.insertReviewCancellation(new ApplyFlowMapper.ReviewCancellationRow(
+                bind.idempotencyKey(), bind.reviewId(), bind.requestHash(), writeJson(outcome),
+                bind.cancelledAt()));
+        if (inserted == 0) {
+            return findReviewCancellation(bind).orElseThrow(() -> new IllegalStateException(
+                    "Review cancellation ledger insert was lost"));
+        }
+        return outcome;
+    }
+
+    private Optional<ReviewTaskStore.ReviewCancellation> findReviewCancellation(
+            ReviewTaskStore.ReviewCancellationBind bind
+    ) {
+        return mapper.findReviewCancellation(bind.idempotencyKey()).map(row -> {
+            if (!row.reviewId().equals(bind.reviewId()) || !row.requestHash().equals(bind.requestHash())) {
+                throw new ApplicationException(
+                        ErrorCode.CONFLICT,
+                        "Idempotency-Key was already used for another Review cancellation");
+            }
+            return readJson(row.responseJson(), ReviewTaskStore.ReviewCancellation.class);
+        });
+    }
+
+    private LearningFlowInteraction commitReviewCancellationBoundary(UUID flowId, Instant cancelledAt) {
+        LearningFlowInteraction previous = latestInteraction(flowId)
+                .orElseThrow(() -> new IllegalStateException("started Review flow has no interaction"));
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
+                InteractionKind.TRANSITION,
+                flowId,
+                previous.interactionVersion() + 1,
+                FlowStatus.TERMINAL,
+                LearningStage.DELAYED_REVIEW,
+                null,
+                null,
+                null,
+                ReviewTaskStore.REVIEW_CANCELLED_MESSAGE,
+                null,
+                null,
+                null);
+        mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
+                UUID.randomUUID(), flowId, interaction.interactionVersion(), interaction.kind().name(),
+                interaction.status().name(), interaction.stage().name(), null, null, null,
+                interaction.learnerMessage(), null, null, null, cancelledAt));
+        mapper.insertCheckpoint(new ApplyFlowMapper.CheckpointRow(
+                UUID.randomUUID(), flowId, interaction.interactionVersion(), cancelledAt));
+        mapper.updateFlowState(flowId, FlowStatus.TERMINAL.name(), LearningStage.DELAYED_REVIEW.name());
+        return interaction;
     }
 
     @Override

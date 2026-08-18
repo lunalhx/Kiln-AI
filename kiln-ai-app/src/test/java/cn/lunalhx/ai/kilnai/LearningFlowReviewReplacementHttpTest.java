@@ -1,6 +1,7 @@
 package cn.lunalhx.ai.kilnai;
 
 import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse;
+import cn.lunalhx.ai.kilnai.api.dto.ReviewTaskCancellationResponse;
 import cn.lunalhx.ai.kilnai.api.dto.ReviewTaskView;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import org.junit.jupiter.api.Test;
@@ -157,6 +158,54 @@ class LearningFlowReviewReplacementHttpTest {
         assertNull(completed.task());
     }
 
+    @Test
+    void scheduledReviewCancellationUsesItsOwnIdempotentResourceAndReleasesTheClaim() {
+        UUID learnerId = UUID.randomUUID();
+        completeIndependentPass(learnerId);
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+        ReviewTaskView due = http.getForEntity("/api/review-tasks?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody()[0];
+
+        UUID cancellationKey = UUID.randomUUID();
+        ReviewTaskCancellationResponse cancelled = cancelReview(due.reviewId(), cancellationKey);
+
+        assertEquals("CANCELLED", cancelled.status());
+        assertEquals("INDEPENDENT", cancelled.progress().currentMilestone());
+        assertEquals("transition", cancelled.flow().kind());
+        assertEquals("TERMINAL", cancelled.flow().status());
+        assertEquals(0, http.getForEntity("/api/review-tasks?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody().length);
+        assertEquals(cancelled, cancelReview(due.reviewId(), cancellationKey));
+        assertEquals(cancelled, cancelReview(due.reviewId(), UUID.randomUUID()),
+                "a new key on terminal work returns the committed terminal state");
+    }
+
+    @Test
+    void startedReviewCancellationAbandonsAttemptAndAllowsANewDiagnostic() {
+        UUID learnerId = UUID.randomUUID();
+        UUID flowId = completeIndependentPass(learnerId);
+        reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
+        ReviewTaskView due = http.getForEntity("/api/review-tasks?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody()[0];
+        LearningFlowResponse started = startReview(due.reviewId(), UUID.randomUUID());
+
+        ReviewTaskCancellationResponse cancelled = cancelReview(due.reviewId(), UUID.randomUUID());
+
+        assertEquals("CANCELLED", cancelled.status());
+        assertEquals("transition", cancelled.flow().kind());
+        assertEquals("TERMINAL", cancelled.flow().status());
+        assertTrue(cancelled.flow().learnerMessage().contains("取消"));
+        assertEquals(1, reviewStore.findReview(due.reviewId()).stream()
+                .filter(review -> review.openAttemptId() == null).count());
+        assertEquals(0, http.getForEntity("/api/review-tasks?learnerId=" + learnerId,
+                ReviewTaskView[].class).getBody().length,
+                "cancelled Review work must not remain in the unfinished collection");
+        LearningFlowResponse next = start(learnerId, UUID.randomUUID());
+        assertNotNull(next);
+        assertFalse(next.flowId().equals(flowId), "a cancelled Review must release the old Flow claim");
+        assertEquals(started.flowId(), cancelled.flow().flowId());
+    }
+
     private UUID completeIndependentPass(UUID learnerId) {
         LearningFlowResponse started = start(learnerId, UUID.randomUUID());
         UUID flowId = started.flowId();
@@ -188,6 +237,18 @@ class LearningFlowReviewReplacementHttpTest {
                 HttpMethod.POST,
                 new HttpEntity<>(Map.of(), headers),
                 LearningFlowResponse.class);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        return response.getBody();
+    }
+
+    private ReviewTaskCancellationResponse cancelReview(UUID reviewId, UUID idempotencyKey) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Idempotency-Key", idempotencyKey.toString());
+        ResponseEntity<ReviewTaskCancellationResponse> response = http.exchange(
+                "/api/review-tasks/" + reviewId + "/cancel",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of(), headers),
+                ReviewTaskCancellationResponse.class);
         assertEquals(HttpStatus.OK, response.getStatusCode());
         return response.getBody();
     }

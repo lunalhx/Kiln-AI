@@ -20,6 +20,8 @@ import java.util.UUID;
  */
 public interface ReviewTaskStore {
 
+    String REVIEW_CANCELLED_MESSAGE = "已取消本次复习，未作答的题目已放弃。";
+
     /**
      * Atomically accepts one item of Learning Evidence, cancels any stale
      * unfinished Review of the same learner and Concept, and schedules the
@@ -46,6 +48,41 @@ public interface ReviewTaskStore {
     List<ReviewTask> unfinishedReviewsFor(UUID learnerId);
 
     Optional<ReviewTask> findReview(UUID reviewId);
+
+    /**
+     * Atomically applies the independent Review cancellation resource. The
+     * cancellation ledger is separate from the Learning Flow command ledger:
+     * replaying the same key returns its committed outcome, while a new key
+     * against an already terminal Review returns that terminal state without a
+     * second business effect. Started work also abandons its open Attempt and
+     * commits the terminal Flow interaction in the same transition.
+     */
+    ReviewCancellation cancelReview(ReviewCancellationBind bind);
+
+    record ReviewCancellationBind(
+            UUID reviewId,
+            UUID idempotencyKey,
+            String requestHash,
+            Instant cancelledAt
+    ) {
+
+        public ReviewCancellationBind {
+            Objects.requireNonNull(reviewId, "reviewId must not be null");
+            Objects.requireNonNull(idempotencyKey, "idempotencyKey must not be null");
+            Objects.requireNonNull(requestHash, "requestHash must not be null");
+            Objects.requireNonNull(cancelledAt, "cancelledAt must not be null");
+        }
+    }
+
+    record ReviewCancellation(
+            ReviewTask reviewTask,
+            LearningFlowInteraction flowInteraction
+    ) {
+
+        public ReviewCancellation {
+            Objects.requireNonNull(reviewTask, "reviewTask must not be null");
+        }
+    }
 
     /**
      * The single STARTED Review of one learner and Concept, when one exists.

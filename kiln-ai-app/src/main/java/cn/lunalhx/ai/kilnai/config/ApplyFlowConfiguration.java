@@ -39,6 +39,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningFlowCommandUseCase;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningStateGraph;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPort;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewCollectionUseCase;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewCancellationUseCase;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewDueTransitionUseCase;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import cn.lunalhx.ai.kilnai.infrastructure.adapter.bundle.BundleLoader;
@@ -320,6 +321,12 @@ public class ApplyFlowConfiguration {
     @Bean
     ReviewCollectionUseCase reviewCollectionUseCase(ReviewTaskStore reviewStore, LearningFlowStore flowStore) {
         return new ReviewCollectionUseCase(reviewStore, flowStore);
+    }
+
+    @Bean
+    ReviewCancellationUseCase reviewCancellationUseCase(
+            ReviewTaskStore reviewStore, LearningFlowStore flowStore, Clock clock) {
+        return new ReviewCancellationUseCase(reviewStore, flowStore, clock);
     }
 
     @Bean

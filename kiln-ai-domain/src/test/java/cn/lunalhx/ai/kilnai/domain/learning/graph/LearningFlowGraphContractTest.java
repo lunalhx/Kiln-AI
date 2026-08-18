@@ -80,6 +80,8 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.MasteryMilestone;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.TeachingAction;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ConceptProgressProjector;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewCancellationResult;
+import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewCancellationUseCase;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ReviewTaskScheduler;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
@@ -1734,8 +1736,9 @@ class LearningFlowGraphContractTest {
                 new ScriptedPedagogyModel());
         // Flow 1: a passing Diagnostic and a passing Independent Test establish
         // the Independent milestone. The scheduled Review is started and then
-        // explicitly left, so its claim is released without evidence or
-        // milestone change and a fresh Diagnostic becomes legal again.
+        // explicitly left, so its Attempt is abandoned without evidence or
+        // milestone change. The Started Review is then cancelled through its
+        // independent resource before a fresh Diagnostic becomes legal again.
         LearningFlowResult.Boundary first = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
         LearningFlowResult.Boundary firstTransitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 first.interaction().flowId(), 1, UUID.randomUUID(), first.interaction().attemptId(),
@@ -1753,9 +1756,14 @@ class LearningFlowGraphContractTest {
         LearningFlowResult.Boundary leftReview = (LearningFlowResult.Boundary) harness.useCase().flowControlRequested(
                 first.interaction().flowId(), reviewBoundary.interaction().interactionVersion(), UUID.randomUUID());
         assertEquals(FlowStatus.TERMINAL, leftReview.interaction().status());
+        assertEquals(ReviewTaskStatus.STARTED,
+                harness.flowStore().findReview(review.reviewId()).orElseThrow().status(),
+                "Flow Control abandons the Attempt but does not cancel the Review");
+        new ReviewCancellationUseCase(harness.flowStore(), harness.flowStore(), CLOCK)
+                .cancel(review.reviewId(), UUID.randomUUID());
         assertEquals(ReviewTaskStatus.CANCELLED,
                 harness.flowStore().findReview(review.reviewId()).orElseThrow().status(),
-                "leaving a started Review must cancel it and release the claim");
+                "the independent cancellation resource must release the Review claim");
         assertTrue(harness.flowStore().unfinishedReviewsFor(LEARNER_ID).isEmpty());
         ConceptProgress afterPass =
                 new ConceptProgressProjector().projectFor(harness.flowStore(), LEARNER_ID, CONCEPT_ID);
@@ -3492,7 +3500,7 @@ class LearningFlowGraphContractTest {
     }
 
     @Test
-    void aFlowControlDuringAStartedReviewCancelsTheReviewAndPreservesEvidenceAndMilestones() {
+    void aFlowControlDuringAStartedReviewAbandonsOnlyTheAttemptUntilExplicitCancellation() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(
                         ApplyScriptData.taskReadyJson(),
@@ -3529,9 +3537,12 @@ class LearningFlowGraphContractTest {
         TaskAttempt abandoned = harness.artifacts().findAttempt(reviewAttemptId).orElseThrow();
         assertEquals(AttemptStatus.ABANDONED, abandoned.status(),
                 "leaving a started Review abandons its open Attempt");
-        assertEquals(ReviewTaskStatus.CANCELLED,
+        assertEquals(ReviewTaskStatus.STARTED,
                 harness.flowStore().findReview(review.reviewId()).orElseThrow().status(),
-                "a left Review must be cancelled and never stay bound to an abandoned Attempt");
+                "Flow Control must not cancel a Started Review");
+        ReviewCancellationResult cancelled = new ReviewCancellationUseCase(
+                harness.flowStore(), harness.flowStore(), CLOCK).cancel(review.reviewId(), UUID.randomUUID());
+        assertEquals(ReviewTaskStatus.CANCELLED, cancelled.reviewTask().status());
         assertTrue(harness.flowStore().unfinishedReviewsFor(LEARNER_ID).isEmpty());
         assertEquals(1, harness.flowStore().allEvidence().size(),
                 "leaving a Review must create no Review Evidence");
