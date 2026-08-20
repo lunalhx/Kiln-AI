@@ -90,6 +90,10 @@ class ApplyModelAdapterTest {
 
         assertTrue(raw.contains("\"verdict\":\"pass\""));
         assertTrue(raw.contains("task_verification/v1"));
+        String system = model.prompts.getFirst().getInstructions().get(0).getText();
+        assertTrue(system.contains("\"schema\": \"task_verification/v1\""));
+        assertTrue(system.contains("\"answer_correctness\""));
+        assertFalse(system.contains("```"));
     }
 
     @Test
@@ -126,6 +130,9 @@ class ApplyModelAdapterTest {
         assertEquals(assessed, verified);
         assertEquals(2, model.prompts.size());
         assertTrue(model.prompts.stream().allMatch(prompt -> prompt.getContents().contains("# Response Assessment")));
+        assertTrue(model.prompts.getFirst().getInstructions().get(0).getText()
+                .contains("\"schema\": \"response_assessment/v1\""));
+        assertFalse(model.prompts.getFirst().getInstructions().get(0).getText().contains("```"));
     }
 
     @Test
@@ -166,8 +173,11 @@ class ApplyModelAdapterTest {
 
         assertTrue(raw.contains("ambiguous_prompt"));
         assertTrue(raw.contains("\"verdict\":\"reject\""));
-        assertTrue(model.prompts.getFirst().getInstructions().get(0).getText()
-                .contains("# Teach-back Task Verifier"));
+        String system = model.prompts.getFirst().getInstructions().get(0).getText();
+        assertTrue(system.contains("# Teach-back Task Verifier"));
+        assertTrue(system.contains("\"schema\": \"task_verification/v1\""));
+        assertTrue(system.contains("\"answer_clarity\""));
+        assertFalse(system.contains("```"));
     }
 
     @Test
@@ -187,8 +197,10 @@ class ApplyModelAdapterTest {
 
         assertTrue(raw.contains("rule_not_identified"));
         assertTrue(raw.contains("\"steps_result_coherence\":\"inconclusive\""));
-        assertTrue(model.prompts.getFirst().getInstructions().get(0).getText()
-                .contains("# Teach-back Assessment"));
+        String system = model.prompts.getFirst().getInstructions().get(0).getText();
+        assertTrue(system.contains("# Teach-back Assessment"));
+        assertTrue(system.contains("\"schema\": \"teach_back_assessment/v1\""));
+        assertFalse(system.contains("```"));
     }
 
     @Test
@@ -205,7 +217,7 @@ class ApplyModelAdapterTest {
     void aMissingSecretFailsClosedAtCallTime() {
         OperatorCatalog catalog = new OperatorCatalog(List.of(provider()), "acme/gpt-strong", "acme/gpt-small", OUTPUT_CEILING);
         ApplyModelAdapter adapter = new ApplyModelAdapter(
-                catalog, (binding, apiKey, maxTokens) -> ChatClient.create(new ScriptedChatModel("{}")),
+                catalog, (binding, apiKey, maxTokens, temperature) -> ChatClient.create(new ScriptedChatModel("{}")),
                 name -> null);
 
         ApplicationException error = assertThrows(ApplicationException.class,
@@ -232,6 +244,25 @@ class ApplyModelAdapterTest {
         assertEquals(2, factory.calls().size());
         assertEquals("gpt-small", factory.calls().get(1).binding().modelId(),
                 "the Clarification classifier must always use the Small slot of the frozen profile");
+        assertEquals(ApplyModelAdapter.GENERATION_TEMPERATURE, factory.calls().getFirst().temperature());
+        assertEquals(ApplyModelAdapter.JUDGMENT_TEMPERATURE, factory.calls().get(1).temperature());
+    }
+
+    @Test
+    void generationUsesAHigherTemperatureThanJudgment() {
+        ScriptedChatModel model = new ScriptedChatModel("{\"schema\":\"ok\"}");
+        CapturingFactory factory = new CapturingFactory(model);
+        ApplyModelAdapter adapter = new ApplyModelAdapter(catalog(), factory, secrets());
+
+        adapter.generate(PROFILE, "compiled prompt", "{}");
+        adapter.verify(PROFILE, (TaskPackage) null, (ApplyExecutionContext) null);
+        adapter.assess(PROFILE, new ResponseAssessmentContext(
+                "task", "12*x", "12x", "12x", "",
+                AttemptPurpose.INDEPENDENT_TEST, EquivalenceOutcome.CANNOT_DECIDE));
+
+        assertEquals(ApplyModelAdapter.GENERATION_TEMPERATURE, factory.calls().get(0).temperature());
+        assertEquals(ApplyModelAdapter.JUDGMENT_TEMPERATURE, factory.calls().get(1).temperature());
+        assertEquals(ApplyModelAdapter.JUDGMENT_TEMPERATURE, factory.calls().get(2).temperature());
     }
 
     @Test
@@ -257,8 +288,10 @@ class ApplyModelAdapterTest {
 
         String raw = adapter.classify(PROFILE, "符号输入方式是什么？", "请填写最终答案。");
         assertTrue(raw.contains("\"classification\":\"procedural\""));
-        assertTrue(model.prompts.getFirst().getInstructions().get(0).getText()
-                .contains("# Clarification Classifier"));
+        String system = model.prompts.getFirst().getInstructions().get(0).getText();
+        assertTrue(system.contains("# Clarification Classifier"));
+        assertTrue(system.contains("\"schema\": \"clarification_classification/v1\""));
+        assertFalse(system.contains("```"));
     }
 
     @Test
@@ -290,8 +323,8 @@ class ApplyModelAdapterTest {
         }
 
         @Override
-        public ChatClient create(ModelBindingSnapshot binding, String apiKey, int maxTokens) {
-            calls.add(new Call(binding, apiKey, maxTokens));
+        public ChatClient create(ModelBindingSnapshot binding, String apiKey, int maxTokens, double temperature) {
+            calls.add(new Call(binding, apiKey, maxTokens, temperature));
             return ChatClient.create(model);
         }
 
@@ -299,12 +332,13 @@ class ApplyModelAdapterTest {
             return List.copyOf(calls);
         }
 
-        private record Call(ModelBindingSnapshot binding, String apiKey, int maxTokens) {
+        private record Call(ModelBindingSnapshot binding, String apiKey, int maxTokens, double temperature) {
         }
     }
 
     private static ApplyModelAdapter adapter(ScriptedChatModel model) {
-        return new ApplyModelAdapter(catalog(), (binding, apiKey, maxTokens) -> ChatClient.create(model), secrets());
+        return new ApplyModelAdapter(
+                catalog(), (binding, apiKey, maxTokens, temperature) -> ChatClient.create(model), secrets());
     }
 
     private static OperatorCatalog catalog() {

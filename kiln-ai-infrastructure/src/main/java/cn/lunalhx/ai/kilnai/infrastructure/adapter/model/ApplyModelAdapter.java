@@ -37,10 +37,16 @@ import java.util.function.Function;
  * is enforced on every call. It registers no tools: the Apply and Hint
  * stacks are zero-tool by contract, and this adapter must never attach tool
  * callbacks. Every model call returns raw content; the Domain owns strict
- * closed-contract parsing.
+ * closed-contract parsing. JSON-object response format is attached by the
+ * ChatClient factory, not by this adapter. Generation calls use a higher
+ * temperature so Independent and later tasks can vary; judgment calls stay
+ * cooler so closed contracts stay stable.
  */
 public final class ApplyModelAdapter implements ApplyGenerationPort,
         HintGenerationPort, ExplainGenerationPort, TeachBackGenerationPort, PedagogyPort {
+
+    static final double GENERATION_TEMPERATURE = 0.7;
+    static final double JUDGMENT_TEMPERATURE = 0.2;
 
     private static final String JSON_ONLY = "Return JSON only. Do not add commentary, markdown, or fields outside the contract.";
 
@@ -64,9 +70,14 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
               the supplied text.
             - Never guess a classification: return `uncertain` when the kind
               cannot be established.
-            - Return only the `clarification_classification/v1` JSON object:
-              schema and classification
-              (`procedural`/`substantive`/`uncertain`).
+            - Return only this `clarification_classification/v1` JSON object:
+
+            {
+              "schema": "clarification_classification/v1",
+              "classification": "procedural"
+            }
+
+            `classification` is one of `procedural`, `substantive`, `uncertain`.
             """ + "\n" + JSON_ONLY;
 
     private static final String TASK_VERIFIER_SYSTEM = """
@@ -106,11 +117,24 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
             - Do not expose reasoning or a worked solution.
             - Do not override deterministic validation results.
             - Do not add facts from general model knowledge.
-            - Return only the `task_verification/v1` JSON object: schema,
-              verdict (`pass`/`reject`/`inconclusive`), checks (one of
-              `answer_correctness`, `rubric_alignment`, `source_grounding`,
-              `blueprint_compliance`, `learner_boundary` mapped to
-              `pass`/`reject`/`inconclusive`), and reason_codes (a closed list).
+            - Return only this `task_verification/v1` JSON object:
+
+            {
+              "schema": "task_verification/v1",
+              "verdict": "pass",
+              "checks": {
+                "answer_correctness": "pass",
+                "rubric_alignment": "pass",
+                "source_grounding": "pass",
+                "blueprint_compliance": "pass",
+                "learner_boundary": "pass"
+              },
+              "reason_codes": []
+            }
+
+            `verdict` and every check value is one of `pass`, `reject`,
+            `inconclusive`. `checks` is an object of those five named checks,
+            not a single selected check.
             """ + "\n" + JSON_ONLY;
 
     private static final String RESPONSE_ASSESSMENT_SYSTEM = """
@@ -149,11 +173,19 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
             - Do not treat raw text, OCR output, or an unconfirmed transformation as the
               answer of record.
             - Do not reveal an answer, solution path, rule, or hidden assessment fact.
-            - Return only the `response_assessment/v1` JSON object: schema,
-              final_expression_judgment (`not_requested`/`equivalent`/`not_equivalent`/
-              `inconclusive`), rationale_judgment (`not_provided`/`non_substantive`/
-              `applicable`/`not_applicable`/`not_clearly_contradictory`/
-              `clearly_contradictory`/`inconclusive`), and reason_codes.
+            - Return only this `response_assessment/v1` JSON object:
+
+            {
+              "schema": "response_assessment/v1",
+              "final_expression_judgment": "not_requested",
+              "rationale_judgment": "not_provided",
+              "reason_codes": []
+            }
+
+            `final_expression_judgment` is one of `not_requested`, `equivalent`,
+            `not_equivalent`, `inconclusive`. `rationale_judgment` is one of
+            `not_provided`, `non_substantive`, `applicable`, `not_applicable`,
+            `not_clearly_contradictory`, `clearly_contradictory`, `inconclusive`.
             """ + "\n" + JSON_ONLY;
 
     private static final String TEACH_BACK_ASSESSMENT_SYSTEM = """
@@ -190,10 +222,17 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
             ## Non-Negotiables
             - Do not treat a reproduced final derivative as a pass.
             - Do not reveal an answer, solution path, rule, or hidden assessment fact.
-            - Return only the `teach_back_assessment/v1` JSON object: schema,
-              rule_identification (`pass`/`fail`/`inconclusive`),
-              applicability_explanation (`pass`/`fail`/`inconclusive`),
-              steps_result_coherence (`pass`/`fail`/`inconclusive`), and reason_codes.
+            - Return only this `teach_back_assessment/v1` JSON object:
+
+            {
+              "schema": "teach_back_assessment/v1",
+              "rule_identification": "pass",
+              "applicability_explanation": "pass",
+              "steps_result_coherence": "pass",
+              "reason_codes": []
+            }
+
+            Each dimension is one of `pass`, `fail`, `inconclusive`.
             """ + "\n" + JSON_ONLY;
 
     private static final String TEACH_BACK_TASK_VERIFIER_SYSTEM = """
@@ -233,11 +272,24 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
             - Do not repair, paraphrase, or provide a replacement task.
             - Do not expose reasoning or a worked solution.
             - Do not add facts from general model knowledge.
-            - Return only the `task_verification/v1` JSON object: schema,
-              verdict (`pass`/`reject`/`inconclusive`), checks (one of
-              `answer_clarity`, `rubric_alignment`, `source_grounding`,
-              `anchor_grounding`, `learner_boundary` mapped to
-              `pass`/`reject`/`inconclusive`), and reason_codes (a closed list).
+            - Return only this `task_verification/v1` JSON object:
+
+            {
+              "schema": "task_verification/v1",
+              "verdict": "pass",
+              "checks": {
+                "answer_clarity": "pass",
+                "rubric_alignment": "pass",
+                "source_grounding": "pass",
+                "anchor_grounding": "pass",
+                "learner_boundary": "pass"
+              },
+              "reason_codes": []
+            }
+
+            `verdict` and every check value is one of `pass`, `reject`,
+            `inconclusive`. `checks` is an object of those five named checks,
+            not a single selected check.
             """ + "\n" + JSON_ONLY;
 
     private final OperatorCatalog catalog;
@@ -267,7 +319,7 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
 
     @Override
     public String generate(ModelProfile profile, String compiledSystemPrompt, String executionContextJson) {
-        return complete(profile, strong(profile), compiledSystemPrompt, executionContextJson);
+        return complete(profile, strong(profile), compiledSystemPrompt, executionContextJson, GENERATION_TEMPERATURE);
     }
 
     public String verify(
@@ -278,7 +330,7 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("task_package", taskPackage);
         data.put("execution_context", context);
-        return complete(profile, strong(profile), TASK_VERIFIER_SYSTEM, writeJson(data));
+        return complete(profile, strong(profile), TASK_VERIFIER_SYSTEM, writeJson(data), JUDGMENT_TEMPERATURE);
     }
 
     public String assess(ModelProfile profile, ResponseAssessmentContext context) {
@@ -295,7 +347,7 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
         data.put("anchor_content", context.anchorContent());
         data.put("learner_response", context.learnerResponse());
         data.put("purpose", context.purpose());
-        return complete(profile, strong(profile), TEACH_BACK_ASSESSMENT_SYSTEM, writeJson(data));
+        return complete(profile, strong(profile), TEACH_BACK_ASSESSMENT_SYSTEM, writeJson(data), JUDGMENT_TEMPERATURE);
     }
 
     public String verify(
@@ -306,23 +358,23 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("task_package", taskPackage);
         data.put("execution_context", context);
-        return complete(profile, strong(profile), TEACH_BACK_TASK_VERIFIER_SYSTEM, writeJson(data));
+        return complete(profile, strong(profile), TEACH_BACK_TASK_VERIFIER_SYSTEM, writeJson(data), JUDGMENT_TEMPERATURE);
     }
 
     @Override
     public String generatePlan(ModelProfile profile, String compiledSystemPrompt, String executionContextJson) {
-        return complete(profile, small(profile), compiledSystemPrompt, executionContextJson);
+        return complete(profile, small(profile), compiledSystemPrompt, executionContextJson, GENERATION_TEMPERATURE);
     }
 
     public String classify(ModelProfile profile, String message, String taskText) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("message", message);
         data.put("task_text", taskText);
-        return complete(profile, small(profile), CLARIFICATION_CLASSIFIER_SYSTEM, writeJson(data));
+        return complete(profile, small(profile), CLARIFICATION_CLASSIFIER_SYSTEM, writeJson(data), JUDGMENT_TEMPERATURE);
     }
 
     private String judge(ModelProfile profile, ResponseAssessmentContext context) {
-        return complete(profile, strong(profile), RESPONSE_ASSESSMENT_SYSTEM, writeJson(context));
+        return complete(profile, strong(profile), RESPONSE_ASSESSMENT_SYSTEM, writeJson(context), JUDGMENT_TEMPERATURE);
     }
 
     /**
@@ -350,12 +402,18 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
                 source.secretEnvVar());
     }
 
-    private String complete(ModelProfile profile, ModelBindingSnapshot binding, String systemPrompt, String userJson) {
+    private String complete(
+            ModelProfile profile,
+            ModelBindingSnapshot binding,
+            String systemPrompt,
+            String userJson,
+            double temperature
+    ) {
         String apiKey = secrets.apply(binding.secretEnvVar());
         if (apiKey == null || apiKey.isBlank()) {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "provider secret is missing");
         }
-        ChatClient client = clients.create(binding, apiKey, profile.outputTokenCeiling());
+        ChatClient client = clients.create(binding, apiKey, profile.outputTokenCeiling(), temperature);
         try {
             ChatResponse response = client.prompt()
                     .system(systemPrompt)

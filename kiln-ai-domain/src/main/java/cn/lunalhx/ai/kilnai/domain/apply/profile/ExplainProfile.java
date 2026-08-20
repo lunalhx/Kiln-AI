@@ -91,7 +91,6 @@ public final class ExplainProfile {
 
             When `outcome` is `teaching_ready`, the only permitted fields are:
 
-            ```json
             {
               "schema": "explain_generation/v1",
               "outcome": "teaching_ready",
@@ -107,7 +106,6 @@ public final class ExplainProfile {
                 { "source_document_id": "...", "passage_id": "..." }
               ]
             }
-            ```
 
             Exactly one `worked_example` object is permitted, with an ordered,
             non-empty `steps` array. Every `rule_reference` must be one of the
@@ -115,7 +113,6 @@ public final class ExplainProfile {
 
             When `outcome` is `source_gap`, the only permitted fields are:
 
-            ```json
             {
               "schema": "explain_generation/v1",
               "outcome": "source_gap",
@@ -124,7 +121,6 @@ public final class ExplainProfile {
                 "missing_requirement_ids": ["..."]
               }
             }
-            ```
 
             The runtime owns the learner projection, allowed events, the
             example Fingerprint, and the execution trace. Return JSON only.

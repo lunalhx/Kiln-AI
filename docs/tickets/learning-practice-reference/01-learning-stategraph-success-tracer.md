@@ -4,8 +4,8 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 成功路径在每个 learner interaction boundary 产生可恢复 checkpoint，并保留既有 Evidence 与 Review 1 行为。
-- [ ] 重放已完成命令返回原 interaction；Profile、Assessment 与 Pedagogy Agent 均不能直接写 Learning State。
-- [ ] ADR-0066 记录普通 Java graph runner 决定，且现有 Apply Profile contract tests 保持通过。
+- [x] 成功路径在每个 learner interaction boundary 产生可恢复 checkpoint，并保留既有 Evidence 与 Review 1 行为。
+- [x] 重放已完成命令返回原 interaction；Profile、Assessment 与 Pedagogy Agent 均不能直接写 Learning State。
+- [x] ADR-0066 记录普通 Java graph runner 决定，且现有 Apply Profile contract tests 保持通过。

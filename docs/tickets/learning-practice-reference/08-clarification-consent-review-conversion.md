@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Apply Practice 的持久化 Hint Ladder; 06 — Workflow Guard 与 Pedagogy Plan 的闭环选择; 07 — Fresh Independent 与失败后的重新 remediation.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Practice 中 substantive clarification 或 temporary Explain 被记录为 Assistance Trace，完成后返回同一打开的 Practice interaction。
 - [x] Independent/Review 拒绝帮助时 Attempt 不变；接受时先原子转换为 Practice，之后才可暴露帮助。

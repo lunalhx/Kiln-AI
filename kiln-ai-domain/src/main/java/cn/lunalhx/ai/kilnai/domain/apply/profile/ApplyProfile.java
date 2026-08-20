@@ -94,7 +94,6 @@ public final class ApplyProfile {
 
             When `outcome` is `task_ready`, the only permitted fields are:
 
-            ```json
             {
               "schema": "apply_generation/v1",
               "outcome": "task_ready",
@@ -114,11 +113,9 @@ public final class ApplyProfile {
                 }
               }
             }
-            ```
 
             When `outcome` is `source_gap`, the only permitted fields are:
 
-            ```json
             {
               "schema": "apply_generation/v1",
               "outcome": "source_gap",
@@ -127,7 +124,6 @@ public final class ApplyProfile {
                 "missing_requirement_ids": ["..."]
               }
             }
-            ```
 
             The runtime owns answer fields, learner events, the canonical expected answer,
             the Task Fingerprint, and the Task Package. Return JSON only.

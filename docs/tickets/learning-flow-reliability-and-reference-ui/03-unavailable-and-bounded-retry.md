@@ -4,9 +4,9 @@
 
 **Blocked by:** 02 — 原子 Start 与唯一 Active Learning Work.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 已有 Flow 的 provider 网络/超时/上游 5xx 与运行时 Model Profile 配置失败，提交 `unavailable` + Pending Operation；不产生半成品 artifact、新 Attempt、Evidence 或 cadence 变化。
-- [ ] `retry_requested` 只在 `unavailable` 上合法，不带答案或原命令体，使用新的 Idempotency-Key，只恢复服务端保存的 Pending Operation。
-- [ ] 失败 retry 递增链计数并产生新 interaction version；第三次后不再 advertise retry，但 Flow Control 仍可安全离开。
-- [ ] 成功 retry 提交下一 interaction 并清除 Pending Operation；初次 Start 失败仍走 503，绝不靠 `retry_requested` 造出 Flow。
+- [x] 已有 Flow 的 provider 网络/超时/上游 5xx 与运行时 Model Profile 配置失败，提交 `unavailable` + Pending Operation；不产生半成品 artifact、新 Attempt、Evidence 或 cadence 变化。
+- [x] `retry_requested` 只在 `unavailable` 上合法，不带答案或原命令体，使用新的 Idempotency-Key，只恢复服务端保存的 Pending Operation。
+- [x] 失败 retry 递增链计数并产生新 interaction version；第三次后不再 advertise retry，但 Flow Control 仍可安全离开。
+- [x] 成功 retry 提交下一 interaction 并清除 Pending Operation；初次 Start 失败仍走 503，绝不靠 `retry_requested` 造出 Flow。

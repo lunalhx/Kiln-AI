@@ -4,8 +4,8 @@
 
 **Blocked by:** 01 — Learning StateGraph 成功路径 tracer.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Practice 使用冻结的 Practice Blueprint 和独立 Attempt；正式提交后 Attempt 不能被改写。
-- [ ] Practice PASS 和 FAIL 都产生 assisted application Evidence；Inconclusive 不产生 Evidence，改为 fresh replacement。
-- [ ] 只有当前 remediation cycle 的 Apply Practice PASS 能使 Fresh Independent Test 合法。
+- [x] Practice 使用冻结的 Practice Blueprint 和独立 Attempt；正式提交后 Attempt 不能被改写。
+- [x] Practice PASS 和 FAIL 都产生 assisted application Evidence；Inconclusive 不产生 Evidence，改为 fresh replacement。
+- [x] 只有当前 remediation cycle 的 Apply Practice PASS 能使 Fresh Independent Test 合法。

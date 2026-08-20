@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 — Clarification、assistance consent 与 Review-to-Practice conversion.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] 新 baseline 不保留 `apply_*` 表或旧 Flyway 兼容路径，并持久 Flow、Interaction、Checkpoint、Command、Attempt、Evidence 与 ReviewTask。
 - [x] PostgreSQL 重启后可以恢复“Diagnostic PASS → Independent PASS → Review 1”的 committed state。

@@ -4,8 +4,8 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] ADR-0072、ADR-0073 已接受，且 ADR 索引与冲突记录已更新。
-- [ ] 图谱拥有的 Flow 交互类型已改为 Learning 语义；`ApplyFlowUseCase` 已删除，不再存在第二条写 Learning State 的命令入口。
-- [ ] 既有 scripted 成功路径与 replay 契约在新命令面上保持通过。
+- [x] ADR-0072、ADR-0073 已接受，且 ADR 索引与冲突记录已更新。
+- [x] 图谱拥有的 Flow 交互类型已改为 Learning 语义；`ApplyFlowUseCase` 已删除，不再存在第二条写 Learning State 的命令入口。
+- [x] 既有 scripted 成功路径与 replay 契约在新命令面上保持通过。

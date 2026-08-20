@@ -91,7 +91,6 @@ public final class HintProfile {
 
             When `outcome` is `ladder_ready`, the only permitted fields are:
 
-            ```json
             {
               "schema": "hint_generation/v1",
               "outcome": "ladder_ready",
@@ -106,7 +105,6 @@ public final class HintProfile {
                 }
               ]
             }
-            ```
 
             Entries 1 through 4 permit exactly `level`, `disclosure_kind`,
             `learner_content`, and `source_trace`. The H5 entry additionally permits
@@ -116,7 +114,6 @@ public final class HintProfile {
 
             When `outcome` is `source_gap`, the only permitted fields are:
 
-            ```json
             {
               "schema": "hint_generation/v1",
               "outcome": "source_gap",
@@ -125,7 +122,6 @@ public final class HintProfile {
                 "missing_requirement_ids": ["..."]
               }
             }
-            ```
 
             The runtime owns level exposure, the Assistance Trace, and the closing of
             the Attempt. Return JSON only.

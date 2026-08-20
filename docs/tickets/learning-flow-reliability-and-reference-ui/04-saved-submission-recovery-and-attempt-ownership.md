@@ -4,9 +4,9 @@
 
 **Blocked by:** 03 — 已有 Flow 的 Unavailable 与有界 `retry_requested`.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 评估类命令先原子关闭 Attempt 并保存 submission / pending assessment，再做模型评估。
-- [ ] 关闭后、评估完成前的崩溃，从已保存 Attempt 继续；请求体不能替换该 submission。
-- [ ] Attempt 必须属于当前 Flow，且是当前 Interaction 指向的 Attempt；被后续 Interaction 替换后不可再路由。
-- [ ] 已完成命令重放返回原 interaction；Evidence 与 transition 仍然 exactly-once。
+- [x] 评估类命令先原子关闭 Attempt 并保存 submission / pending assessment，再做模型评估。
+- [x] 关闭后、评估完成前的崩溃，从已保存 Attempt 继续；请求体不能替换该 submission。
+- [x] Attempt 必须属于当前 Flow，且是当前 Interaction 指向的 Attempt；被后续 Interaction 替换后不可再路由。
+- [x] 已完成命令重放返回原 interaction；Evidence 与 transition 仍然 exactly-once。

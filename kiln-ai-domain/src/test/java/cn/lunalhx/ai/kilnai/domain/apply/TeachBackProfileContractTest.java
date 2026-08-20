@@ -110,6 +110,7 @@ class TeachBackProfileContractTest {
         assertTrue(systemPrompt.contains("[bundle:action:teach-back.anchored-explanation@1.0.0]"));
         assertTrue(systemPrompt.contains("[bundle:subject:subject.calculus-notation@1.0.0]"));
         assertTrue(systemPrompt.contains("# Response Contract"));
+        assertFalse(systemPrompt.contains("```"), "response-contract examples must be bare JSON, not fenced");
         assertFalse(systemPrompt.contains("\"learner_locale\""));
 
         assertEquals("teach_back_execution_context/v1",

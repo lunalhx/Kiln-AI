@@ -139,6 +139,7 @@ class ApplyProfileContractTest {
         assertTrue(systemPrompt.contains("[bundle:action:apply.task-first@0.1.0]"));
         assertTrue(systemPrompt.contains("[bundle:subject:subject.calculus-notation@0.1.0]"));
         assertTrue(systemPrompt.contains("# Response Contract"));
+        assertFalse(systemPrompt.contains("```"), "response-contract examples must be bare JSON, not fenced");
         assertFalse(systemPrompt.contains(context.conceptSourcePack().passages().get(0).content()));
         assertFalse(systemPrompt.contains("\"learner_locale\""));
 

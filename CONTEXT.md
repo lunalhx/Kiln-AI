@@ -285,7 +285,7 @@ The outcome when required evaluation sources disagree, a required closed evaluat
 _Avoid_: Averaged confidence, failed attempt, accepted evidence
 
 **Model Contract Invalid**:
-An internal result in which a model response violates its closed contract, including a missing or wrong schema, missing required field, invalid enum, invalid collection shape, null required value, or unknown field. It is distinct from Provider Unavailable and never reaches the learner as raw JSON or a parser error. Each model responsibility follows its declared bounded repair or safe fallback.
+An internal result in which a model response violates its closed contract, including a missing or wrong schema, missing required field, invalid enum, invalid collection shape, null required value, or unknown field. It is distinct from Provider Unavailable and never reaches the learner as raw JSON or a parser error. After bounded repair, a post-submission evaluation reaches an Unavailable Interaction, while a pre-delivery responsibility follows its declared candidate-recovery policy.
 _Avoid_: Provider outage, learner input error, accepted model artifact
 
 **Learner Input Gate**:
@@ -319,6 +319,58 @@ _Avoid_: Teaching Action, fixed prompt step
 **Diagnostic**:
 The initial, brief, no-hint attempt used to discover whether a learner already satisfies or partially satisfies a new Target Concept's Mastery Criterion. It uses a Retrieve or Apply action with diagnostic purpose and may be skipped in favor of direct instruction. A passing Diagnostic never by itself establishes Independent; it routes the learner to a fresh Independent Test.
 _Avoid_: Diagnose Agent, Diagnose Skill, mandatory exam
+
+**Diagnostic Not Passed**:
+The routing result when a Diagnostic lacks sufficient confirmed performance to proceed to a fresh Independent Test, whether because the response conclusively fails or its semantic assessment remains inconclusive. It creates no Learning Evidence and routes to Learning and Practice without treating evaluator uncertainty as learner failure.
+_Avoid_: Diagnostic Failed, learner failure, automatic Independent Test
+
+**Conclusive Diagnostic Gap**:
+A Diagnostic Not Passed result supported by a conclusively incorrect primary answer together with a missing rationale or a Rationale Assessment that is definitively Not Applicable. It may carry sanitized missing Rubric criteria and error dimensions into the next pedagogical decision but creates no Learning Evidence.
+_Avoid_: Diagnostic Evidence, evaluator disagreement, raw assessment feedback
+
+**Unconfirmed Diagnostic Performance**:
+A Diagnostic Not Passed result caused by an unresolved primary answer, semantic evaluation uncertainty, or failure to corroborate an initially Applicable Rationale. It routes to Learning and Practice with neutral Feedback Facts and makes no claim that the learner lacks a particular capability.
+_Avoid_: Conclusive Diagnostic Gap, learner failure, technical unavailability
+
+**Applicable Rationale**:
+A Diagnostic rationale that independently supplies the task-relevant knowledge, rules, principles, or evidence required by the Task Rubric, connects them to the specific task, and contains no material gap, error, or contradiction. It may coexist with an incorrect primary answer caused by an execution or transcription mistake, but merely naming a concept or matching keywords is insufficient.
+_Avoid_: Concept-name mention, keyword match, correct primary answer
+
+**Rationale Assessment**:
+The initial isolated semantic evaluation of whether a Diagnostic rationale is an Applicable Rationale. It judges the rationale against the Task Rubric and approved source basis without deciding whether the Assessment Policy permits rescue or selecting the next Learning Stage.
+_Avoid_: Primary-answer check, Rationale Sufficiency Verification, routing decision
+
+**Rationale Sufficiency Verification**:
+The isolated corroboration that tests whether a rationale is an Applicable Rationale using the Task Rubric and approved source basis. Its judging method is reusable across subjects; subject truth and permission for a rationale to rescue an incorrect primary answer remain owned by the task context and Assessment Policy.
+_Avoid_: Subject answer key, keyword filter, rescue policy
+
+**Rationale Evaluation Context**:
+The immutable least-privilege facts shared separately with Rationale Assessment and Rationale Sufficiency Verification: the learner-visible task, complete rationale, rationale-relevant Task Rubric criteria, necessary private expected-answer facts, bounded approved Source Passages, and Learner Locale. It excludes the learner's primary answer, primary-check result, either evaluator's judgment, prior feedback or Attempts, Learning State, and generator reasoning.
+_Avoid_: Response Assessment Context, complete Task Package, shared evaluator conversation
+
+**Rationale Evaluation Result**:
+The closed, dimensioned judgment returned independently by Rationale Assessment or Rationale Sufficiency Verification. It reports Rubric basis, task connection, and coherence checks from which Applicable, Not Applicable, or Inconclusive is derived deterministically; it contains reason codes but no model reasoning, routing, or evidence decision.
+_Avoid_: Free-form evaluator feedback, confidence score, rescue decision
+
+**Trusted Primary-Answer Check**:
+A repeatable, Task Blueprint-declared check that can conclusively establish a primary answer as correct or incorrect from authoritative task facts, such as deterministic mathematical equivalence, a frozen answer key, or closed structural constraints. Model agreement and an unresolved result do not constitute proof.
+_Avoid_: Model vote, confidence threshold, Cannot Decide
+
+**Evaluation Profile**:
+A bounded, non-teaching execution boundary for one model-backed evaluation responsibility. It owns the permitted context, Evaluation Skill Stack, budgets, and closed result contract, but cannot teach, choose a Learning State transition, accept Learning Evidence, or expose private evaluation facts.
+_Avoid_: Teaching Node Profile, Pedagogy Agent, evaluator with state-write access
+
+**Evaluation Skill**:
+The required primary Skill in an Evaluation Skill Stack, owning one reusable judging method without owning subject truth, Assessment Policy, routing, or evidence acceptance.
+_Avoid_: Teaching Action Skill, subject answer key, state transition policy
+
+**Evaluation Skill Stack**:
+The immutable, version-pinned set of evaluation and supporting Skills assembled for one Evaluation Profile invocation. It supplies reusable judging method and capability constraints while the Task Rubric and approved source basis remain the authority for subject truth.
+_Avoid_: Teaching Skill Stack, subject answer key, dynamic model-selected Skills
+
+**Committed Evaluation Result**:
+The durable result of one versioned evaluation responsibility for one submitted Task Attempt. It is uniquely identified by Attempt, responsibility, and evaluation version so recovery can reuse completed judgments; it is neither Learning Evidence nor a guarantee that an external Provider call occurred only once.
+_Avoid_: Append-only audit duplicate, Evidence Candidate, exactly-once Provider call
 
 **Neutral Transition**:
 The learner-visible transition from a passing Diagnostic to a fresh Independent Test that states only the next interaction and gives no correctness, solution, rule, or targeted feedback. It prevents diagnostic feedback from becoming assistance before independent evidence is collected.
@@ -475,6 +527,10 @@ _Avoid_: Skill selection, hidden model browsing, Knowledge Base
 **Assessment**:
 An evaluation node isolated from the Teaching Node execution that judges learner performance against the Task Rubric and produces an Evidence Candidate. For the Apply reference it separates a final-expression channel from a rationale channel, obeys proof-bounded deterministic mathematical results, and uses a closed model judgment only where semantic evaluation or deterministic `Cannot Decide` requires it. It may use the same model provider but not the teaching execution's hidden reasoning.
 _Avoid_: Self-grading Teaching Node, state transition
+
+**Assessment Policy**:
+The versioned, Task Blueprint-declared rule that selects required evaluation channels, their trusted checks and model responsibilities, how their results combine, and which assessment outcome follows. It does not judge learner content, contain subject truth, choose pedagogy, or accept Learning Evidence.
+_Avoid_: Task Rubric, Evaluation Skill, Workflow Guard
 
 **Evidence Candidate**:
 The structured result proposed by Assessment or Verification before deterministic validation. It is not yet accepted Learning Evidence and cannot change Concept state.

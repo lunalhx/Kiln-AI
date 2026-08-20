@@ -39,6 +39,7 @@ class ApplyPromptCompilerTest {
         assertTrue(prompt.contains("[bundle:subject:subject.calculus-notation@0.1.0]"));
         assertTrue(prompt.contains("# Response Contract"));
         assertTrue(prompt.contains("apply_generation/v1"));
+        assertFalse(prompt.contains("```"), "response-contract examples must be bare JSON, not fenced");
         assertTrue(prompt.length() <= ApplyPromptCompiler.INSTRUCTION_BUDGET);
     }
 

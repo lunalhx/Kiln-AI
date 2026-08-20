@@ -75,6 +75,10 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0060](0060-use-one-neutral-message-for-unavailable-apply-tasks.md): neutral unavailable-task message
 - [ADR-0061](0061-review-answer-rationale-contradiction-is-conclusive-fail.md): Review answer-rationale contradiction is a conclusive failure
 - [ADR-0071](0071-fail-closed-on-model-contract-errors-with-type-specific-recovery.md): strict model contracts and safe recovery
+- [ADR-0074](0074-request-json-object-on-every-model-call.md): every model call requests a JSON object; generation is warmer than judgment
+- [ADR-0075](0075-compose-rationale-verification-through-an-evaluation-skill-stack.md): corroborated Diagnostic rationale rescue through separate Evaluation Skill Stacks
+- [ADR-0076](0076-treat-post-submission-model-contract-failure-as-unavailable.md): post-submission model-contract failure resumes through a durable unavailable interaction
+- [ADR-0077](0077-checkpoint-post-submission-evaluation-results.md): checkpoint role-keyed evaluation results between model calls and state transitions
 
 ## Task generation, validation, and review
 

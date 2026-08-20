@@ -4,8 +4,8 @@
 
 **Blocked by:** 02 — Apply Practice remediation.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] H1–H4 保持 Attempt 打开、允许后续正式提交，并只记录实际暴露的 Assistance Trace。
-- [ ] H5 reveal 原子地记录帮助并将 Attempt 关闭为 Solution Revealed，绝不触发 Assessment 或 Evidence。
-- [ ] Hint 不可用于 Diagnostic、Independent、Review 或 Teach-back；Ladder 失败不暴露部分内容。
+- [x] H1–H4 保持 Attempt 打开、允许后续正式提交，并只记录实际暴露的 Assistance Trace。
+- [x] H5 reveal 原子地记录帮助并将 Attempt 关闭为 Solution Revealed，绝不触发 Assessment 或 Evidence。
+- [x] Hint 不可用于 Diagnostic、Independent、Review 或 Teach-back；Ladder 失败不暴露部分内容。

@@ -4,8 +4,8 @@
 
 **Blocked by:** 02 — Apply Practice remediation.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Explain 只创建 teaching interaction，不创建 Task Package、Attempt、Assessment 或 Learning Evidence。
-- [ ] 输出符合 closed `explain_generation/v1`：恰好一个完整例题、每步 rule mapping、来源和 novelty 全部通过 Gate。
-- [ ] Source Gap 或第二次无效输出只产生安全 unavailable/retry interaction，且私有输入不进入 learner projection。
+- [x] Explain 只创建 teaching interaction，不创建 Task Package、Attempt、Assessment 或 Learning Evidence。
+- [x] 输出符合 closed `explain_generation/v1`：恰好一个完整例题、每步 rule mapping、来源和 novelty 全部通过 Gate。
+- [x] Source Gap 或第二次无效输出只产生安全 unavailable/retry interaction，且私有输入不进入 learner projection。

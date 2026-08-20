@@ -4,6 +4,11 @@ status: accepted
 
 # Fail closed on model contract errors with type-specific recovery
 
+> Amended by ADR-0076: a post-submission evaluation whose contract remains
+> invalid after repair now reaches an Unavailable Interaction and resumes from
+> its saved submission. The pre-delivery and safe-fallback rules below remain
+> in force.
+
 The model adapter owns transport only. It returns raw model content to the
 domain, which strictly parses every closed model contract: required schema and
 fields, enum values, array element shapes, nullability, and unknown fields.

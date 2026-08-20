@@ -114,7 +114,6 @@ public final class TeachBackProfile {
 
             When `outcome` is `task_ready`, the only permitted fields are:
 
-            ```json
             {
               "schema": "teach_back_generation/v1",
               "outcome": "task_ready",
@@ -132,7 +131,6 @@ public final class TeachBackProfile {
                 "anchor_kind": "the supplied anchor kind"
               }
             }
-            ```
 
             `rubric_mapping` must cover exactly the three dimensions
             `rule_identification`, `applicability_explanation`, and
@@ -143,7 +141,6 @@ public final class TeachBackProfile {
 
             When `outcome` is `source_gap`, the only permitted fields are:
 
-            ```json
             {
               "schema": "teach_back_generation/v1",
               "outcome": "source_gap",
@@ -152,7 +149,6 @@ public final class TeachBackProfile {
                 "missing_requirement_ids": ["..."]
               }
             }
-            ```
 
             The runtime owns delivery, isolated verification, submission, and
             assessment. Return JSON only.

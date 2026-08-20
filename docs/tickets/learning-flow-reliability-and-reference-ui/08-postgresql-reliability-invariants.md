@@ -4,9 +4,9 @@
 
 **Blocked by:** 02 — 原子 Start 与唯一 Active Learning Work; 03 — 已有 Flow 的 Unavailable 与有界 `retry_requested`; 04 — 已关闭 Attempt 从保存的 submission 恢复，并强制 Attempt 归属; 05 — 模型契约失败闭合并按职责恢复; 07 — 显式取消未完成 Review Cadence.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 破坏性 schema 包含 Pending Operation、Active Learning Work、最小 typed Blackboard 引用，以及不含 raw payload 的 contract-audit；没有历史兼容或数据迁移。
-- [ ] PostgreSQL 重启后能恢复 02–05、07 的 committed 行为：原子 Start 缺席、claim 唯一、retry 链、saved-submission、Review 取消。
-- [ ] 并发与重放不会产生重复 open Attempt、Evidence 或未完成 Review。
-- [ ] 测试用 in-memory transition store 与 PostgreSQL adapter 使用同一套原子语义。
+- [x] 破坏性 schema 包含 Pending Operation、Active Learning Work、最小 typed Blackboard 引用，以及不含 raw payload 的 contract-audit；没有历史兼容或数据迁移。
+- [x] PostgreSQL 重启后能恢复 02–05、07 的 committed 行为：原子 Start 缺席、claim 唯一、retry 链、saved-submission、Review 取消。
+- [x] 并发与重放不会产生重复 open Attempt、Evidence 或未完成 Review。
+- [x] 测试用 in-memory transition store 与 PostgreSQL adapter 使用同一套原子语义。
