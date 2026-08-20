@@ -5,7 +5,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Durable audit of one Model Contract Invalid event. It retains only identity,
+ * Durable audit of one model-boundary failure. It retains only identity,
  * responsibility, normalized violation codes, repair count, correlation ID,
  * and provider-health category — never raw invalid JSON, prompts, or learner
  * responses.
@@ -22,6 +22,9 @@ public record ModelContractAudit(
 ) {
 
     public static final String PROVIDER_CATEGORY = "MODEL_CONTRACT_INVALID";
+    public static final String MODEL_CONFIGURATION_INVALID = "MODEL_CONFIGURATION_INVALID";
+    public static final String MODEL_PROVIDER_UNAVAILABLE = "MODEL_PROVIDER_UNAVAILABLE";
+    public static final String TECHNICAL_FAILURE = "technical_failure";
 
     public static final String ASSESSMENT = "assessment";
     public static final String RESPONSE_VERIFICATION = "response_verification";

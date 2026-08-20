@@ -263,7 +263,8 @@ public final class TeachBackFlow {
                     TeachBackAssessment evaluated = ModelContractRepair.once(
                             () -> assessmentPort.assess(flow.modelProfile(), context),
                             artifactStore, flow.flowId(), closedAttempt.attemptId(), closedAttempt.taskPackageId(),
-                            ModelContractAudit.TEACH_BACK_ASSESSMENT);
+                            ModelContractAudit.TEACH_BACK_ASSESSMENT,
+                            CommittedEvaluationResult.EVALUATION_VERSION);
                     if (evaluated == null) {
                         return null;
                     }

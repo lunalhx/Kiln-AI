@@ -118,9 +118,9 @@ public interface ArtifactStore {
     List<TaskVerificationVerdict> verificationsFor(UUID taskPackageId);
 
     /**
-     * Records one Model Contract Invalid audit. The payload is limited to
-     * identity, responsibility, normalized violation codes, repair count,
-     * correlation ID, and provider-health category.
+     * Records one model-boundary audit. The payload is limited to identity,
+     * responsibility, normalized violation codes, repair count, correlation
+     * ID, and provider-health category.
      */
     void recordModelContractAudit(ModelContractAudit audit);
 

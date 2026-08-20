@@ -1,7 +1,7 @@
 # Spec: Corroborated rationale rescue for Diagnostic
 
-> Status: draft. Two closed-contract details remain unresolved and are listed
-> under Further Notes. This spec is not yet ready for implementation.
+> Status: ready for implementation. The closed-contract details formerly
+> listed under Further Notes are resolved by ADR-0078.
 
 ## Problem Statement
 
@@ -228,6 +228,22 @@ technically failed responsibilities.
   dimension checks for Rubric basis, task connection, and coherence, and closed
   reason codes. The result contains no feedback, routing, Evidence decision,
   confidence score, or model reasoning.
+- The `rationale_evaluation/v1` `reason_codes` wire enum is exactly
+  `missing_support`, `misapplication`, `factual_error`, `material_gap`, or
+  `contradiction`. Codes are deduplicated and serialized in that order.
+  `applicable` requires an empty list; `not_applicable` requires at least one
+  code; and `inconclusive` requires an empty list because uncertainty is not a
+  learner-deficit reason. A missing rationale skips this result contract and
+  is handled by the structural `not_provided` branch.
+- The private `Rationale Evaluation Context` contains a closed
+  `expected_answer_facts` discriminated record. V1 permits only
+  `kind: canonical_expression` with the required fields `expression` (the
+  task-owned canonical expected value), `variables` (a non-empty string list),
+  and `domain` (the task-owned equivalence domain string). No additional map
+  entries or fields are permitted. These facts are the sole representation of
+  the Trusted Primary-Answer Check basis; the check identity, check result,
+  learner primary answer, and either evaluator's output remain outside the
+  context.
 - Dimension values are `pass`, `fail`, or `inconclusive`. All passing derives
   `applicable`; any failed check derives `not_applicable`; no failed check with
   at least one inconclusive check derives `inconclusive`. A declared verdict
@@ -378,13 +394,6 @@ technically failed responsibilities.
 - The confirmed testing seams were established during the preceding design
   session; no additional seam decision was introduced while synthesizing this
   document.
-- The exact closed `reason_codes` enumeration for
-  `rationale_evaluation/v1` remains undecided. The spec records only the agreed
-  categories—missing support, misapplication, factual error, material gap, and
-  contradiction—and does not invent enum identifiers.
-- The closed representation of `necessary private expected-answer facts` in
-  the Rationale Evaluation Context remains undecided, including how the current
-  Trusted Primary-Answer Check basis is represented in that data. The spec does
-  not introduce an open map or a generic checker-reference schema.
-- Until those two closed-contract details are resolved, this spec must not be
-  treated as ready for implementation.
+- ADR-0078 closes the `reason_codes` wire enum and the V1
+  `expected_answer_facts` discriminated record. No open map or generic
+  checker-reference schema is introduced.

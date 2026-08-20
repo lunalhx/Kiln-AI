@@ -1,4 +1,4 @@
--- Durable Model Contract Invalid audit: identity, responsibility, normalized
+-- Durable model-boundary audit: identity, responsibility, normalized
 -- violation codes, repair count, correlation ID, and provider-health category.
 -- Rejected Task Packages are never persisted as packages rows, so task_package_id
 -- has no foreign key, matching the verifications ledger.

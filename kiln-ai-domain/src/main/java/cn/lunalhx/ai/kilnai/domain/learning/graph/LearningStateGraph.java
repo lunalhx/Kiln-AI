@@ -27,6 +27,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractInvalidException;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PendingOperation;
+import cn.lunalhx.ai.kilnai.domain.apply.model.PostSubmissionEvaluationUnavailableException;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PracticeSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewSubmissionResult;
@@ -99,6 +100,14 @@ public final class LearningStateGraph {
      * or parser details.
      */
     public static final String START_UNAVAILABLE_MESSAGE = "暂时无法开始学习，请稍后重试。";
+
+    /**
+     * The neutral learner-safe boundary for a submitted Attempt whose
+     * evaluation responsibility could not complete. The saved Attempt and
+     * Pending Operation, rather than this message, carry the recovery state.
+     */
+    public static final String POST_SUBMISSION_EVALUATION_UNAVAILABLE_MESSAGE =
+            ModelContractInvalidException.LEARNER_SAFE_MESSAGE;
 
     /**
      * The teaching intent of every clarification-driven temporary Explain: a
@@ -265,20 +274,24 @@ public final class LearningStateGraph {
         AttemptPurpose purpose = artifactStore.findAttempt(attemptId)
                 .map(TaskAttempt::purpose)
                 .orElseThrow();
-        return switch (purpose) {
-            case DIAGNOSTIC -> submitDiagnostic(state, attemptId, rawDerivative, confirmedCanonical, rationale,
-                    evaluationRecovery, idempotencyKey, requestHash);
-            case INDEPENDENT_TEST -> submitIndependent(state, attemptId, rawDerivative, confirmedCanonical, rationale,
-                    evaluationRecovery, idempotencyKey, requestHash);
-            case REVIEW -> submitReview(state, attemptId, rawDerivative, confirmedCanonical, rationale,
-                    idempotencyKey, requestHash);
-            case PRACTICE -> isTeachBackAttempt(attemptId)
-                    ? submitTeachBack(state, attemptId, rawDerivative, confirmedCanonical,
-                            evaluationRecovery, idempotencyKey, requestHash)
-                    : submitPractice(state, attemptId, rawDerivative, confirmedCanonical, rationale,
-                            evaluationRecovery, idempotencyKey, requestHash);
-            default -> new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
-        };
+        try {
+            return switch (purpose) {
+                case DIAGNOSTIC -> submitDiagnostic(state, attemptId, rawDerivative, confirmedCanonical, rationale,
+                        evaluationRecovery, idempotencyKey, requestHash);
+                case INDEPENDENT_TEST -> submitIndependent(state, attemptId, rawDerivative, confirmedCanonical, rationale,
+                        evaluationRecovery, idempotencyKey, requestHash);
+                case REVIEW -> submitReview(state, attemptId, rawDerivative, confirmedCanonical, rationale,
+                        idempotencyKey, requestHash);
+                case PRACTICE -> isTeachBackAttempt(attemptId)
+                        ? submitTeachBack(state, attemptId, rawDerivative, confirmedCanonical,
+                                evaluationRecovery, idempotencyKey, requestHash)
+                        : submitPractice(state, attemptId, rawDerivative, confirmedCanonical, rationale,
+                                evaluationRecovery, idempotencyKey, requestHash);
+                default -> new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
+            };
+        } catch (PostSubmissionEvaluationUnavailableException unavailable) {
+            return commitPostSubmissionEvaluationUnavailable(state, unavailable, idempotencyKey, requestHash);
+        }
     }
 
     /**
@@ -688,7 +701,11 @@ public final class LearningStateGraph {
         if (pending == null || !pending.retryAdvertised()) {
             return new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.RETRY_NOT_LEGAL);
         }
-        return resumePending(state, pending, idempotencyKey, requestHash);
+        try {
+            return resumePending(state, pending, idempotencyKey, requestHash);
+        } catch (PostSubmissionEvaluationUnavailableException unavailable) {
+            return commitPostSubmissionEvaluationUnavailable(state, unavailable, idempotencyKey, requestHash);
+        }
     }
 
     /**
@@ -1572,18 +1589,50 @@ public final class LearningStateGraph {
             UUID idempotencyKey,
             String requestHash
     ) {
-        PendingOperation pending = state.latestInteraction().kind() == InteractionKind.UNAVAILABLE
-                ? flowStore.pendingOperation(state.flow().flowId())
-                        .orElseThrow(() -> new IllegalStateException(
-                                "unavailable interaction missing pending operation"))
-                        .withFailedRetry()
-                : seed;
+        PendingOperation pending = seed;
+        if (state.latestInteraction().kind() == InteractionKind.UNAVAILABLE) {
+            PendingOperation previous = flowStore.pendingOperation(state.flow().flowId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "unavailable interaction missing pending operation"));
+            pending = samePendingOperation(previous, seed)
+                    ? previous.withFailedRetry()
+                    : previous.withFailedRetryAs(seed);
+        }
         LearningFlowInteraction interaction = new LearningFlowInteraction(
                 InteractionKind.UNAVAILABLE, state.flow().flowId(),
                 state.latestInteraction().interactionVersion() + 1,
                 FlowStatus.AWAITING_LEARNER_INPUT, stage,
                 null, null, null, learnerMessage, null, hint, null);
         return commitBoundary(interaction, pending, idempotencyKey, requestHash);
+    }
+
+    private static boolean samePendingOperation(PendingOperation left, PendingOperation right) {
+        if (left.kind() != right.kind()) {
+            return false;
+        }
+        if (left.kind() != PendingOperation.Kind.RESUME_SUBMISSION_EVALUATION) {
+            return true;
+        }
+        return Objects.equals(left.attemptId(), right.attemptId())
+                && Objects.equals(left.responsibility(), right.responsibility())
+                && Objects.equals(left.evaluationVersion(), right.evaluationVersion());
+    }
+
+    private LearningFlowResult.Boundary commitPostSubmissionEvaluationUnavailable(
+            LearningState state,
+            PostSubmissionEvaluationUnavailableException unavailable,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        return commitUnavailable(
+                state,
+                state.latestInteraction().stage(),
+                POST_SUBMISSION_EVALUATION_UNAVAILABLE_MESSAGE,
+                null,
+                PendingOperation.resumeSubmissionEvaluation(
+                        unavailable.attemptId(), unavailable.responsibility(), unavailable.evaluationVersion()),
+                idempotencyKey,
+                requestHash);
     }
 
     private PendingOperation executeMoveSeed(

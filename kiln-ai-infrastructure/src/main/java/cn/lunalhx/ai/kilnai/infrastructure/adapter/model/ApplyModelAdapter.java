@@ -409,12 +409,12 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
             String userJson,
             double temperature
     ) {
-        String apiKey = secrets.apply(binding.secretEnvVar());
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "provider secret is missing");
-        }
-        ChatClient client = clients.create(binding, apiKey, profile.outputTokenCeiling(), temperature);
         try {
+            String apiKey = secrets.apply(binding.secretEnvVar());
+            if (apiKey == null || apiKey.isBlank()) {
+                throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "provider secret is missing");
+            }
+            ChatClient client = clients.create(binding, apiKey, profile.outputTokenCeiling(), temperature);
             ChatResponse response = client.prompt()
                     .system(systemPrompt)
                     .user(userJson)

@@ -22,6 +22,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassification;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPort;
+import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
+import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -30,6 +32,8 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The scripted model ports of the Learning/Practice graph for the PostgreSQL
@@ -50,10 +54,17 @@ public class ScriptedLearningGraphPortsConfiguration {
 
     public static final String PRACTICE_TASK = "设 p(x) = 6x³ − 4x + 3，求 p'(x)。";
     public static final String PRACTICE_EXPECTED = "18*x^2 - 4";
+    public static final String PRACTICE_TASK_2 = "设 v(x) = 7x⁴ − 5x² + 2，求 v'(x)。";
+    public static final String PRACTICE_EXPECTED_2 = "28*x^3 - 10*x";
 
     private volatile boolean failNextApplyGeneration = false;
     private volatile boolean failNextExplainGeneration = false;
     private final AtomicInteger remainingInvalidAssessments = new AtomicInteger(0);
+    private final AtomicInteger remainingAssessmentConfigurationFailures = new AtomicInteger(0);
+    private final AtomicInteger remainingAssessmentProviderFailures = new AtomicInteger(0);
+    private final AtomicInteger remainingResponseVerificationProviderFailures = new AtomicInteger(0);
+    private final AtomicInteger remainingTeachBackAssessmentProviderFailures = new AtomicInteger(0);
+    private volatile boolean responseVerificationEnabled = false;
     private final Deque<ClarificationClassification> scriptedClarifications = new ArrayDeque<>();
 
     public void failNextApplyGeneration() {
@@ -66,6 +77,34 @@ public class ScriptedLearningGraphPortsConfiguration {
 
     public void failNextAssessments(int count) {
         this.remainingInvalidAssessments.set(count);
+    }
+
+    public void failNextAssessmentProviderCalls(int count) {
+        this.remainingAssessmentProviderFailures.set(count);
+    }
+
+    public void failNextAssessmentConfigurationCalls(int count) {
+        this.remainingAssessmentConfigurationFailures.set(count);
+    }
+
+    public void failNextResponseVerificationProviderCalls(int count) {
+        this.responseVerificationEnabled = true;
+        this.remainingResponseVerificationProviderFailures.set(count);
+    }
+
+    public void failNextTeachBackAssessmentProviderCalls(int count) {
+        this.remainingTeachBackAssessmentProviderFailures.set(count);
+    }
+
+    public void resetTransientFailures() {
+        failNextApplyGeneration = false;
+        failNextExplainGeneration = false;
+        remainingInvalidAssessments.set(0);
+        remainingAssessmentConfigurationFailures.set(0);
+        remainingAssessmentProviderFailures.set(0);
+        remainingResponseVerificationProviderFailures.set(0);
+        remainingTeachBackAssessmentProviderFailures.set(0);
+        responseVerificationEnabled = false;
     }
 
     /**
@@ -111,7 +150,8 @@ public class ScriptedLearningGraphPortsConfiguration {
                 };
             }
             if (executionContextJson.contains("\"attempt_purpose\":\"practice\"")) {
-                return ScriptedApplyPortsConfiguration.taskReadyJson(PRACTICE_TASK, PRACTICE_EXPECTED);
+                return ScriptedApplyPortsConfiguration.taskReadyJson(
+                        exposedPracticeTask(executionContextJson), exposedPracticeExpected(executionContextJson));
             }
             return executionContextJson.contains("\"attempt_purpose\":\"independent_test\"")
                     ? ScriptedApplyPortsConfiguration.taskReadyJson(
@@ -147,6 +187,12 @@ public class ScriptedLearningGraphPortsConfiguration {
         // conclusive failure for every Attempt Purpose. Tests can script a
         // bounded number of Model Contract Invalid replies before that.
         return (profile, context) -> {
+            if (remainingAssessmentConfigurationFailures.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+                throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "model configuration invalid");
+            }
+            if (remainingAssessmentProviderFailures.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+                throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "provider unavailable");
+            }
             if (remainingInvalidAssessments.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
                 throw new ModelContractInvalidException(List.of("unknown_field"));
             }
@@ -162,7 +208,17 @@ public class ScriptedLearningGraphPortsConfiguration {
     @Primary
     ResponseVerificationPort scriptedApplyResponseVerification() {
         return (profile, context) -> {
-            throw new IllegalStateException("scripted response verification must never be invoked");
+            if (!responseVerificationEnabled) {
+                throw new IllegalStateException("scripted response verification must never be invoked");
+            }
+            if (remainingResponseVerificationProviderFailures.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+                throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "provider unavailable");
+            }
+            return new ResponseAssessment(
+                    ResponseAssessment.SCHEMA,
+                    FinalExpressionJudgment.EQUIVALENT,
+                    RationaleJudgment.NOT_PROVIDED,
+                    List.of());
         };
     }
 
@@ -196,7 +252,7 @@ public class ScriptedLearningGraphPortsConfiguration {
     @Bean
     @Primary
     TeachBackGenerationPort scriptedTeachBackGeneration() {
-        return (profile, compiledSystemPrompt, executionContextJson) -> teachBackTaskReadyJson();
+        return (profile, compiledSystemPrompt, executionContextJson) -> teachBackTaskReadyJson(executionContextJson);
     }
 
     @Bean
@@ -208,12 +264,17 @@ public class ScriptedLearningGraphPortsConfiguration {
     @Bean
     @Primary
     TeachBackAssessmentPort scriptedTeachBackAssessment() {
-        return (profile, context) -> new TeachBackAssessment(
-                TeachBackAssessment.SCHEMA,
-                TeachBackAssessment.DimensionJudgment.PASS,
-                TeachBackAssessment.DimensionJudgment.PASS,
-                TeachBackAssessment.DimensionJudgment.PASS,
-                List.of());
+        return (profile, context) -> {
+            if (remainingTeachBackAssessmentProviderFailures.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+                throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "provider unavailable");
+            }
+            return new TeachBackAssessment(
+                    TeachBackAssessment.SCHEMA,
+                    TeachBackAssessment.DimensionJudgment.PASS,
+                    TeachBackAssessment.DimensionJudgment.PASS,
+                    TeachBackAssessment.DimensionJudgment.PASS,
+                    List.of());
+        };
     }
 
     @Bean
@@ -245,6 +306,16 @@ public class ScriptedLearningGraphPortsConfiguration {
                   }
                 }
                 """;
+    }
+
+    private static String exposedPracticeTask(String executionContextJson) {
+        return ScriptedApplyPortsConfiguration.exposedTaskCount(executionContextJson) > 1
+                ? PRACTICE_TASK_2 : PRACTICE_TASK;
+    }
+
+    private static String exposedPracticeExpected(String executionContextJson) {
+        return ScriptedApplyPortsConfiguration.exposedTaskCount(executionContextJson) > 1
+                ? PRACTICE_EXPECTED_2 : PRACTICE_EXPECTED;
     }
 
     private static String explainReadyJson() {
@@ -286,7 +357,15 @@ public class ScriptedLearningGraphPortsConfiguration {
                 """;
     }
 
-    private static String teachBackTaskReadyJson() {
+    private static String teachBackTaskReadyJson(String executionContextJson) {
+        Matcher anchor = Pattern.compile(
+                        "\\\"anchor\\\"\\s*:\\s*\\{\\s*"
+                                + "\\\"anchor_id\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"\\s*,\\s*"
+                                + "\\\"anchor_kind\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
+                .matcher(executionContextJson);
+        if (!anchor.find()) {
+            throw new IllegalArgumentException("scripted Teach-back context is missing its anchor");
+        }
         return """
                 {
                   "schema": "teach_back_generation/v1",
@@ -301,10 +380,10 @@ public class ScriptedLearningGraphPortsConfiguration {
                     { "source_document_id": "openstax-calculus-v1", "passage_id": "sec-3.3-differentiation-rules" }
                   ],
                   "anchor_reference": {
-                    "anchor_id": "00000000-0000-0000-0000-00000000a5a5",
-                    "anchor_kind": "EXPLAIN_WORKED_EXAMPLE"
+                    "anchor_id": "%s",
+                    "anchor_kind": "%s"
                   }
                 }
-                """;
+                """.formatted(anchor.group(1), anchor.group(2));
     }
 }

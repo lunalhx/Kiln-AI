@@ -9,6 +9,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewStartFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.ReviewSubmissionFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
+import cn.lunalhx.ai.kilnai.domain.apply.model.CommittedEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
@@ -16,7 +17,10 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
+import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalAnswer;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
+import cn.lunalhx.ai.kilnai.domain.apply.model.PendingOperation;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
@@ -175,8 +179,9 @@ class LearningFlowPostgresRecoveryContractTest {
 
     @BeforeEach
     void cleanDatabase() {
+        config.resetTransientFailures();
         jdbc.execute("""
-                TRUNCATE active_learning_work, pending_operations, review_tasks, hint_requests, hint_ladders, teach_back_anchors,
+                TRUNCATE active_learning_work, pending_operations, model_contract_audits, review_tasks, hint_requests, hint_ladders, teach_back_anchors,
                          teach_back_packages, evaluation_results, explain_artifacts,
                          revealed_solution_exposures, hint_ladder_exposures, example_exposures,
                          exposures, commands, checkpoints, interactions, evidence,
@@ -292,6 +297,217 @@ class LearningFlowPostgresRecoveryContractTest {
                 "the replayed failure command must return its original committed unavailable interaction");
         assertEquals(1, store.allPackages().size(),
                 "a replay must never generate a second candidate package");
+    }
+
+    @Test
+    void aPostSubmissionAssessmentProviderFailureSurvivesRestartAndRetriesFromTheSavedAttempt() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowCommandUseCase useCase = graph(store);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
+                learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        UUID attemptId = started.interaction().attemptId();
+        UUID submitKey = UUID.randomUUID();
+        config.failNextAssessmentProviderCalls(1);
+
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, submitKey, attemptId, "3*x^2", "3*x^2", "我猜的");
+        assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
+        assertEquals(LearningStage.DIAGNOSTIC, unavailable.interaction().stage());
+        PendingOperation pending = store.pendingOperation(flowId).orElseThrow();
+        assertEquals(PendingOperation.Kind.RESUME_SUBMISSION_EVALUATION, pending.kind());
+        assertEquals(attemptId, pending.attemptId());
+        assertEquals(CommittedEvaluationResult.RESPONSE_ASSESSMENT, pending.responsibility());
+        assertEquals(AttemptStatus.SUBMITTED, store.findAttempt(attemptId).orElseThrow().status());
+        assertTrue(store.committedEvaluationResultsFor(attemptId).isEmpty());
+        assertTrue(store.allEvidence().isEmpty());
+        assertEquals(ModelContractAudit.MODEL_PROVIDER_UNAVAILABLE,
+                jdbc.queryForObject("SELECT provider_category FROM model_contract_audits", String.class));
+
+        LearningFlowCommandUseCase restarted = freshUseCase();
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) restarted.submitAnswer(
+                flowId, 1, submitKey, attemptId, "3*x^2", "3*x^2", "我猜的");
+        assertEquals(unavailable.interaction(), replay.interaction(),
+                "the original submission key must replay after restart without another provider call");
+
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) restarted.retryRequested(
+                flowId, unavailable.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(InteractionKind.TEACHING, recovered.interaction().kind());
+        assertTrue(store.pendingOperation(flowId).isEmpty());
+        assertEquals(1, store.committedEvaluationResultsFor(attemptId).size());
+        assertTrue(store.allEvidence().isEmpty(),
+                "a Diagnostic evaluation failure and retry must not create learner Evidence");
+        assertEquals("3*x^2", store.findAttempt(attemptId).orElseThrow()
+                .submission().finalDerivative().confirmedCanonical());
+    }
+
+    @Test
+    void aPostSubmissionConfigurationFailureUsesTheSameUnavailableBoundaryWithoutHiddenRepair() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowCommandUseCase useCase = graph(store);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
+                learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        UUID attemptId = started.interaction().attemptId();
+        config.failNextAssessmentConfigurationCalls(1);
+
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, UUID.randomUUID(), attemptId, "3*x^2", "3*x^2", "我猜的");
+        assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
+        assertEquals(CommittedEvaluationResult.RESPONSE_ASSESSMENT,
+                store.pendingOperation(flowId).orElseThrow().responsibility());
+        assertTrue(store.committedEvaluationResultsFor(attemptId).isEmpty());
+        assertEquals(ModelContractAudit.MODEL_CONFIGURATION_INVALID,
+                jdbc.queryForObject("SELECT provider_category FROM model_contract_audits", String.class));
+
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) useCase.retryRequested(
+                flowId, unavailable.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(InteractionKind.TEACHING, recovered.interaction().kind(),
+                "Retry may invoke the missing responsibility, but the initial configuration failure must not self-repair");
+        assertEquals(1, store.committedEvaluationResultsFor(attemptId).size());
+    }
+
+    @Test
+    void aPostSubmissionResponseVerificationProviderFailureKeepsTheAssessmentCheckpointAcrossRestart() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowCommandUseCase useCase = graph(store);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
+                learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
+                "3*x^2", "3*x^2", "我猜的");
+        LearningFlowResult.Boundary practice = (LearningFlowResult.Boundary) useCase.continueRequested(
+                flowId, explained.interaction().interactionVersion(), UUID.randomUUID());
+        UUID attemptId = practice.interaction().attemptId();
+        UUID submitKey = UUID.randomUUID();
+        config.failNextResponseVerificationProviderCalls(1);
+
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, practice.interaction().interactionVersion(), submitKey, attemptId,
+                "x^2^3", "x^2^3", null);
+        assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
+        PendingOperation pending = store.pendingOperation(flowId).orElseThrow();
+        assertEquals(CommittedEvaluationResult.RESPONSE_VERIFICATION, pending.responsibility());
+        assertEquals(1, store.committedEvaluationResultsFor(attemptId).size(),
+                "the completed Assessment must be checkpointed before Verification");
+        assertEquals(CommittedEvaluationResult.RESPONSE_ASSESSMENT,
+                store.committedEvaluationResultsFor(attemptId).getFirst().responsibility());
+        assertTrue(store.allEvidence().isEmpty());
+        assertEquals(2, store.allPackages().size(),
+                "a failed Verification must not prepare a replacement before Retry");
+        assertEquals(ModelContractAudit.MODEL_PROVIDER_UNAVAILABLE,
+                jdbc.queryForObject("SELECT provider_category FROM model_contract_audits", String.class));
+
+        LearningFlowCommandUseCase restarted = freshUseCase();
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) restarted.submitAnswer(
+                flowId, practice.interaction().interactionVersion(), submitKey, attemptId,
+                "x^2^3", "x^2^3", null);
+        assertEquals(unavailable.interaction(), replay.interaction());
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) restarted.retryRequested(
+                flowId, unavailable.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(InteractionKind.TASK, recovered.interaction().kind());
+        assertEquals(AttemptPurpose.PRACTICE, recovered.interaction().attemptPurpose());
+        assertEquals(ScriptedLearningGraphPortsConfiguration.PRACTICE_TASK_2,
+                recovered.interaction().learnerProjection().taskText());
+        assertTrue(store.pendingOperation(flowId).isEmpty());
+        assertEquals(2, store.committedEvaluationResultsFor(attemptId).size(),
+                "Retry must reuse Assessment and commit only the missing Verification");
+        assertTrue(store.allEvidence().isEmpty(),
+                "a semantic inconclusive after resumed Verification must not create Evidence");
+    }
+
+    @Test
+    void aRetryFailureAtTheNextResponsibilityReplacesThePendingIdentityAndKeepsTheCheckpoint() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowCommandUseCase useCase = graph(store);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
+                learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
+                "3*x^2", "3*x^2", "我猜的");
+        LearningFlowResult.Boundary practice = (LearningFlowResult.Boundary) useCase.continueRequested(
+                flowId, explained.interaction().interactionVersion(), UUID.randomUUID());
+        UUID attemptId = practice.interaction().attemptId();
+        config.failNextAssessmentProviderCalls(1);
+
+        LearningFlowResult.Boundary firstUnavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, practice.interaction().interactionVersion(), UUID.randomUUID(), attemptId,
+                "x^2^3", "x^2^3", null);
+        assertEquals(CommittedEvaluationResult.RESPONSE_ASSESSMENT,
+                store.pendingOperation(flowId).orElseThrow().responsibility());
+
+        config.failNextResponseVerificationProviderCalls(1);
+        LearningFlowCommandUseCase restarted = freshUseCase();
+        LearningFlowResult.Boundary secondUnavailable = (LearningFlowResult.Boundary)
+                restarted.retryRequested(flowId, firstUnavailable.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(InteractionKind.UNAVAILABLE, secondUnavailable.interaction().kind());
+        PendingOperation pending = store.pendingOperation(flowId).orElseThrow();
+        assertEquals(CommittedEvaluationResult.RESPONSE_VERIFICATION, pending.responsibility());
+        assertEquals(1, pending.failedRetryCount());
+        assertEquals(List.of(CommittedEvaluationResult.RESPONSE_ASSESSMENT),
+                store.committedEvaluationResultsFor(attemptId).stream()
+                        .map(CommittedEvaluationResult::responsibility).toList());
+
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) restarted.retryRequested(
+                flowId, secondUnavailable.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(InteractionKind.TASK, recovered.interaction().kind());
+        assertTrue(store.pendingOperation(flowId).isEmpty());
+        assertEquals(2, store.committedEvaluationResultsFor(attemptId).size());
+    }
+
+    @Test
+    void aPostSubmissionTeachBackProviderFailureSurvivesRestartAndRetriesTheSavedTeachBackSubmission() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowCommandUseCase useCase = graph(store);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
+                learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        LearningFlowResult.Boundary explained = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
+                "3*x^2", "3*x^2", "我猜的");
+        LearningFlowResult.Boundary practice = (LearningFlowResult.Boundary) useCase.continueRequested(
+                flowId, explained.interaction().interactionVersion(), UUID.randomUUID());
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        LearningFlowResult.Boundary teachBack = (LearningFlowResult.Boundary) useCase.requestHint(
+                flowId, practice.interaction().interactionVersion(), practiceAttemptId, true, UUID.randomUUID());
+        assertNotNull(teachBack.interaction().attemptId(),
+                () -> "the H5 fallback must deliver a Teach-back Attempt before its submission is evaluated: "
+                        + teachBack.interaction());
+        UUID teachBackAttemptId = teachBack.interaction().attemptId();
+        UUID submitKey = UUID.randomUUID();
+        config.failNextTeachBackAssessmentProviderCalls(1);
+
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, teachBack.interaction().interactionVersion(), submitKey, teachBackAttemptId,
+                "说不清为什么幂法则适用。", "说不清为什么幂法则适用。", null);
+        assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
+        PendingOperation pending = store.pendingOperation(flowId).orElseThrow();
+        assertEquals(CommittedEvaluationResult.TEACH_BACK_ASSESSMENT, pending.responsibility());
+        assertTrue(store.committedEvaluationResultsFor(teachBackAttemptId).isEmpty());
+        assertTrue(store.allEvidence().isEmpty());
+        assertEquals(2, store.allPackages().size(),
+                "no replacement Apply package is created before Retry");
+        assertEquals(ModelContractAudit.MODEL_PROVIDER_UNAVAILABLE,
+                jdbc.queryForObject("SELECT provider_category FROM model_contract_audits", String.class));
+
+        LearningFlowCommandUseCase restarted = freshUseCase();
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) restarted.submitAnswer(
+                flowId, teachBack.interaction().interactionVersion(), submitKey, teachBackAttemptId,
+                "说不清为什么幂法则适用。", "说不清为什么幂法则适用。", null);
+        assertEquals(unavailable.interaction(), replay.interaction());
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) restarted.retryRequested(
+                flowId, unavailable.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(InteractionKind.TASK, recovered.interaction().kind());
+        assertEquals(AttemptPurpose.PRACTICE, recovered.interaction().attemptPurpose());
+        assertEquals(ScriptedLearningGraphPortsConfiguration.PRACTICE_TASK_2,
+                recovered.interaction().learnerProjection().taskText());
+        assertTrue(store.pendingOperation(flowId).isEmpty());
+        assertEquals(1, store.committedEvaluationResultsFor(teachBackAttemptId).size());
+        assertEquals(1, store.allEvidence().size(),
+                "a resumed Teach-back pass accepts exactly one understanding Evidence");
+        assertEquals(AttemptStatus.SUBMITTED, store.findAttempt(teachBackAttemptId).orElseThrow().status());
     }
 
     @Test

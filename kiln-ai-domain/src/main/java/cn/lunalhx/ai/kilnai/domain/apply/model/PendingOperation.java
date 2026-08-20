@@ -76,6 +76,20 @@ public record PendingOperation(
                 attemptId, responsibility, evaluationVersion, failedRetryCount + 1);
     }
 
+    /**
+     * Replaces the failed operation identity while preserving the retry chain.
+     * This is needed when a retry completes one evaluation responsibility and
+     * then reaches a different technical failure before routing commits.
+     */
+    public PendingOperation withFailedRetryAs(PendingOperation replacement) {
+        Objects.requireNonNull(replacement, "replacement must not be null");
+        return new PendingOperation(
+                replacement.kind(), replacement.action(), replacement.decisionContext(), replacement.facts(),
+                replacement.learnerMessage(), replacement.intent(), replacement.evidence(), replacement.hint(),
+                replacement.attemptId(), replacement.responsibility(), replacement.evaluationVersion(),
+                failedRetryCount + 1);
+    }
+
     public enum Kind {
         EXECUTE_MOVE,
         DELIVER_INDEPENDENT,

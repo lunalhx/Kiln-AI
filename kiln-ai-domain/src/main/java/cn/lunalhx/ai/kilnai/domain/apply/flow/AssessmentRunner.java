@@ -147,7 +147,7 @@ public final class AssessmentRunner {
                     ResponseAssessment evaluated = ModelContractRepair.once(
                             evaluator,
                             artifactStore, null, closedAttempt.attemptId(), closedAttempt.taskPackageId(),
-                            auditResponsibility);
+                            auditResponsibility, CommittedEvaluationResult.EVALUATION_VERSION);
                     if (evaluated == null) {
                         return null;
                     }

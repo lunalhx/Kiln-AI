@@ -542,7 +542,7 @@ class LearningFlowGraphContractTest {
     void aCrashBetweenClosingAndCommittingAFailedDiagnosticKeepsTheAttemptClosedAndResumesFromTheSavedSubmission() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(
-                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
         LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
@@ -683,7 +683,7 @@ class LearningFlowGraphContractTest {
     void aFailingDiagnosticDeliversAnExplainTeachingBoundaryThatContinueOpensWithPractice() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(
-                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
                 new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())));
         LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(LEARNER_ID, UUID.randomUUID());
@@ -1153,23 +1153,31 @@ class LearningFlowGraphContractTest {
     }
 
     @Test
-    void twoInvalidPracticeAssessmentsBecomeInconclusiveWithNoEvidenceAndNoPersistedJudgment() {
+    void twoInvalidPracticeAssessmentsCommitUnavailableWithAResumeOperation() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(
-                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 ScriptedAssessmentModel.replies(
                         Optional.of(diagnosticFailJudgment()), Optional.empty(), Optional.empty()));
         LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
-        LearningFlowInteraction interaction = replacement.interaction();
+        LearningFlowInteraction interaction = unavailable.interaction();
+        assertEquals(InteractionKind.UNAVAILABLE, interaction.kind());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
-        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
-        assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT, interaction.learnerProjection().taskText());
+        assertNull(interaction.attemptId());
+        PendingOperation pending = harness.flowStore().pendingOperation(interaction.flowId()).orElseThrow();
+        assertEquals(PendingOperation.Kind.RESUME_SUBMISSION_EVALUATION, pending.kind());
+        assertEquals(practiceAttemptId, pending.attemptId());
+        assertEquals(CommittedEvaluationResult.RESPONSE_ASSESSMENT, pending.responsibility());
+        assertEquals(CommittedEvaluationResult.EVALUATION_VERSION, pending.evaluationVersion());
+        assertEquals(AttemptStatus.SUBMITTED,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status());
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "a still-invalid Assessment must never create Evidence");
         assertTrue(responseAssessmentsFor(harness, practiceAttemptId).isEmpty(),
@@ -1183,13 +1191,56 @@ class LearningFlowGraphContractTest {
         assertEquals(List.of("unknown_field"), audits.get(1).violationCodes());
         assertFalse(audits.get(0).violationCodes().toString().contains("{"),
                 "audit metadata must never retain raw invalid JSON");
+        assertEquals(2, harness.artifacts().allPackages().size(),
+                "a technical evaluation failure must not create a replacement task");
     }
 
     @Test
-    void twoInvalidResponseVerificationsBecomeInconclusiveWithNoEvidence() {
+    void retryRequestedResumesOnlyTheMissingPracticeAssessmentAndReplaysTheOriginalCommand() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(
-                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                ScriptedAssessmentModel.replies(
+                        Optional.of(diagnosticFailJudgment()), Optional.empty(), Optional.empty(),
+                        Optional.of(conclusivePracticeJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(
+                        ExplainScriptData.explainReadyJson(), secondExplainReadyJson())));
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        UUID submitKey = UUID.randomUUID();
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), submitKey,
+                practiceAttemptId, ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
+
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), submitKey,
+                practiceAttemptId, ApplyScriptData.WRONG_DERIVATIVE,
+                ApplyScriptData.WRONG_DERIVATIVE, "我猜的");
+        assertEquals(unavailable.interaction(), replay.interaction(),
+                "the original submission key must replay the committed Unavailable interaction");
+
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().retryRequested(
+                unavailable.interaction().flowId(), unavailable.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(InteractionKind.TEACHING, recovered.interaction().kind());
+        assertEquals(1, harness.flowStore().allEvidence().size(),
+                "the resumed semantic result accepts the original Practice failure once");
+        assertEquals(1, responseAssessmentsFor(harness, practiceAttemptId).size());
+        assertEquals(4, harness.assessment().contexts().size(),
+                "Retry invokes only the missing Assessment; the Diagnostic and two repair calls are not rerun");
+        assertTrue(harness.flowStore().pendingOperation(unavailable.interaction().flowId()).isEmpty());
+        assertEquals(ApplyScriptData.WRONG_DERIVATIVE,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow()
+                        .submission().finalDerivative().confirmedCanonical(),
+                "Retry must use the saved submission rather than a client answer");
+    }
+
+    @Test
+    void twoInvalidResponseVerificationsCommitUnavailableAndKeepTheAssessmentCheckpoint() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson())),
                 new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
                         ApplyScriptData.passVerdict())),
                 ScriptedAssessmentModel.replies(
@@ -1197,12 +1248,19 @@ class LearningFlowGraphContractTest {
                 ScriptedResponseVerificationModel.replies(Optional.empty(), Optional.empty()));
         LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
         UUID practiceAttemptId = practice.interaction().attemptId();
-        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 practice.interaction().flowId(), 3, UUID.randomUUID(), practiceAttemptId,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
-        LearningFlowInteraction interaction = replacement.interaction();
-        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
-        assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT, interaction.learnerProjection().taskText());
+        LearningFlowInteraction interaction = unavailable.interaction();
+        assertEquals(InteractionKind.UNAVAILABLE, interaction.kind());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
+        PendingOperation pending = harness.flowStore().pendingOperation(interaction.flowId()).orElseThrow();
+        assertEquals(PendingOperation.Kind.RESUME_SUBMISSION_EVALUATION, pending.kind());
+        assertEquals(practiceAttemptId, pending.attemptId());
+        assertEquals(CommittedEvaluationResult.RESPONSE_VERIFICATION, pending.responsibility());
+        assertEquals(CommittedEvaluationResult.EVALUATION_VERSION, pending.evaluationVersion());
+        assertEquals(AttemptStatus.SUBMITTED,
+                harness.artifacts().findAttempt(practiceAttemptId).orElseThrow().status());
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "a still-invalid Response Verification must never create Evidence");
         assertEquals(List.of(inconclusiveJudgment()),
@@ -1214,6 +1272,47 @@ class LearningFlowGraphContractTest {
         assertEquals(0, audits.get(0).repairCount());
         assertEquals(1, audits.get(1).repairCount());
         assertEquals(audits.get(0).correlationId(), audits.get(1).correlationId());
+        assertEquals(2, harness.artifacts().allPackages().size(),
+                "a technical verification failure must not create a replacement task");
+    }
+
+    @Test
+    void retryRequestedResumesOnlyTheMissingResponseVerification() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                ScriptedAssessmentModel.replies(
+                        Optional.of(diagnosticFailJudgment()), Optional.of(inconclusiveJudgment())),
+                ScriptedResponseVerificationModel.replies(
+                        Optional.empty(), Optional.empty(),
+                        Optional.of(ApplyScriptData.responseAssessment(
+                                FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_PROVIDED))));
+        LearningFlowResult.Boundary practice = reachPracticeBoundary(harness);
+        UUID practiceAttemptId = practice.interaction().attemptId();
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                practice.interaction().flowId(), practice.interaction().interactionVersion(), UUID.randomUUID(),
+                practiceAttemptId, ApplyScriptData.UNDECIDABLE_DERIVATIVE,
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().retryRequested(
+                unavailable.interaction().flowId(), unavailable.interaction().interactionVersion(), UUID.randomUUID());
+
+        assertEquals(InteractionKind.TASK, recovered.interaction().kind());
+        assertEquals(AttemptPurpose.PRACTICE, recovered.interaction().attemptPurpose());
+        assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT,
+                recovered.interaction().learnerProjection().taskText());
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "semantic inconclusive after resumed verification must not create Evidence");
+        assertEquals(2, responseAssessmentsFor(harness, practiceAttemptId).size(),
+                "the committed Assessment is reused and the missing Verification is committed once");
+        assertEquals(2, harness.assessment().contexts().size(),
+                "Retry must not rerun the completed Assessment");
+        assertEquals(1, harness.artifacts().committedEvaluationResultsFor(practiceAttemptId).stream()
+                .filter(result -> result.responsibility().equals(CommittedEvaluationResult.RESPONSE_VERIFICATION))
+                .count(),
+                "only the successful Retry result is committed for Response Verification");
+        assertTrue(harness.flowStore().pendingOperation(unavailable.interaction().flowId()).isEmpty());
     }
 
     @Test
@@ -2326,7 +2425,7 @@ class LearningFlowGraphContractTest {
     }
 
     @Test
-    void twoInvalidTeachBackAssessmentsBecomeInconclusiveWithNoEvidenceAndNoPersistedJudgment() {
+    void twoInvalidTeachBackAssessmentsCommitUnavailableWithAResumeOperation() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(
                         ApplyScriptData.taskReadyJson(), practiceTaskJson())),
@@ -2340,15 +2439,20 @@ class LearningFlowGraphContractTest {
                 ScriptedTeachBackAssessmentModel.replies(Optional.empty(), Optional.empty()));
         LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
         UUID teachBackAttemptId = teachBack.interaction().attemptId();
-        LearningFlowResult.Boundary replacement = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(),
                 UUID.randomUUID(), teachBackAttemptId,
                 "说不清为什么幂法则适用。", "说不清为什么幂法则适用。", null);
-        LearningFlowInteraction interaction = replacement.interaction();
-        assertEquals(AttemptPurpose.PRACTICE, interaction.attemptPurpose());
-        assertEquals(TeachBackScriptData.LEARNER_PROMPT, interaction.learnerProjection().taskText(),
-                "a still-invalid Teach-back Assessment must deliver a fresh Teach-back task");
-        assertEquals(TeachBackFlow.TEACH_BACK_REPLACEMENT_MESSAGE, interaction.learnerMessage());
+        LearningFlowInteraction interaction = unavailable.interaction();
+        assertEquals(InteractionKind.UNAVAILABLE, interaction.kind());
+        assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
+        PendingOperation pending = harness.flowStore().pendingOperation(interaction.flowId()).orElseThrow();
+        assertEquals(PendingOperation.Kind.RESUME_SUBMISSION_EVALUATION, pending.kind());
+        assertEquals(teachBackAttemptId, pending.attemptId());
+        assertEquals(CommittedEvaluationResult.TEACH_BACK_ASSESSMENT, pending.responsibility());
+        assertEquals(CommittedEvaluationResult.EVALUATION_VERSION, pending.evaluationVersion());
+        assertEquals(AttemptStatus.SUBMITTED,
+                harness.artifacts().findAttempt(teachBackAttemptId).orElseThrow().status());
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "a still-invalid Teach-back Assessment must never create Evidence");
         assertTrue(committedTeachBackAssessmentsFor(harness, teachBackAttemptId).isEmpty(),
@@ -2359,6 +2463,48 @@ class LearningFlowGraphContractTest {
         assertEquals(0, audits.get(0).repairCount());
         assertEquals(1, audits.get(1).repairCount());
         assertEquals(audits.get(0).correlationId(), audits.get(1).correlationId());
+        assertEquals(1, harness.teachBackGeneration().calls().size(),
+                "a technical Teach-back evaluation failure must not create a replacement task");
+    }
+
+    @Test
+    void retryRequestedResumesOnlyTheMissingTeachBackAssessment() {
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(), practiceTaskJson(), secondPracticeTaskJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict(),
+                        ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(diagnosticFailJudgment())),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())),
+                new ScriptedTeachBackGenerationModel(List.of(TeachBackScriptData.taskReadyJson())),
+                ScriptedTeachBackAssessmentModel.replies(
+                        Optional.empty(), Optional.empty(), Optional.of(TeachBackScriptData.passAssessment())));
+        LearningFlowResult.Boundary teachBack = reachTeachBackBoundary(harness);
+        UUID teachBackAttemptId = teachBack.interaction().attemptId();
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                teachBack.interaction().flowId(), teachBack.interaction().interactionVersion(), UUID.randomUUID(),
+                teachBackAttemptId, "说不清为什么幂法则适用。", "说不清为什么幂法则适用。", null);
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().retryRequested(
+                unavailable.interaction().flowId(), unavailable.interaction().interactionVersion(), UUID.randomUUID());
+
+        assertEquals(InteractionKind.TASK, recovered.interaction().kind());
+        assertEquals(AttemptPurpose.PRACTICE, recovered.interaction().attemptPurpose());
+        assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT,
+                recovered.interaction().learnerProjection().taskText());
+        assertEquals(1, harness.flowStore().allEvidence().size(),
+                "a resumed Teach-back pass accepts exactly one understanding Evidence");
+        assertEquals(1, committedTeachBackAssessmentsFor(harness, teachBackAttemptId).size());
+        assertEquals(3, harness.teachBackAssessment().contexts().size(),
+                "Retry invokes only the missing Teach-back Assessment after its one repair");
+        assertEquals(1, harness.teachBackGeneration().calls().size(),
+                "the initial technical failure must not generate a replacement Teach-back task");
+        assertTrue(harness.flowStore().pendingOperation(unavailable.interaction().flowId()).isEmpty());
+        assertEquals("说不清为什么幂法则适用。",
+                harness.artifacts().findAttempt(teachBackAttemptId).orElseThrow()
+                        .submission().finalDerivative().confirmedCanonical(),
+                "Retry must use the saved Teach-back submission");
     }
 
     @Test

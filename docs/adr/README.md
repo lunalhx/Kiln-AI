@@ -79,6 +79,7 @@ This directory is the current accepted Phase 0 decision baseline. During pre-imp
 - [ADR-0075](0075-compose-rationale-verification-through-an-evaluation-skill-stack.md): corroborated Diagnostic rationale rescue through separate Evaluation Skill Stacks
 - [ADR-0076](0076-treat-post-submission-model-contract-failure-as-unavailable.md): post-submission model-contract failure resumes through a durable unavailable interaction
 - [ADR-0077](0077-checkpoint-post-submission-evaluation-results.md): checkpoint role-keyed evaluation results between model calls and state transitions
+- [ADR-0078](0078-close-rationale-evaluation-contract-details.md): close V1 rationale-evaluation reason codes and expected-answer facts
 
 ## Task generation, validation, and review
 

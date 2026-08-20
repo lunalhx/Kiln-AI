@@ -482,7 +482,7 @@ class LearningFlowHttpTest {
     }
 
     @Test
-    void aMalformedAssessmentDoesNotReturn503AndKeepsTheLearnerSafeBody() {
+    void aMalformedPostSubmissionAssessmentCommitsAnUnavailableLearnerSafeBoundary() {
         UUID learnerId = UUID.randomUUID();
         config.failNextAssessments(2);
         LearningFlowResponse started = start(learnerId, UUID.randomUUID());
@@ -490,12 +490,14 @@ class LearningFlowHttpTest {
                 started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
                 "3*x^2", "3*x^2", "我不知道这道题该如何判断。");
         assertEquals(HttpStatus.OK, response.getStatusCode(),
-                "a still-invalid Assessment must recover as Inconclusive, never as 503");
+                "a still-invalid post-submission Assessment must be a committed interaction, not an HTTP 503");
         Map body = response.getBody();
         assertNotNull(body);
-        assertEquals("task", body.get("kind"));
-        assertEquals("INDEPENDENT_TEST", body.get("stage"));
-        assertEquals("INDEPENDENT_TEST", body.get("attemptPurpose"));
+        assertEquals("unavailable", body.get("kind"));
+        assertEquals("DIAGNOSTIC", body.get("stage"));
+        assertNull(body.get("attemptId"));
+        assertNull(body.get("attemptPurpose"));
+        assertNull(body.get("task"));
         String serialized = serialize(body);
         assertFalse(serialized.contains("Jackson"));
         assertFalse(serialized.contains("UnrecognizedProperty"));
@@ -505,6 +507,8 @@ class LearningFlowHttpTest {
         assertFalse(serialized.contains("MODEL_CONTRACT_INVALID"));
         assertFalse(serialized.contains("stackTrace"));
         assertFalse(serialized.contains(ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED));
+        assertFalse(serialized.contains("INDEPENDENT_TEST"),
+                "a technical evaluation failure must not route the learner to a replacement or independent task");
     }
 
     @Test

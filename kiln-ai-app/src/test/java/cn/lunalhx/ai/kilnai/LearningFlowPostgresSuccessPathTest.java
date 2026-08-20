@@ -162,8 +162,12 @@ class LearningFlowPostgresSuccessPathTest {
     @Autowired
     ClarificationClassifierPort classifier;
 
+    @Autowired
+    ScriptedLearningGraphPortsConfiguration config;
+
     @BeforeEach
     void cleanDatabase() {
+        config.resetTransientFailures();
         jdbc.execute("""
                 TRUNCATE active_learning_work, pending_operations, review_tasks, hint_requests, hint_ladders, teach_back_anchors,
                          teach_back_packages, evaluation_results, explain_artifacts,
