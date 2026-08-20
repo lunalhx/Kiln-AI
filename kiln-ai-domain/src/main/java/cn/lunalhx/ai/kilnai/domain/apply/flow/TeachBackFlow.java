@@ -261,7 +261,7 @@ public final class TeachBackFlow {
                 .map(committed -> TeachBackAssessment.parse(committed.resultPayload()))
                 .orElseGet(() -> {
                     TeachBackAssessment evaluated = ModelContractRepair.once(
-                            () -> assessmentPort.assess(flow.modelProfile(), context),
+                            ignoredViolations -> assessmentPort.assess(flow.modelProfile(), context),
                             artifactStore, flow.flowId(), closedAttempt.attemptId(), closedAttempt.taskPackageId(),
                             ModelContractAudit.TEACH_BACK_ASSESSMENT,
                             CommittedEvaluationResult.EVALUATION_VERSION);

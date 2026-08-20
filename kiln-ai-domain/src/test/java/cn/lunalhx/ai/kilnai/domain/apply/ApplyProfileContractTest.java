@@ -27,6 +27,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.PrivateAssessorProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionRejectionReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -37,6 +39,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
@@ -392,7 +395,7 @@ class ApplyProfileContractTest {
     }
 
     @Test
-    void aPassingDiagnosticViaAnApplicableRationaleCountsWhenTheDerivativeIsIncorrect() {
+    void anApplicableFirstRationaleDoesNotRescueBeforeCorroboration() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
                 ApplyScriptData.taskReadyJson(),
                 ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
@@ -410,7 +413,10 @@ class ApplyProfileContractTest {
                 ApplyScriptData.WRONG_DERIVATIVE,
                 ApplyScriptData.APPLICABLE_RATIONALE);
 
-        assertInstanceOf(DiagnosticSubmissionResult.Passed.class, result);
+        DiagnosticSubmissionResult.Unconfirmed unconfirmed = assertInstanceOf(
+                DiagnosticSubmissionResult.Unconfirmed.class, result);
+        assertTrue(unconfirmed.facts().missingCriteria().isEmpty());
+        assertTrue(unconfirmed.facts().errorDimensions().isEmpty());
         assertEquals(1, assessment.contexts().size());
         assertEquals(ApplyScriptData.APPLICABLE_RATIONALE, assessment.contexts().get(0).rationale());
         assertEquals(ApplyScriptData.EXPECTED_EXPRESSION,
@@ -1040,7 +1046,7 @@ class ApplyProfileContractTest {
     }
 
     @Test
-    void aDiagnosticPassingViaAnApplicableRationaleNeverCreatesIndependentEvidence() {
+    void anApplicableFirstRationaleStillCreatesNoIndependentEvidence() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
                 ApplyScriptData.taskReadyJson(),
                 ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
@@ -1058,7 +1064,7 @@ class ApplyProfileContractTest {
                 ApplyScriptData.WRONG_DERIVATIVE,
                 ApplyScriptData.APPLICABLE_RATIONALE);
 
-        assertInstanceOf(DiagnosticSubmissionResult.Passed.class, result);
+        assertInstanceOf(DiagnosticSubmissionResult.Unconfirmed.class, result);
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "a rationale-passing Diagnostic must never create Learning Evidence");
     }
@@ -1141,7 +1147,26 @@ class ApplyProfileContractTest {
         ArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
         InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK);
         ApplyProfileExecutor executor = new ApplyProfileExecutor(stack, generation, verifier, artifacts);
+        RationaleEvaluationProfileExecutor rationaleEvaluator = new RationaleEvaluationProfileExecutor(
+                ReferenceBundles.rationaleEvaluationStack(), (profile, prompt, contextJson) -> {
+                    RationaleEvaluationContext rationaleContext = RationaleEvaluationContext.parse(contextJson);
+                    ResponseAssessment scripted = assessment.assess(profile, new ResponseAssessmentContext(
+                            rationaleContext.taskText(),
+                            ApplyScriptData.EXPECTED_EXPRESSION,
+                            ApplyScriptData.WRONG_DERIVATIVE,
+                            ApplyScriptData.WRONG_DERIVATIVE,
+                            rationaleContext.rationale(),
+                            AttemptPurpose.DIAGNOSTIC,
+                            EquivalenceOutcome.PROVEN_NOT_EQUIVALENT));
+                    return switch (scripted.rationaleJudgment()) {
+                        case APPLICABLE -> RationaleEvaluationResult.applicable();
+                        case INCONCLUSIVE -> RationaleEvaluationResult.inconclusive();
+                        default -> RationaleEvaluationResult.notApplicable(
+                                List.of(RationaleEvaluationResult.ReasonCode.MATERIAL_GAP));
+                    };
+                });
         DiagnosticFlow flow = new DiagnosticFlow(executor, artifacts, flowStore, assessment, verification,
+                rationaleEvaluator,
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
                 CLOCK);

@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
@@ -12,6 +13,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.RationaleAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -148,6 +150,14 @@ public class ScriptedApplyPortsConfiguration {
         return (profile, context) -> {
             throw new IllegalStateException("scripted response verification must never be invoked");
         };
+    }
+
+    @Bean
+    @Primary
+    RationaleAssessmentPort scriptedRationaleAssessment() {
+        return (profile, compiledSystemPrompt, evaluationContextJson) ->
+                RationaleEvaluationResult.notApplicable(
+                        List.of(RationaleEvaluationResult.ReasonCode.MATERIAL_GAP));
     }
 
     public static String taskReadyJson(String taskText, String expression) {

@@ -150,12 +150,43 @@ public final class ReferenceBundles {
                     List.of("teach_back"), "teach_back_generation/v1")
     );
 
+    private static final List<SkillBundle> RATIONALE_EVALUATION_BUNDLES = List.of(
+            bundle("evaluation.rationale-assessment", BundleSlot.EVALUATION, "1.0.0",
+                    "Judge a complete learner rationale against supplied task-owned facts.",
+                    List.of("task_text", "rationale", "task_rubric", "expected_answer_facts",
+                            "source_passages", "learner_locale"),
+                    List.of(),
+                    """
+                    # Rationale Assessment
+
+                    Judge the complete rationale against the supplied Task Rubric,
+                    task, expected-answer facts, and approved source passages. Do
+                    not use keywords as a shortcut and do not return reasoning.
+                    """,
+                    List.of("rationale_evaluation"), "rationale_evaluation/v1"),
+            bundle("verification.rationale-sufficiency", BundleSlot.VERIFICATION, "1.0.0",
+                    "Verify support, task connection, and coherence of one rationale.",
+                    List.of("task_text", "rationale", "task_rubric", "expected_answer_facts",
+                            "source_passages", "learner_locale"),
+                    List.of(),
+                    """
+                    # Rationale Sufficiency
+
+                    Verify the same three dimensions from the supplied facts.
+                    Treat uncertainty as inconclusive and never invent missing
+                    support or expose private evaluation details.
+                    """,
+                    List.of("rationale_evaluation"), "rationale_evaluation/v1")
+    );
+
     private ReferenceBundles() {
     }
 
     public static SkillBundle bundle(String pinnedId) {
         return java.util.stream.Stream.concat(BUNDLES.stream(),
-                        java.util.stream.Stream.concat(EXPLAIN_BUNDLES.stream(), TEACH_BACK_BUNDLES.stream()))
+                        java.util.stream.Stream.concat(EXPLAIN_BUNDLES.stream(),
+                                java.util.stream.Stream.concat(TEACH_BACK_BUNDLES.stream(),
+                                        RATIONALE_EVALUATION_BUNDLES.stream())))
                 .filter(bundle -> pinnedId.equals(bundle.pinnedId()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("no reference bundle: " + pinnedId));
@@ -181,6 +212,10 @@ public final class ReferenceBundles {
         return new BundleStack(List.of(
                 TEACH_BACK_BUNDLES.get(0),
                 EXPLAIN_BUNDLES.get(1)));
+    }
+
+    public static EvaluationBundleStack rationaleEvaluationStack() {
+        return new EvaluationBundleStack(RATIONALE_EVALUATION_BUNDLES);
     }
 
     public static SkillBundle rewrap(BundleManifest manifest, SkillBundle bundle) {

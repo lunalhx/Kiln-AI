@@ -676,6 +676,11 @@ class DelayedReviewCadenceContractTest {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(assessmentJudgments);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
+                new cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor(
+                        ReferenceBundles.rationaleEvaluationStack(),
+                        (profile, prompt, contextJson) ->
+                                cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.notApplicable(
+                                        List.of(cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.ReasonCode.MATERIAL_GAP))),
                 DiagnosticApplyFixture.diagnosticContext(), IndependentApplyFixture.independentContext(), clock);
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
                 artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),

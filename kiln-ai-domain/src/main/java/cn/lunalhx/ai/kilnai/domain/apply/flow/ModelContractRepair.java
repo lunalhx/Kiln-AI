@@ -9,7 +9,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.function.Supplier;
+import java.util.function.Function;
 
 /**
  * The one allowed same-context repair for a model responsibility. The first
@@ -24,7 +24,7 @@ public final class ModelContractRepair {
     }
 
     static <T> T once(
-            Supplier<T> call,
+            Function<List<String>, T> call,
             ArtifactStore artifactStore,
             UUID flowId,
             UUID attemptId,
@@ -39,7 +39,7 @@ public final class ModelContractRepair {
         Objects.requireNonNull(evaluationVersion, "evaluationVersion must not be null");
         String correlationId = UUID.randomUUID().toString();
         try {
-            return call.get();
+            return call.apply(List.of());
         } catch (RuntimeException first) {
             String firstProviderCategory = ModelProviderFailure.providerCategory(first);
             if (firstProviderCategory != null) {
@@ -53,7 +53,7 @@ public final class ModelContractRepair {
             artifactStore.recordModelContractAudit(audit(
                     flowId, attemptId, taskPackageId, responsibility, invalid, 0, correlationId));
             try {
-                return call.get();
+                return call.apply(invalid.violationCodes());
             } catch (RuntimeException second) {
                 String secondProviderCategory = ModelProviderFailure.providerCategory(second);
                 if (secondProviderCategory != null) {

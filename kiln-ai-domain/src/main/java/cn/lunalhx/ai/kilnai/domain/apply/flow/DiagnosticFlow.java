@@ -13,6 +13,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.FeedbackFacts;
 
@@ -39,6 +40,7 @@ public final class DiagnosticFlow {
     private final LearningFlowStore flowStore;
     private final ArtifactStore artifactStore;
     private final AssessmentRunner assessmentRunner;
+    private final RationaleEvaluationProfileExecutor rationaleEvaluationExecutor;
     private final SubmissionCloser submissionCloser;
     private final ApplyExecutionContext diagnosticContext;
     private final ApplyExecutionContext independentContextTemplate;
@@ -49,6 +51,7 @@ public final class DiagnosticFlow {
             LearningFlowStore flowStore,
             AssessmentPort assessmentPort,
             ResponseVerificationPort verificationPort,
+            RationaleEvaluationProfileExecutor rationaleEvaluationExecutor,
             ApplyExecutionContext diagnosticContext,
             ApplyExecutionContext independentContextTemplate,
             Clock clock
@@ -60,6 +63,8 @@ public final class DiagnosticFlow {
                 Objects.requireNonNull(assessmentPort, "assessmentPort must not be null"),
                 Objects.requireNonNull(verificationPort, "verificationPort must not be null"),
                 artifactStore);
+        this.rationaleEvaluationExecutor = Objects.requireNonNull(
+                rationaleEvaluationExecutor, "rationaleEvaluationExecutor must not be null");
         this.submissionCloser = new SubmissionCloser(artifactStore, clock);
         this.diagnosticContext = Objects.requireNonNull(diagnosticContext, "diagnosticContext must not be null");
         this.independentContextTemplate = Objects.requireNonNull(
@@ -145,10 +150,13 @@ public final class DiagnosticFlow {
 
     private DiagnosticSubmissionResult assess(UUID flowId, ModelProfile profile, TaskAttempt closedAttempt) {
         AssessmentOutcome outcome = assessmentRunner.runDiagnostic(
-                profile, closedAttempt, packageOf(closedAttempt), diagnosticContext.taskBlueprint());
+                profile, closedAttempt, packageOf(closedAttempt), diagnosticContext,
+                rationaleEvaluationExecutor);
         return switch (outcome) {
             case AssessmentOutcome.Passed passed -> deliverIndependent(flowId, profile, closedAttempt, outcome);
             case AssessmentOutcome.Inconclusive inconclusive -> deliverIndependent(flowId, profile, closedAttempt, outcome);
+            case AssessmentOutcome.Unconfirmed unconfirmed ->
+                    new DiagnosticSubmissionResult.Unconfirmed(closedAttempt, neutralFacts());
             // A failed submitted Diagnostic stays closed and is never
             // retroactively converted. The next learner-visible move is not
             // chosen here: the Learning StateGraph derives the legal
@@ -169,6 +177,10 @@ public final class DiagnosticFlow {
                 closedAttempt.highestHintLevel(),
                 closedAttempt.assistanceTraceStrings(),
                 false);
+    }
+
+    private FeedbackFacts neutralFacts() {
+        return new FeedbackFacts(List.of(), List.of(), List.of(), 0, List.of(), false);
     }
 
     private List<String> criterionIds() {

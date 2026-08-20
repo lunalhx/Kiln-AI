@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.FinalExpressionJudgment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleJudgment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractInvalidException;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
@@ -15,6 +16,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.RationaleAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
@@ -219,6 +221,24 @@ public class ScriptedLearningGraphPortsConfiguration {
                     FinalExpressionJudgment.EQUIVALENT,
                     RationaleJudgment.NOT_PROVIDED,
                     List.of());
+        };
+    }
+
+    @Bean
+    @Primary
+    RationaleAssessmentPort scriptedRationaleAssessment() {
+        return (profile, compiledSystemPrompt, evaluationContextJson) -> {
+            if (remainingAssessmentConfigurationFailures.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+                throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "model configuration invalid");
+            }
+            if (remainingAssessmentProviderFailures.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+                throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "provider unavailable");
+            }
+            if (remainingInvalidAssessments.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+                throw new ModelContractInvalidException(List.of("unknown_field"));
+            }
+            return RationaleEvaluationResult.notApplicable(
+                    List.of(RationaleEvaluationResult.ReasonCode.MATERIAL_GAP));
         };
     }
 

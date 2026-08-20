@@ -181,6 +181,8 @@ public final class ReviewSubmissionFlow {
             }
             case AssessmentOutcome.Inconclusive inconclusive ->
                     resolveInconclusive(flow, closedAttempt, idempotencyKey, requestHash);
+            case AssessmentOutcome.Unconfirmed unconfirmed -> throw new IllegalStateException(
+                    "an unconfirmed outcome is only valid for Diagnostic");
         };
     }
 

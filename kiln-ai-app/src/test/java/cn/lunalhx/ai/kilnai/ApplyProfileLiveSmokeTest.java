@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
+import cn.lunalhx.ai.kilnai.domain.apply.bundle.EvaluationBundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
@@ -18,6 +19,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
@@ -25,6 +27,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.RationaleAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
@@ -34,6 +37,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfile;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassification;
@@ -94,13 +99,23 @@ class ApplyProfileLiveSmokeTest {
         TaskVerifierPort verifier = (profile, pkg, ctx) -> TaskVerificationVerdict.parse(model.verify(profile, pkg, ctx));
         AssessmentPort assessment = (profile, ctx) -> ResponseAssessment.parse(model.assess(profile, ctx));
         ResponseVerificationPort verification = (profile, ctx) -> ResponseAssessment.parse(model.verifyResponse(profile, ctx));
+        RationaleAssessmentPort rationaleAssessment = (profile, prompt, contextJson) ->
+                RationaleEvaluationResult.parse(model.evaluateRationale(profile, prompt, contextJson));
 
         ArtifactStore artifacts = new InMemoryArtifactStore(Clock.systemUTC());
         LearningFlowStore flowStore = new InMemoryLearningFlowStore();
         ApplyProfileExecutor executor = new ApplyProfileExecutor(
                 referenceStack(), model, verifier, artifacts);
+        BundleLoader loader = new BundleLoader();
+        RationaleEvaluationProfileExecutor rationaleEvaluator = new RationaleEvaluationProfileExecutor(
+                new EvaluationBundleStack(RationaleEvaluationProfile.FIXED_STACK.stream()
+                        .map(loader::load)
+                        .map(SkillBundleSource::toBundle)
+                        .toList()),
+                rationaleAssessment);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, artifacts, flowStore, assessment, verification,
+                rationaleEvaluator,
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
                 Clock.systemUTC());

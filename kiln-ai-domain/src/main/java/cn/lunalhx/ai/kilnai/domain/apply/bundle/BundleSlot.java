@@ -5,5 +5,6 @@ public enum BundleSlot {
     REASONING,
     REPRESENTATION,
     VERIFICATION,
+    EVALUATION,
     SUBJECT
 }

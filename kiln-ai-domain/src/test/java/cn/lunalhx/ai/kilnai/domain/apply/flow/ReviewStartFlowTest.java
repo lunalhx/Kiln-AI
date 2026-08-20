@@ -399,6 +399,11 @@ class ReviewStartFlowTest {
         ApplyProfileExecutor executor = new ApplyProfileExecutor(ReferenceBundles.stack(), generation, verifier, artifacts);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),
+                new cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor(
+                        ReferenceBundles.rationaleEvaluationStack(),
+                        (profile, prompt, contextJson) ->
+                                cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.notApplicable(
+                                        List.of(cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.ReasonCode.MATERIAL_GAP))),
                 DiagnosticApplyFixture.diagnosticContext(), IndependentApplyFixture.independentContext(), CLOCK);
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
                 artifacts, flowStore, assessment, new ScriptedResponseVerificationModel(List.of()),

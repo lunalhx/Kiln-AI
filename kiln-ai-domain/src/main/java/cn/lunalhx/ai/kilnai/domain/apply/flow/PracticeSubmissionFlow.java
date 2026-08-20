@@ -178,6 +178,8 @@ public final class PracticeSubmissionFlow {
             case AssessmentOutcome.Failed failed -> practiceEvidence(flow, closedAttempt, LearningResult.FAIL);
             case AssessmentOutcome.Blocked blocked -> practiceEvidence(flow, closedAttempt, LearningResult.FAIL);
             case AssessmentOutcome.Inconclusive inconclusive -> null;
+            case AssessmentOutcome.Unconfirmed unconfirmed -> throw new IllegalStateException(
+                    "an unconfirmed outcome is only valid for Diagnostic");
         };
     }
 

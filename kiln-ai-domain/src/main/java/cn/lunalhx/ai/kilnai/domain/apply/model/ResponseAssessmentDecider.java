@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.model;
 
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -67,7 +68,7 @@ public final class ResponseAssessmentDecider {
         if (finalExpression == FinalExpressionJudgment.INCONCLUSIVE || rationale == RationaleJudgment.INCONCLUSIVE) {
             return new AssessmentOutcome.Inconclusive(assessment, verification);
         }
-        return new AssessmentOutcome.Failed(assessment, verification);
+        return new AssessmentOutcome.Failed(assessment, verification, List.of());
     }
 
     private static AssessmentOutcome decideIndependent(
@@ -87,7 +88,7 @@ public final class ResponseAssessmentDecider {
                 }
                 yield new AssessmentOutcome.Passed(assessment, verification);
             }
-            case NOT_EQUIVALENT -> new AssessmentOutcome.Failed(assessment, verification);
+            case NOT_EQUIVALENT -> new AssessmentOutcome.Failed(assessment, verification, List.of());
             case INCONCLUSIVE -> new AssessmentOutcome.Inconclusive(assessment, verification);
             case NOT_REQUESTED -> throw new IllegalStateException(
                     "the decider requires a resolved final-expression judgment");

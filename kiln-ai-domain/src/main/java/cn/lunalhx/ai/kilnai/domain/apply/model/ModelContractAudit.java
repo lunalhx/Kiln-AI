@@ -28,6 +28,7 @@ public record ModelContractAudit(
 
     public static final String ASSESSMENT = "assessment";
     public static final String RESPONSE_VERIFICATION = "response_verification";
+    public static final String RATIONALE_ASSESSMENT = "rationale_assessment";
     public static final String TEACH_BACK_ASSESSMENT = "teach_back_assessment";
     public static final String TASK_VERIFICATION = "task_verification";
     public static final String TEACH_BACK_TASK_VERIFICATION = "teach_back_task_verification";

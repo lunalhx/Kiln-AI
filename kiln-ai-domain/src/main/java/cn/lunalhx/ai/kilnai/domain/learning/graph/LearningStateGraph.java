@@ -330,6 +330,9 @@ public final class LearningStateGraph {
                         attemptId, CommittedEvaluationResult.RESPONSE_VERIFICATION,
                         CommittedEvaluationResult.EVALUATION_VERSION).isPresent()
                 || artifactStore.findCommittedEvaluationResult(
+                        attemptId, CommittedEvaluationResult.RATIONALE_ASSESSMENT,
+                        CommittedEvaluationResult.EVALUATION_VERSION).isPresent()
+                || artifactStore.findCommittedEvaluationResult(
                         attemptId, CommittedEvaluationResult.TEACH_BACK_ASSESSMENT,
                         CommittedEvaluationResult.EVALUATION_VERSION).isPresent();
     }
@@ -953,6 +956,10 @@ public final class LearningStateGraph {
                     executeMove(state, chooseDecision(state, WorkflowGuard.DecisionContext.DIAGNOSTIC_NOT_PASSED,
                                     failed.facts(), evaluationRecovery),
                             null, idempotencyKey, requestHash);
+            case DiagnosticSubmissionResult.Unconfirmed unconfirmed ->
+                    executeMove(state, chooseDecision(state, WorkflowGuard.DecisionContext.DIAGNOSTIC_NOT_PASSED,
+                                    unconfirmed.facts(), evaluationRecovery),
+                            null, idempotencyKey, requestHash);
             case DiagnosticSubmissionResult.IndependentUnavailable unavailable -> commitUnavailable(
                     state, LearningStage.DIAGNOSTIC, unavailable.learnerMessage(), null,
                     new PendingOperation(PendingOperation.Kind.DELIVER_INDEPENDENT, null, null, null,
@@ -1124,6 +1131,8 @@ public final class LearningStateGraph {
             case AssessmentOutcome.Blocked blocked -> WorkflowGuard.DecisionContext.PRACTICE_FAILED;
             case AssessmentOutcome.Inconclusive inconclusive ->
                     WorkflowGuard.DecisionContext.PRACTICE_INCONCLUSIVE;
+            case AssessmentOutcome.Unconfirmed unconfirmed -> throw new IllegalStateException(
+                    "an unconfirmed outcome is only valid for Diagnostic");
         };
         Decision decision = chooseDecision(state, context, assessed.facts(), evaluationRecovery);
         return executeMove(state, decision, assessed.evidence(), idempotencyKey, requestHash);

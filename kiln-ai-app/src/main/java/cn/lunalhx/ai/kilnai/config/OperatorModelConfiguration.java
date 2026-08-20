@@ -1,6 +1,7 @@
 package cn.lunalhx.ai.kilnai.config;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
+import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ApplyGenerationPort;
@@ -9,6 +10,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ExplainGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.RationaleAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
@@ -70,6 +72,12 @@ public class OperatorModelConfiguration {
     @Bean
     ResponseVerificationPort responseVerificationPort(OperatorModelPorts ports) {
         return (profile, ctx) -> ResponseAssessment.parse(ports.adapter().verifyResponse(profile, ctx));
+    }
+
+    @Bean
+    RationaleAssessmentPort rationaleAssessmentPort(OperatorModelPorts ports) {
+        return (profile, compiledSystemPrompt, evaluationContextJson) -> RationaleEvaluationResult.parse(
+                ports.adapter().evaluateRationale(profile, compiledSystemPrompt, evaluationContextJson));
     }
 
     @Bean

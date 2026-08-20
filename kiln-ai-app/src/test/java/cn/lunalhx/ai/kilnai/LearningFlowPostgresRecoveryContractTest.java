@@ -34,6 +34,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
@@ -149,6 +150,9 @@ class LearningFlowPostgresRecoveryContractTest {
 
     @Autowired
     ResponseVerificationPort verificationPort;
+
+    @Autowired
+    RationaleEvaluationProfileExecutor rationaleEvaluationExecutor;
 
     @Autowired
     ExplainGenerationPort explainGeneration;
@@ -317,7 +321,7 @@ class LearningFlowPostgresRecoveryContractTest {
         PendingOperation pending = store.pendingOperation(flowId).orElseThrow();
         assertEquals(PendingOperation.Kind.RESUME_SUBMISSION_EVALUATION, pending.kind());
         assertEquals(attemptId, pending.attemptId());
-        assertEquals(CommittedEvaluationResult.RESPONSE_ASSESSMENT, pending.responsibility());
+        assertEquals(CommittedEvaluationResult.RATIONALE_ASSESSMENT, pending.responsibility());
         assertEquals(AttemptStatus.SUBMITTED, store.findAttempt(attemptId).orElseThrow().status());
         assertTrue(store.committedEvaluationResultsFor(attemptId).isEmpty());
         assertTrue(store.allEvidence().isEmpty());
@@ -354,7 +358,7 @@ class LearningFlowPostgresRecoveryContractTest {
         LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), attemptId, "3*x^2", "3*x^2", "我猜的");
         assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
-        assertEquals(CommittedEvaluationResult.RESPONSE_ASSESSMENT,
+        assertEquals(CommittedEvaluationResult.RATIONALE_ASSESSMENT,
                 store.pendingOperation(flowId).orElseThrow().responsibility());
         assertTrue(store.committedEvaluationResultsFor(attemptId).isEmpty());
         assertEquals(ModelContractAudit.MODEL_CONFIGURATION_INVALID,
@@ -365,6 +369,38 @@ class LearningFlowPostgresRecoveryContractTest {
         assertEquals(InteractionKind.TEACHING, recovered.interaction().kind(),
                 "Retry may invoke the missing responsibility, but the initial configuration failure must not self-repair");
         assertEquals(1, store.committedEvaluationResultsFor(attemptId).size());
+    }
+
+    @Test
+    void repeatedMalformedRationaleAssessmentCommitsUnavailableAndRetryResumesTheSavedAttempt() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowCommandUseCase useCase = graph(store);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
+                learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        UUID attemptId = started.interaction().attemptId();
+        config.failNextAssessments(2);
+
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, UUID.randomUUID(), attemptId,
+                "3*x^2", "3*x^2", "我猜的");
+
+        assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
+        assertEquals(CommittedEvaluationResult.RATIONALE_ASSESSMENT,
+                store.pendingOperation(flowId).orElseThrow().responsibility());
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM model_contract_audits", Integer.class));
+        assertTrue(store.committedEvaluationResultsFor(attemptId).isEmpty());
+        assertEquals(AttemptStatus.SUBMITTED, store.findAttempt(attemptId).orElseThrow().status());
+        assertEquals(1, store.allPackages().size(),
+                "malformed post-submission evaluation must not prepare a replacement task");
+        assertTrue(store.allEvidence().isEmpty());
+
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) useCase.retryRequested(
+                flowId, unavailable.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(InteractionKind.TEACHING, recovered.interaction().kind());
+        assertEquals(1, store.committedEvaluationResultsFor(attemptId).size());
+        assertTrue(store.pendingOperation(flowId).isEmpty());
+        assertTrue(store.allEvidence().isEmpty());
     }
 
     @Test
@@ -900,6 +936,7 @@ class LearningFlowPostgresRecoveryContractTest {
         ReviewTaskScheduler scheduler = new ReviewTaskScheduler(flowStore);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, flowStore, flowStore, assessmentPort, verificationPort,
+                rationaleEvaluationExecutor,
                 DiagnosticApplyFixture.diagnosticContext(), IndependentApplyFixture.independentContext(), clock);
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
                 flowStore, flowStore, assessmentPort, verificationPort, scheduler, clock);

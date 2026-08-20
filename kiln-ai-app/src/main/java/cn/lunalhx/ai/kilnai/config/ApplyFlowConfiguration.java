@@ -1,6 +1,7 @@
 package cn.lunalhx.ai.kilnai.config;
 
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
+import cn.lunalhx.ai.kilnai.domain.apply.bundle.EvaluationBundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
@@ -23,6 +24,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.HintGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.RationaleAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
@@ -34,6 +36,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfile;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningFlowCommandUseCase;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningStateGraph;
@@ -137,6 +141,15 @@ public class ApplyFlowConfiguration {
 
     @Bean
     @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
+    RationaleAssessmentPort failClosedRationaleAssessment() {
+        return (profile, compiledSystemPrompt, evaluationContextJson) -> {
+            throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE,
+                    "rationale assessment adapter is not configured");
+        };
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "kiln.catalog", name = "enabled", havingValue = "false", matchIfMissing = true)
     ExplainGenerationPort failClosedExplainGeneration() {
         return (profile, compiledSystemPrompt, executionContextJson) -> {
             throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "explain generation adapter is not configured");
@@ -181,6 +194,15 @@ public class ApplyFlowConfiguration {
     BundleStack teachBackBundleStack() {
         BundleLoader loader = new BundleLoader();
         return new BundleStack(TeachBackProfile.FIXED_STACK.stream()
+                .map(loader::load)
+                .map(SkillBundleSource::toBundle)
+                .toList());
+    }
+
+    @Bean
+    EvaluationBundleStack rationaleEvaluationBundleStack() {
+        BundleLoader loader = new BundleLoader();
+        return new EvaluationBundleStack(RationaleEvaluationProfile.FIXED_STACK.stream()
                 .map(loader::load)
                 .map(SkillBundleSource::toBundle)
                 .toList());
@@ -247,6 +269,14 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
+    RationaleEvaluationProfileExecutor rationaleEvaluationProfileExecutor(
+            @Qualifier("rationaleEvaluationBundleStack") EvaluationBundleStack stack,
+            RationaleAssessmentPort assessmentPort
+    ) {
+        return new RationaleEvaluationProfileExecutor(stack, assessmentPort);
+    }
+
+    @Bean
     TeachBackFlow teachBackFlow(
             TeachBackProfileExecutor executor,
             ArtifactStore artifactStore,
@@ -299,10 +329,12 @@ public class ApplyFlowConfiguration {
             LearningFlowStore flowStore,
             AssessmentPort assessmentPort,
             ResponseVerificationPort verificationPort,
+            RationaleEvaluationProfileExecutor rationaleEvaluationExecutor,
             Clock clock
     ) {
         return new DiagnosticFlow(
                 executor, artifactStore, flowStore, assessmentPort, verificationPort,
+                rationaleEvaluationExecutor,
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
                 clock);

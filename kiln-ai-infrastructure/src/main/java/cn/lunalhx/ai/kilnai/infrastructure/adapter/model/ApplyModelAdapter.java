@@ -337,6 +337,14 @@ public final class ApplyModelAdapter implements ApplyGenerationPort,
         return judge(profile, context);
     }
 
+    public String evaluateRationale(
+            ModelProfile profile,
+            String compiledSystemPrompt,
+            String evaluationContextJson
+    ) {
+        return complete(profile, strong(profile), compiledSystemPrompt, evaluationContextJson, JUDGMENT_TEMPERATURE);
+    }
+
     public String verifyResponse(ModelProfile profile, ResponseAssessmentContext context) {
         return judge(profile, context);
     }

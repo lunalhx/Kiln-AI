@@ -31,6 +31,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackAssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
@@ -137,6 +138,9 @@ class LearningFlowPostgresSuccessPathTest {
 
     @Autowired
     ResponseVerificationPort verificationPort;
+
+    @Autowired
+    RationaleEvaluationProfileExecutor rationaleEvaluationExecutor;
 
     @Autowired
     ApplyProfileExecutor executor;
@@ -430,6 +434,7 @@ class LearningFlowPostgresSuccessPathTest {
         ReviewTaskScheduler scheduler = new ReviewTaskScheduler(store);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, store, store, assessmentPort, verificationPort,
+                rationaleEvaluationExecutor,
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(), clock);
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(

@@ -480,13 +480,11 @@ class LearningFlowGraphContractTest {
                 new MathematicalAnswer(ApplyScriptData.WRONG_DERIVATIVE,
                         ApplyScriptData.WRONG_DERIVATIVE, AnswerInputFamily.PLAIN_TEXT),
                 "我猜的", CLOCK.instant()));
-        ResponseAssessment savedFailure = diagnosticFailJudgment();
+        cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult savedFailure =
+                cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.notApplicable(
+                        List.of(cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.ReasonCode.MATERIAL_GAP));
         harness.artifacts().saveOrReturnCommittedEvaluationResult(
-                diagnosticAttemptId, CommittedEvaluationResult.RESPONSE_ASSESSMENT,
-                CommittedEvaluationResult.EVALUATION_VERSION, savedFailure.schema(),
-                ApplyJson.writeContract(savedFailure));
-        harness.artifacts().saveOrReturnCommittedEvaluationResult(
-                diagnosticAttemptId, CommittedEvaluationResult.RESPONSE_VERIFICATION,
+                diagnosticAttemptId, CommittedEvaluationResult.RATIONALE_ASSESSMENT,
                 CommittedEvaluationResult.EVALUATION_VERSION, savedFailure.schema(),
                 ApplyJson.writeContract(savedFailure));
 
@@ -768,6 +766,54 @@ class LearningFlowGraphContractTest {
                 "a Diagnostic Not Passed result must not generate an Independent task");
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "a Diagnostic Not Passed result must not create Diagnostic Evidence");
+    }
+
+    @Test
+    void anApplicableFirstRationaleIsUnconfirmedAndUsesTheDiagnosticNotPassedGuard() {
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(
+                        FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.APPLICABLE)));
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())), assessment);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(
+                LEARNER_ID, UUID.randomUUID());
+
+        LearningFlowResult.Boundary unconfirmed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE,
+                ApplyScriptData.APPLICABLE_RATIONALE);
+
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, unconfirmed.interaction().stage());
+        assertEquals(InteractionKind.TEACHING, unconfirmed.interaction().kind());
+        assertEquals(1, harness.generation().calls().size(),
+                "an unconfirmed first result must not prepare an Independent task");
+        assertEquals(1, harness.assessment().contexts().size());
+        assertTrue(harness.flowStore().allEvidence().isEmpty());
+    }
+
+    @Test
+    void anInconclusiveFirstRationaleUsesNeutralDiagnosticNotPassedRouting() {
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
+                ApplyScriptData.responseAssessment(
+                        FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.INCONCLUSIVE)));
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())), assessment);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(
+                LEARNER_ID, UUID.randomUUID());
+
+        LearningFlowResult.Boundary unconfirmed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE,
+                ApplyScriptData.APPLICABLE_RATIONALE);
+
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, unconfirmed.interaction().stage());
+        assertEquals(InteractionKind.TEACHING, unconfirmed.interaction().kind());
+        assertEquals(1, harness.generation().calls().size(),
+                "an inconclusive first result must not prepare an Independent task");
+        assertEquals(1, harness.assessment().contexts().size());
+        assertTrue(harness.flowStore().allEvidence().isEmpty());
     }
 
     @Test
@@ -4634,6 +4680,27 @@ class LearningFlowGraphContractTest {
         ApplyProfileExecutor executor = new ApplyProfileExecutor(ReferenceBundles.stack(), generation, verifier, artifacts);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, artifacts, flowStore, assessment, verification,
+                new cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor(
+                        ReferenceBundles.rationaleEvaluationStack(),
+                        (profile, prompt, contextJson) -> {
+                            cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationContext rationaleContext =
+                                    cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationContext.parse(contextJson);
+                            ResponseAssessment scripted = assessment.assess(profile,
+                                    new cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext(
+                                            rationaleContext.taskText(),
+                                            ApplyScriptData.EXPECTED_EXPRESSION,
+                                            ApplyScriptData.WRONG_DERIVATIVE,
+                                            ApplyScriptData.WRONG_DERIVATIVE,
+                                            rationaleContext.rationale(),
+                                            AttemptPurpose.DIAGNOSTIC,
+                                            cn.lunalhx.ai.kilnai.domain.apply.model.EquivalenceOutcome.PROVEN_NOT_EQUIVALENT));
+                            return switch (scripted.rationaleJudgment()) {
+                                case APPLICABLE -> cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.applicable();
+                                case INCONCLUSIVE -> cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.inconclusive();
+                                default -> cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.notApplicable(
+                                        List.of(cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.ReasonCode.MATERIAL_GAP));
+                            };
+                        }),
                 DiagnosticApplyFixture.diagnosticContext(), IndependentApplyFixture.independentContext(), clock);
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
                 artifacts, flowStore, assessment, verification, reviewScheduler, clock);

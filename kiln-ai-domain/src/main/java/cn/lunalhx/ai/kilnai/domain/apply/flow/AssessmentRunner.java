@@ -11,12 +11,15 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentDecider;
+import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationContext;
+import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.port.AssessmentPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 
 import java.util.List;
@@ -51,7 +54,7 @@ public final class AssessmentRunner {
         if (closedAttempt.purpose() == AttemptPurpose.DIAGNOSTIC) {
             throw new IllegalArgumentException("Diagnostic assessment requires the explicit Diagnostic policy");
         }
-        return run(profile, closedAttempt, taskPackage, false);
+        return run(profile, closedAttempt, taskPackage, false, null, null);
     }
 
     /**
@@ -63,9 +66,12 @@ public final class AssessmentRunner {
             ModelProfile profile,
             TaskAttempt closedAttempt,
             TaskPackage taskPackage,
-            ApplyExecutionContext.TaskBlueprint blueprint
+            ApplyExecutionContext diagnosticContext,
+            RationaleEvaluationProfileExecutor rationaleEvaluationExecutor
     ) {
-        Objects.requireNonNull(blueprint, "blueprint must not be null");
+        Objects.requireNonNull(diagnosticContext, "diagnosticContext must not be null");
+        Objects.requireNonNull(rationaleEvaluationExecutor, "rationaleEvaluationExecutor must not be null");
+        ApplyExecutionContext.TaskBlueprint blueprint = diagnosticContext.taskBlueprint();
         if (blueprint.attemptPurpose() != AttemptPurpose.DIAGNOSTIC
                 || !ApplyExecutionContext.TaskBlueprint.DIAGNOSTIC_PRIMARY_OR_CORROBORATED_RATIONALE_POLICY
                 .equals(blueprint.assessmentPolicyRef())
@@ -74,14 +80,16 @@ public final class AssessmentRunner {
             throw new IllegalArgumentException(
                     "Diagnostic requires the primary-or-corroborated-rationale policy and a Trusted Primary-Answer Check");
         }
-        return run(profile, closedAttempt, taskPackage, true);
+        return run(profile, closedAttempt, taskPackage, true, diagnosticContext, rationaleEvaluationExecutor);
     }
 
     private AssessmentOutcome run(
             ModelProfile profile,
             TaskAttempt closedAttempt,
             TaskPackage taskPackage,
-            boolean diagnosticPrimaryRouting
+            boolean diagnosticPrimaryRouting,
+            ApplyExecutionContext diagnosticContext,
+            RationaleEvaluationProfileExecutor rationaleEvaluationExecutor
     ) {
         Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(closedAttempt, "closedAttempt must not be null");
@@ -107,7 +115,25 @@ public final class AssessmentRunner {
         if (diagnosticPrimaryRouting
                 && deterministic == EquivalenceOutcome.PROVEN_NOT_EQUIVALENT
                 && isMissingRationale(submission.rationale())) {
-            return new AssessmentOutcome.Failed(null, null);
+            return new AssessmentOutcome.Failed(null, null, List.of());
+        }
+        if (diagnosticPrimaryRouting && deterministic == EquivalenceOutcome.PROVEN_NOT_EQUIVALENT) {
+            RationaleEvaluationContext rationaleContext = RationaleEvaluationContext.from(
+                    taskPackage, diagnosticContext, submission.rationale());
+            RationaleEvaluationResult rationale = loadOrCommitRationale(
+                    profile, closedAttempt, rationaleContext, rationaleEvaluationExecutor);
+            return switch (rationale.verdict()) {
+                // Ticket 04 owns the first judgment only. Until the
+                // corroborating responsibility exists, even an applicable
+                // first judgment remains unconfirmed and cannot open an
+                // Independent Test.
+                case APPLICABLE, INCONCLUSIVE -> new AssessmentOutcome.Unconfirmed(null, null);
+                case NOT_APPLICABLE -> new AssessmentOutcome.Failed(
+                        null, null,
+                        rationale.reasonCodes().stream()
+                                .map(RationaleEvaluationResult.ReasonCode::wireValue)
+                                .toList());
+            };
         }
         ResponseAssessment assessment = loadOrCommit(
                 closedAttempt, context, CommittedEvaluationResult.RESPONSE_ASSESSMENT,
@@ -129,6 +155,33 @@ public final class AssessmentRunner {
         return ResponseAssessmentDecider.decide(context, assessment, verification);
     }
 
+    private RationaleEvaluationResult loadOrCommitRationale(
+            ModelProfile profile,
+            TaskAttempt closedAttempt,
+            RationaleEvaluationContext context,
+            RationaleEvaluationProfileExecutor evaluator
+    ) {
+        return artifactStore.findCommittedEvaluationResult(
+                        closedAttempt.attemptId(),
+                        CommittedEvaluationResult.RATIONALE_ASSESSMENT,
+                        CommittedEvaluationResult.EVALUATION_VERSION)
+                .map(committed -> RationaleEvaluationResult.parse(committed.resultPayload()))
+                .orElseGet(() -> {
+                    RationaleEvaluationResult evaluated = ModelContractRepair.once(
+                            violations -> evaluator.evaluate(profile, context, violations),
+                            artifactStore, null, closedAttempt.attemptId(), closedAttempt.taskPackageId(),
+                            ModelContractAudit.RATIONALE_ASSESSMENT,
+                            CommittedEvaluationResult.EVALUATION_VERSION);
+                    CommittedEvaluationResult committed = artifactStore.saveOrReturnCommittedEvaluationResult(
+                            closedAttempt.attemptId(),
+                            CommittedEvaluationResult.RATIONALE_ASSESSMENT,
+                            CommittedEvaluationResult.EVALUATION_VERSION,
+                            evaluated.schema(),
+                            ApplyJson.writeContract(evaluated));
+                    return RationaleEvaluationResult.parse(committed.resultPayload());
+                });
+    }
+
     private static boolean isMissingRationale(String rationale) {
         return rationale == null || rationale.isBlank();
     }
@@ -145,7 +198,7 @@ public final class AssessmentRunner {
                 .map(committed -> ResponseAssessment.parse(committed.resultPayload()))
                 .orElseGet(() -> {
                     ResponseAssessment evaluated = ModelContractRepair.once(
-                            evaluator,
+                            ignoredViolations -> evaluator.get(),
                             artifactStore, null, closedAttempt.attemptId(), closedAttempt.taskPackageId(),
                             auditResponsibility, CommittedEvaluationResult.EVALUATION_VERSION);
                     if (evaluated == null) {
@@ -179,6 +232,7 @@ public final class AssessmentRunner {
             case AssessmentOutcome.Passed passed -> passed.assessment();
             case AssessmentOutcome.Failed failed -> failed.assessment();
             case AssessmentOutcome.Inconclusive inconclusive -> inconclusive.assessment();
+            case AssessmentOutcome.Unconfirmed unconfirmed -> unconfirmed.assessment();
             case AssessmentOutcome.Blocked blocked -> blocked.assessment();
         };
         if (assessment != null) {
@@ -188,10 +242,14 @@ public final class AssessmentRunner {
             case AssessmentOutcome.Passed passed -> passed.verification();
             case AssessmentOutcome.Failed failed -> failed.verification();
             case AssessmentOutcome.Inconclusive inconclusive -> inconclusive.verification();
+            case AssessmentOutcome.Unconfirmed unconfirmed -> unconfirmed.verification();
             case AssessmentOutcome.Blocked blocked -> blocked.verification();
         };
         if (verification != null) {
             dimensions.addAll(verification.reasonCodes());
+        }
+        if (outcome instanceof AssessmentOutcome.Failed failed) {
+            dimensions.addAll(failed.additionalErrorDimensions());
         }
         return List.copyOf(dimensions);
     }

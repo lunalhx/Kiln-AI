@@ -16,6 +16,7 @@ import java.util.Objects;
 public sealed interface DiagnosticSubmissionResult
         permits DiagnosticSubmissionResult.Passed,
         DiagnosticSubmissionResult.Failed,
+        DiagnosticSubmissionResult.Unconfirmed,
         DiagnosticSubmissionResult.Inconclusive,
         DiagnosticSubmissionResult.NotSubmittable,
         DiagnosticSubmissionResult.Ignored,
@@ -32,6 +33,20 @@ public sealed interface DiagnosticSubmissionResult
     record Failed(TaskAttempt closedDiagnosticAttempt, FeedbackFacts facts) implements DiagnosticSubmissionResult {
 
         public Failed {
+            Objects.requireNonNull(closedDiagnosticAttempt, "closedDiagnosticAttempt must not be null");
+            Objects.requireNonNull(facts, "facts must not be null");
+        }
+    }
+
+    /**
+     * The submitted Diagnostic is not confirmed as learner performance. The
+     * StateGraph may use only neutral Feedback Facts to choose Learning and
+     * Practice remediation; no Independent task is prepared here.
+     */
+    record Unconfirmed(TaskAttempt closedDiagnosticAttempt, FeedbackFacts facts)
+            implements DiagnosticSubmissionResult {
+
+        public Unconfirmed {
             Objects.requireNonNull(closedDiagnosticAttempt, "closedDiagnosticAttempt must not be null");
             Objects.requireNonNull(facts, "facts must not be null");
         }

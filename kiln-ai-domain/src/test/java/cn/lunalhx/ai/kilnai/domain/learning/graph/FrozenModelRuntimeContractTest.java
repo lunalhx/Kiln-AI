@@ -129,6 +129,11 @@ class FrozenModelRuntimeContractTest {
                     ReferenceBundles.stack(), generation, verifier, artifacts);
             DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                     executor, artifacts, flowStore, assessment, verification,
+                    new cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor(
+                            ReferenceBundles.rationaleEvaluationStack(),
+                            (profile, prompt, contextJson) ->
+                                    cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.notApplicable(
+                                            List.of(cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.ReasonCode.MATERIAL_GAP))),
                     DiagnosticApplyFixture.diagnosticContext(),
                     IndependentApplyFixture.independentContext(), Clock.systemUTC());
             IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(

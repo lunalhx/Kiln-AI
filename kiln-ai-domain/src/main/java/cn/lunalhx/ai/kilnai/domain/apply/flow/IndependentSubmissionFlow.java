@@ -144,6 +144,8 @@ public final class IndependentSubmissionFlow {
                     new IndependentSubmissionResult.ReplacementRequired(closedAttempt, REPLACEMENT_MESSAGE);
             case AssessmentOutcome.Inconclusive inconclusive ->
                     new IndependentSubmissionResult.ReplacementRequired(closedAttempt, REPLACEMENT_MESSAGE);
+            case AssessmentOutcome.Unconfirmed unconfirmed -> throw new IllegalStateException(
+                    "an unconfirmed outcome is only valid for Diagnostic");
         };
     }
 

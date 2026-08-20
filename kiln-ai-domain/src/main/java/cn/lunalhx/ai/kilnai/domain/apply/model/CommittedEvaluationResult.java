@@ -22,6 +22,7 @@ public record CommittedEvaluationResult(
     public static final String EVALUATION_VERSION = "1.0.0";
     public static final String RESPONSE_ASSESSMENT = "assessment";
     public static final String RESPONSE_VERIFICATION = "response_verification";
+    public static final String RATIONALE_ASSESSMENT = "rationale_assessment";
     public static final String TEACH_BACK_ASSESSMENT = "teach_back_assessment";
 
     public CommittedEvaluationResult {
