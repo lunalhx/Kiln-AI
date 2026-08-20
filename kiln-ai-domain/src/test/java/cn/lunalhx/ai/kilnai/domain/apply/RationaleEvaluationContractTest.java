@@ -26,6 +26,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationPromptCompiler;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.CounterexampleReviewProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
 import org.junit.jupiter.api.Test;
@@ -101,6 +102,63 @@ class RationaleEvaluationContractTest {
     }
 
     @Test
+    void corroboratingProfileIsDistinctAndTwoApplicableJudgmentsOpenFreshIndependentTask() {
+        EvaluationBundleStack stack = ReferenceBundles.counterexampleReviewStack();
+        assertEquals(CounterexampleReviewProfile.FIXED_STACK, stack.pinnedIds());
+        String prompt = new RationaleEvaluationPromptCompiler().compile(
+                stack, CounterexampleReviewProfile.BASE_SYSTEM_PROMPT);
+        assertTrue(prompt.contains("[bundle:evaluation:evaluation.counterexample-review@1.0.0]"));
+        assertTrue(prompt.toLowerCase().contains("actively search for missing support"));
+        assertFalse(prompt.toLowerCase().contains("calculus"));
+        assertFalse(prompt.toLowerCase().contains("derivative"));
+        assertFalse(prompt.toLowerCase().contains("polynomial"));
+
+        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
+                ApplyScriptData.taskReadyJson(),
+                ApplyScriptData.taskReadyJson(
+                        ApplyScriptData.INDEPENDENT_TASK_TEXT, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
+        ArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
+        InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK);
+        AtomicInteger rationaleCalls = new AtomicInteger();
+        List<String> contexts = new java.util.ArrayList<>();
+        RationaleAssessmentPort rationalePort = (profile, compiledPrompt, contextJson) -> {
+            rationaleCalls.incrementAndGet();
+            contexts.add(contextJson);
+            return RationaleEvaluationResult.applicable();
+        };
+        DiagnosticFlow flow = newDiagnosticFlow(
+                artifacts, flowStore, generation,
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                rationalePort);
+
+        ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
+        DiagnosticSubmissionResult.Passed passed = assertInstanceOf(
+                DiagnosticSubmissionResult.Passed.class,
+                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                        diagnostic.attempt().attemptId(), ApplyScriptData.WRONG_DERIVATIVE,
+                        ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.APPLICABLE_RATIONALE));
+
+        assertEquals(2, rationaleCalls.get());
+        assertEquals(2, contexts.size());
+        assertEquals(contexts.getFirst(), contexts.getLast(),
+                "both isolated judgments must receive the same frozen rationale context");
+        RationaleEvaluationContext context = RationaleEvaluationContext.parse(contexts.getFirst());
+        assertEquals(ApplyScriptData.APPLICABLE_RATIONALE, context.rationale());
+        assertFalse(contexts.getFirst().contains("primary_answer"));
+        assertFalse(contexts.getFirst().contains("feedback"));
+        assertEquals(ApplyScriptData.INDEPENDENT_TASK_TEXT, passed.independentLearnerProjection().taskText());
+        assertTrue(flowStore.allEvidence().isEmpty());
+        assertTrue(artifacts.findCommittedEvaluationResult(
+                diagnostic.attempt().attemptId(), CommittedEvaluationResult.RATIONALE_ASSESSMENT,
+                CommittedEvaluationResult.EVALUATION_VERSION).isPresent());
+        assertTrue(artifacts.findCommittedEvaluationResult(
+                diagnostic.attempt().attemptId(),
+                CommittedEvaluationResult.RATIONALE_SUFFICIENCY_VERIFICATION,
+                CommittedEvaluationResult.EVALUATION_VERSION).isPresent());
+    }
+
+    @Test
     void provenWrongDiagnosticWithInsufficientRationaleCallsOnlyFirstEvaluationAndFailsSafely() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
                 ApplyScriptData.taskReadyJson(), ApplyScriptData.taskReadyJson(
@@ -144,6 +202,9 @@ class RationaleEvaluationContractTest {
                 verification,
                 new RationaleEvaluationProfileExecutor(
                         ReferenceBundles.rationaleEvaluationStack(), rationalePort),
+                new RationaleEvaluationProfileExecutor(
+                        ReferenceBundles.counterexampleReviewStack(), rationalePort,
+                        CounterexampleReviewProfile.BASE_SYSTEM_PROMPT),
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
                 CLOCK);
@@ -169,7 +230,7 @@ class RationaleEvaluationContractTest {
     }
 
     @Test
-    void firstApplicableRationaleRemainsUnconfirmedUntilCorroborationExists() {
+    void secondInconclusiveCorroborationBecomesUnconfirmed() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
                 ApplyScriptData.taskReadyJson()));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
@@ -178,7 +239,9 @@ class RationaleEvaluationContractTest {
         AtomicInteger rationaleCalls = new AtomicInteger();
         RationaleAssessmentPort rationalePort = (profile, prompt, contextJson) -> {
             rationaleCalls.incrementAndGet();
-            return RationaleEvaluationResult.applicable();
+            return prompt.contains("counterexample-review")
+                    ? RationaleEvaluationResult.inconclusive()
+                    : RationaleEvaluationResult.applicable();
         };
         DiagnosticFlow flow = new DiagnosticFlow(
                 new cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor(
@@ -193,6 +256,9 @@ class RationaleEvaluationContractTest {
                 },
                 new RationaleEvaluationProfileExecutor(
                         ReferenceBundles.rationaleEvaluationStack(), rationalePort),
+                new RationaleEvaluationProfileExecutor(
+                        ReferenceBundles.counterexampleReviewStack(), rationalePort,
+                        CounterexampleReviewProfile.BASE_SYSTEM_PROMPT),
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
                 CLOCK);
@@ -207,11 +273,116 @@ class RationaleEvaluationContractTest {
                         ApplyScriptData.WRONG_DERIVATIVE,
                         ApplyScriptData.APPLICABLE_RATIONALE));
 
+        assertEquals(2, rationaleCalls.get());
+        assertEquals(List.of(), unconfirmed.facts().missingCriteria());
+        assertEquals(List.of(), unconfirmed.facts().errorDimensions());
+        assertEquals(1, generation.calls().size(), "an unconfirmed corroboration cannot prepare Independent");
+        assertTrue(flowStore.allEvidence().isEmpty());
+    }
+
+    @Test
+    void firstInconclusiveRationaleBecomesUnconfirmedWithoutASecondCall() {
+        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
+                ApplyScriptData.taskReadyJson()));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
+        ArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
+        InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK);
+        AtomicInteger rationaleCalls = new AtomicInteger();
+        DiagnosticFlow flow = newDiagnosticFlow(
+                artifacts, flowStore, generation, verifier, (profile, prompt, contextJson) -> {
+                    rationaleCalls.incrementAndGet();
+                    return RationaleEvaluationResult.inconclusive();
+                });
+
+        ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
+        DiagnosticSubmissionResult.Unconfirmed unconfirmed = assertInstanceOf(
+                DiagnosticSubmissionResult.Unconfirmed.class,
+                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                        diagnostic.attempt().attemptId(), ApplyScriptData.WRONG_DERIVATIVE,
+                        ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.APPLICABLE_RATIONALE));
+
         assertEquals(1, rationaleCalls.get());
         assertEquals(List.of(), unconfirmed.facts().missingCriteria());
         assertEquals(List.of(), unconfirmed.facts().errorDimensions());
-        assertEquals(1, generation.calls().size(), "an unconfirmed first result cannot prepare Independent");
+        assertEquals(1, generation.calls().size());
         assertTrue(flowStore.allEvidence().isEmpty());
+    }
+
+    @Test
+    void secondNotApplicableCorroborationBecomesUnconfirmedWithNeutralFacts() {
+        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
+                ApplyScriptData.taskReadyJson()));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
+        ArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
+        InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK);
+        AtomicInteger rationaleCalls = new AtomicInteger();
+        DiagnosticFlow flow = newDiagnosticFlow(
+                artifacts, flowStore, generation, verifier, (profile, prompt, contextJson) -> {
+                    rationaleCalls.incrementAndGet();
+                    return prompt.contains("counterexample-review")
+                            ? RationaleEvaluationResult.notApplicable(
+                            List.of(RationaleEvaluationResult.ReasonCode.MATERIAL_GAP))
+                            : RationaleEvaluationResult.applicable();
+                });
+
+        ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
+        DiagnosticSubmissionResult.Unconfirmed unconfirmed = assertInstanceOf(
+                DiagnosticSubmissionResult.Unconfirmed.class,
+                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                        diagnostic.attempt().attemptId(), ApplyScriptData.WRONG_DERIVATIVE,
+                        ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.APPLICABLE_RATIONALE));
+
+        assertEquals(2, rationaleCalls.get());
+        assertEquals(List.of(), unconfirmed.facts().missingCriteria());
+        assertEquals(List.of(), unconfirmed.facts().errorDimensions());
+        assertEquals(1, generation.calls().size());
+        assertTrue(flowStore.allEvidence().isEmpty());
+    }
+
+    @Test
+    void eachRationaleResponsibilityGetsAtMostOneContractRepairBeforeTwoApplicablePasses() {
+        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
+                ApplyScriptData.taskReadyJson(), ApplyScriptData.taskReadyJson(
+                        ApplyScriptData.INDEPENDENT_TASK_TEXT, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
+                ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
+        ArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
+        InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK);
+        AtomicInteger firstCalls = new AtomicInteger();
+        AtomicInteger secondCalls = new AtomicInteger();
+        AtomicInteger totalCalls = new AtomicInteger();
+        RationaleAssessmentPort rationalePort = (profile, prompt, contextJson) -> {
+            totalCalls.incrementAndGet();
+            if (prompt.contains("counterexample-review")) {
+                if (secondCalls.getAndIncrement() == 0) {
+                    throw new ModelContractInvalidException(List.of("unknown_field"));
+                }
+            } else if (firstCalls.getAndIncrement() == 0) {
+                throw new ModelContractInvalidException(List.of("unknown_field"));
+            }
+            return RationaleEvaluationResult.applicable();
+        };
+        DiagnosticFlow flow = newDiagnosticFlow(artifacts, flowStore, generation, verifier, rationalePort);
+
+        ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
+        DiagnosticSubmissionResult.Passed passed = assertInstanceOf(
+                DiagnosticSubmissionResult.Passed.class,
+                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                        diagnostic.attempt().attemptId(), ApplyScriptData.WRONG_DERIVATIVE,
+                        ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.APPLICABLE_RATIONALE));
+
+        assertEquals(4, totalCalls.get());
+        assertEquals(ApplyScriptData.INDEPENDENT_TASK_TEXT, passed.independentLearnerProjection().taskText());
+        assertTrue(artifacts.findCommittedEvaluationResult(
+                diagnostic.attempt().attemptId(), CommittedEvaluationResult.RATIONALE_ASSESSMENT,
+                CommittedEvaluationResult.EVALUATION_VERSION).isPresent());
+        assertTrue(artifacts.findCommittedEvaluationResult(
+                diagnostic.attempt().attemptId(),
+                CommittedEvaluationResult.RATIONALE_SUFFICIENCY_VERIFICATION,
+                CommittedEvaluationResult.EVALUATION_VERSION).isPresent());
     }
 
     @Test
@@ -300,6 +471,9 @@ class RationaleEvaluationContractTest {
                 },
                 new RationaleEvaluationProfileExecutor(
                         ReferenceBundles.rationaleEvaluationStack(), rationalePort),
+                new RationaleEvaluationProfileExecutor(
+                        ReferenceBundles.counterexampleReviewStack(), rationalePort,
+                        CounterexampleReviewProfile.BASE_SYSTEM_PROMPT),
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
                 CLOCK);

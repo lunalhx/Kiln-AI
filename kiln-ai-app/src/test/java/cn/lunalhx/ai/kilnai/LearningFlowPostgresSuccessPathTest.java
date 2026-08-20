@@ -140,7 +140,12 @@ class LearningFlowPostgresSuccessPathTest {
     ResponseVerificationPort verificationPort;
 
     @Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("rationaleEvaluationProfileExecutor")
     RationaleEvaluationProfileExecutor rationaleEvaluationExecutor;
+
+    @Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("counterexampleReviewProfileExecutor")
+    RationaleEvaluationProfileExecutor rationaleSufficiencyExecutor;
 
     @Autowired
     ApplyProfileExecutor executor;
@@ -434,7 +439,7 @@ class LearningFlowPostgresSuccessPathTest {
         ReviewTaskScheduler scheduler = new ReviewTaskScheduler(store);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, store, store, assessmentPort, verificationPort,
-                rationaleEvaluationExecutor,
+                rationaleEvaluationExecutor, rationaleSufficiencyExecutor,
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(), clock);
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(

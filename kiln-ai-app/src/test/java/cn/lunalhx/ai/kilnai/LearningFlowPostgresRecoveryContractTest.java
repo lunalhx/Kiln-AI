@@ -21,6 +21,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.InteractionKind;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalAnswer;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PendingOperation;
+import cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ReviewStartResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
@@ -152,7 +153,12 @@ class LearningFlowPostgresRecoveryContractTest {
     ResponseVerificationPort verificationPort;
 
     @Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("rationaleEvaluationProfileExecutor")
     RationaleEvaluationProfileExecutor rationaleEvaluationExecutor;
+
+    @Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("counterexampleReviewProfileExecutor")
+    RationaleEvaluationProfileExecutor rationaleSufficiencyExecutor;
 
     @Autowired
     ExplainGenerationPort explainGeneration;
@@ -343,6 +349,145 @@ class LearningFlowPostgresRecoveryContractTest {
                 "a Diagnostic evaluation failure and retry must not create learner Evidence");
         assertEquals("3*x^2", store.findAttempt(attemptId).orElseThrow()
                 .submission().finalDerivative().confirmedCanonical());
+    }
+
+    @Test
+    void twoApplicableRationaleJudgmentsDeliverFreshIndependentAndReplayWithoutEvidence() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowCommandUseCase useCase = graph(store);
+        config.scriptRationaleEvaluation(RationaleEvaluationResult.applicable());
+        config.scriptRationaleEvaluation(RationaleEvaluationResult.applicable());
+
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
+                learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        UUID submitKey = UUID.randomUUID();
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, submitKey, started.interaction().attemptId(),
+                "3*x^2", "3*x^2", "我用了幂法则逐项求导");
+
+        assertEquals(InteractionKind.TASK, transitioned.interaction().kind());
+        assertEquals(AttemptPurpose.INDEPENDENT_TEST, transitioned.interaction().attemptPurpose());
+        assertEquals(2, store.committedEvaluationResultsFor(started.interaction().attemptId()).size());
+        assertTrue(store.committedEvaluationResultsFor(started.interaction().attemptId()).stream()
+                .map(CommittedEvaluationResult::responsibility)
+                .toList()
+                .containsAll(List.of(
+                        CommittedEvaluationResult.RATIONALE_ASSESSMENT,
+                        CommittedEvaluationResult.RATIONALE_SUFFICIENCY_VERIFICATION)));
+        assertTrue(store.allEvidence().isEmpty(),
+                "a Diagnostic rescue must never create Diagnostic Evidence");
+
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, submitKey, started.interaction().attemptId(),
+                "3*x^2", "3*x^2", "我用了幂法则逐项求导");
+        assertEquals(transitioned.interaction(), replay.interaction());
+        assertEquals(2, store.committedEvaluationResultsFor(started.interaction().attemptId()).size(),
+                "replay must not re-run or duplicate either rationale responsibility");
+    }
+
+    @Test
+    void secondInconclusiveRationaleJudgmentRoutesToNeutralTeachingAndReplaysWithoutEvidence() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowCommandUseCase useCase = graph(store);
+        config.scriptRationaleEvaluation(RationaleEvaluationResult.applicable());
+        config.scriptRationaleEvaluation(RationaleEvaluationResult.inconclusive());
+
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
+                learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        UUID attemptId = started.interaction().attemptId();
+        UUID submitKey = UUID.randomUUID();
+        LearningFlowResult.Boundary teaching = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, submitKey, attemptId, "3*x^2", "3*x^2", "我用了幂法则逐项求导");
+
+        assertEquals(InteractionKind.TEACHING, teaching.interaction().kind());
+        assertEquals(2, store.committedEvaluationResultsFor(attemptId).size());
+        assertTrue(store.pendingOperation(flowId).isEmpty());
+        assertTrue(store.allEvidence().isEmpty(),
+                "an unconfirmed corroboration must never create Diagnostic Evidence");
+
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, submitKey, attemptId, "3*x^2", "3*x^2", "我用了幂法则逐项求导");
+        assertEquals(teaching.interaction(), replay.interaction());
+        assertEquals(2, store.committedEvaluationResultsFor(attemptId).size(),
+                "replay must not re-run or duplicate an unconfirmed corroboration");
+    }
+
+    @Test
+    void aCounterexampleProviderFailureKeepsFirstCheckpointAcrossRestartAndRetry() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowCommandUseCase useCase = graph(store);
+        config.scriptRationaleEvaluation(RationaleEvaluationResult.applicable());
+        config.failNextCounterexampleReviewProviderCalls(1);
+
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
+                learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        UUID attemptId = started.interaction().attemptId();
+        UUID submitKey = UUID.randomUUID();
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, submitKey, attemptId, "3*x^2", "3*x^2", "我用了幂法则逐项求导");
+
+        assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
+        assertEquals(CommittedEvaluationResult.RATIONALE_SUFFICIENCY_VERIFICATION,
+                store.pendingOperation(flowId).orElseThrow().responsibility());
+        assertEquals(List.of(CommittedEvaluationResult.RATIONALE_ASSESSMENT),
+                store.committedEvaluationResultsFor(attemptId).stream()
+                        .map(CommittedEvaluationResult::responsibility).toList());
+        assertTrue(store.allEvidence().isEmpty());
+
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, submitKey, attemptId, "3*x^2", "3*x^2", "我用了幂法则逐项求导");
+        assertEquals(unavailable.interaction(), replay.interaction(),
+                "the original submission key must replay the unavailable boundary");
+
+        LearningFlowCommandUseCase restarted = freshUseCase();
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) restarted.retryRequested(
+                flowId, unavailable.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(InteractionKind.TEACHING, recovered.interaction().kind());
+        assertTrue(store.pendingOperation(flowId).isEmpty());
+        assertEquals(2, store.committedEvaluationResultsFor(attemptId).size(),
+                "Retry must reuse the first checkpoint and commit only the missing second result");
+        assertTrue(store.allEvidence().isEmpty());
+    }
+
+    @Test
+    void repeatedMalformedCounterexampleReviewKeepsFirstCheckpointAcrossRestartAndRetry() {
+        UUID learnerId = UUID.randomUUID();
+        LearningFlowCommandUseCase useCase = graph(store);
+        config.scriptRationaleEvaluation(RationaleEvaluationResult.applicable());
+        config.failNextCounterexampleReviewContractCalls(2);
+
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(
+                learnerId, UUID.randomUUID());
+        UUID flowId = started.interaction().flowId();
+        UUID attemptId = started.interaction().attemptId();
+        UUID submitKey = UUID.randomUUID();
+        LearningFlowResult.Boundary unavailable = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, submitKey, attemptId, "3*x^2", "3*x^2", "我用了幂法则逐项求导");
+
+        assertEquals(InteractionKind.UNAVAILABLE, unavailable.interaction().kind());
+        assertEquals(CommittedEvaluationResult.RATIONALE_SUFFICIENCY_VERIFICATION,
+                store.pendingOperation(flowId).orElseThrow().responsibility());
+        assertEquals(List.of(CommittedEvaluationResult.RATIONALE_ASSESSMENT),
+                store.committedEvaluationResultsFor(attemptId).stream()
+                        .map(CommittedEvaluationResult::responsibility).toList());
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM model_contract_audits", Integer.class));
+        assertTrue(store.allEvidence().isEmpty());
+
+        LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) useCase.submitAnswer(
+                flowId, 1, submitKey, attemptId, "3*x^2", "3*x^2", "我用了幂法则逐项求导");
+        assertEquals(unavailable.interaction(), replay.interaction());
+
+        LearningFlowCommandUseCase restarted = freshUseCase();
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) restarted.retryRequested(
+                flowId, unavailable.interaction().interactionVersion(), UUID.randomUUID());
+        assertEquals(InteractionKind.TEACHING, recovered.interaction().kind());
+        assertTrue(store.pendingOperation(flowId).isEmpty());
+        assertEquals(2, store.committedEvaluationResultsFor(attemptId).size(),
+                "Retry must preserve the first checkpoint and commit only the missing second result");
+        assertTrue(store.allEvidence().isEmpty());
     }
 
     @Test
@@ -936,7 +1081,7 @@ class LearningFlowPostgresRecoveryContractTest {
         ReviewTaskScheduler scheduler = new ReviewTaskScheduler(flowStore);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, flowStore, flowStore, assessmentPort, verificationPort,
-                rationaleEvaluationExecutor,
+                rationaleEvaluationExecutor, rationaleSufficiencyExecutor,
                 DiagnosticApplyFixture.diagnosticContext(), IndependentApplyFixture.independentContext(), clock);
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
                 flowStore, flowStore, assessmentPort, verificationPort, scheduler, clock);

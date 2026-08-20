@@ -24,16 +24,32 @@ public final class RationaleEvaluationPromptCompiler {
     );
 
     public String compile(EvaluationBundleStack stack) {
-        return compile(stack, List.of());
+        return compile(stack, RationaleEvaluationProfile.BASE_SYSTEM_PROMPT, List.of());
     }
 
     public String compile(EvaluationBundleStack stack, List<String> normalizedViolations) {
+        return compile(stack, RationaleEvaluationProfile.BASE_SYSTEM_PROMPT, normalizedViolations);
+    }
+
+    public String compile(EvaluationBundleStack stack, String profileSystemPrompt) {
+        return compile(stack, profileSystemPrompt, List.of());
+    }
+
+    public String compile(
+            EvaluationBundleStack stack,
+            String profileSystemPrompt,
+            List<String> normalizedViolations
+    ) {
         Objects.requireNonNull(stack, "stack must not be null");
+        Objects.requireNonNull(profileSystemPrompt, "profileSystemPrompt must not be null");
         Objects.requireNonNull(normalizedViolations, "normalizedViolations must not be null");
+        if (profileSystemPrompt.isBlank()) {
+            throw new IllegalArgumentException("profileSystemPrompt must not be blank");
+        }
         validateStack(stack);
 
         StringBuilder compiled = new StringBuilder();
-        compiled.append(RationaleEvaluationProfile.BASE_SYSTEM_PROMPT.trim()).append('\n');
+        compiled.append(profileSystemPrompt.trim()).append('\n');
         for (BundleSlot slot : FIXED_SLOT_ORDER) {
             SkillBundle bundle = stack.bundle(slot);
             compiled.append("\n[bundle:").append(slot.name().toLowerCase()).append(':')

@@ -35,6 +35,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.CounterexampleReviewProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfile;
@@ -113,9 +114,15 @@ class ApplyProfileLiveSmokeTest {
                         .map(SkillBundleSource::toBundle)
                         .toList()),
                 rationaleAssessment);
+        RationaleEvaluationProfileExecutor counterexampleReviewer = new RationaleEvaluationProfileExecutor(
+                new EvaluationBundleStack(CounterexampleReviewProfile.FIXED_STACK.stream()
+                        .map(loader::load)
+                        .map(SkillBundleSource::toBundle)
+                        .toList()),
+                rationaleAssessment, CounterexampleReviewProfile.BASE_SYSTEM_PROMPT);
         DiagnosticFlow diagnosticFlow = new DiagnosticFlow(
                 executor, artifacts, flowStore, assessment, verification,
-                rationaleEvaluator,
+                rationaleEvaluator, counterexampleReviewer,
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
                 Clock.systemUTC());

@@ -333,6 +333,9 @@ public final class LearningStateGraph {
                         attemptId, CommittedEvaluationResult.RATIONALE_ASSESSMENT,
                         CommittedEvaluationResult.EVALUATION_VERSION).isPresent()
                 || artifactStore.findCommittedEvaluationResult(
+                        attemptId, CommittedEvaluationResult.RATIONALE_SUFFICIENCY_VERIFICATION,
+                        CommittedEvaluationResult.EVALUATION_VERSION).isPresent()
+                || artifactStore.findCommittedEvaluationResult(
                         attemptId, CommittedEvaluationResult.TEACH_BACK_ASSESSMENT,
                         CommittedEvaluationResult.EVALUATION_VERSION).isPresent();
     }
@@ -944,10 +947,6 @@ public final class LearningStateGraph {
                     state, LearningStage.INDEPENDENT_TEST, passed.independentAttempt().attemptId(),
                     passed.independentAttempt().purpose(), passed.independentLearnerProjection(),
                     passed.neutralTransitionMessage(), null, InteractionKind.TASK, idempotencyKey, requestHash);
-            case DiagnosticSubmissionResult.Inconclusive inconclusive -> boundary(
-                    state, LearningStage.INDEPENDENT_TEST, inconclusive.independentAttempt().attemptId(),
-                    inconclusive.independentAttempt().purpose(), inconclusive.independentLearnerProjection(),
-                    inconclusive.neutralTransitionMessage(), null, InteractionKind.TASK, idempotencyKey, requestHash);
             // A failed submitted Diagnostic stays closed and is never
             // retroactively converted. The Workflow Guard derives the legal
             // remediation actions from committed state and the Pedagogy Agent

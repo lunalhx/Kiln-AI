@@ -54,7 +54,7 @@ public final class AssessmentRunner {
         if (closedAttempt.purpose() == AttemptPurpose.DIAGNOSTIC) {
             throw new IllegalArgumentException("Diagnostic assessment requires the explicit Diagnostic policy");
         }
-        return run(profile, closedAttempt, taskPackage, false, null, null);
+        return run(profile, closedAttempt, taskPackage, false, null, null, null);
     }
 
     /**
@@ -67,10 +67,12 @@ public final class AssessmentRunner {
             TaskAttempt closedAttempt,
             TaskPackage taskPackage,
             ApplyExecutionContext diagnosticContext,
-            RationaleEvaluationProfileExecutor rationaleEvaluationExecutor
+            RationaleEvaluationProfileExecutor rationaleAssessmentExecutor,
+            RationaleEvaluationProfileExecutor rationaleSufficiencyExecutor
     ) {
         Objects.requireNonNull(diagnosticContext, "diagnosticContext must not be null");
-        Objects.requireNonNull(rationaleEvaluationExecutor, "rationaleEvaluationExecutor must not be null");
+        Objects.requireNonNull(rationaleAssessmentExecutor, "rationaleAssessmentExecutor must not be null");
+        Objects.requireNonNull(rationaleSufficiencyExecutor, "rationaleSufficiencyExecutor must not be null");
         ApplyExecutionContext.TaskBlueprint blueprint = diagnosticContext.taskBlueprint();
         if (blueprint.attemptPurpose() != AttemptPurpose.DIAGNOSTIC
                 || !ApplyExecutionContext.TaskBlueprint.DIAGNOSTIC_PRIMARY_OR_CORROBORATED_RATIONALE_POLICY
@@ -80,7 +82,8 @@ public final class AssessmentRunner {
             throw new IllegalArgumentException(
                     "Diagnostic requires the primary-or-corroborated-rationale policy and a Trusted Primary-Answer Check");
         }
-        return run(profile, closedAttempt, taskPackage, true, diagnosticContext, rationaleEvaluationExecutor);
+        return run(profile, closedAttempt, taskPackage, true, diagnosticContext,
+                rationaleAssessmentExecutor, rationaleSufficiencyExecutor);
     }
 
     private AssessmentOutcome run(
@@ -89,7 +92,8 @@ public final class AssessmentRunner {
             TaskPackage taskPackage,
             boolean diagnosticPrimaryRouting,
             ApplyExecutionContext diagnosticContext,
-            RationaleEvaluationProfileExecutor rationaleEvaluationExecutor
+            RationaleEvaluationProfileExecutor rationaleAssessmentExecutor,
+            RationaleEvaluationProfileExecutor rationaleSufficiencyExecutor
     ) {
         Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(closedAttempt, "closedAttempt must not be null");
@@ -121,18 +125,27 @@ public final class AssessmentRunner {
             RationaleEvaluationContext rationaleContext = RationaleEvaluationContext.from(
                     taskPackage, diagnosticContext, submission.rationale());
             RationaleEvaluationResult rationale = loadOrCommitRationale(
-                    profile, closedAttempt, rationaleContext, rationaleEvaluationExecutor);
-            return switch (rationale.verdict()) {
-                // Ticket 04 owns the first judgment only. Until the
-                // corroborating responsibility exists, even an applicable
-                // first judgment remains unconfirmed and cannot open an
-                // Independent Test.
-                case APPLICABLE, INCONCLUSIVE -> new AssessmentOutcome.Unconfirmed(null, null);
-                case NOT_APPLICABLE -> new AssessmentOutcome.Failed(
+                    profile, closedAttempt, rationaleContext,
+                    CommittedEvaluationResult.RATIONALE_ASSESSMENT,
+                    ModelContractAudit.RATIONALE_ASSESSMENT,
+                    rationaleAssessmentExecutor);
+            if (rationale.verdict() != RationaleEvaluationResult.Verdict.APPLICABLE) {
+                return rationale.verdict() == RationaleEvaluationResult.Verdict.NOT_APPLICABLE
+                        ? new AssessmentOutcome.Failed(
                         null, null,
                         rationale.reasonCodes().stream()
                                 .map(RationaleEvaluationResult.ReasonCode::wireValue)
-                                .toList());
+                                .toList())
+                        : new AssessmentOutcome.Unconfirmed(null, null);
+            }
+            RationaleEvaluationResult corroboration = loadOrCommitRationale(
+                    profile, closedAttempt, rationaleContext,
+                    CommittedEvaluationResult.RATIONALE_SUFFICIENCY_VERIFICATION,
+                    ModelContractAudit.RATIONALE_SUFFICIENCY_VERIFICATION,
+                    rationaleSufficiencyExecutor);
+            return switch (corroboration.verdict()) {
+                case APPLICABLE -> new AssessmentOutcome.Passed(null, null);
+                case NOT_APPLICABLE, INCONCLUSIVE -> new AssessmentOutcome.Unconfirmed(null, null);
             };
         }
         ResponseAssessment assessment = loadOrCommit(
@@ -159,22 +172,24 @@ public final class AssessmentRunner {
             ModelProfile profile,
             TaskAttempt closedAttempt,
             RationaleEvaluationContext context,
+            String responsibility,
+            String auditResponsibility,
             RationaleEvaluationProfileExecutor evaluator
     ) {
         return artifactStore.findCommittedEvaluationResult(
                         closedAttempt.attemptId(),
-                        CommittedEvaluationResult.RATIONALE_ASSESSMENT,
+                        responsibility,
                         CommittedEvaluationResult.EVALUATION_VERSION)
                 .map(committed -> RationaleEvaluationResult.parse(committed.resultPayload()))
                 .orElseGet(() -> {
                     RationaleEvaluationResult evaluated = ModelContractRepair.once(
                             violations -> evaluator.evaluate(profile, context, violations),
                             artifactStore, null, closedAttempt.attemptId(), closedAttempt.taskPackageId(),
-                            ModelContractAudit.RATIONALE_ASSESSMENT,
+                            auditResponsibility,
                             CommittedEvaluationResult.EVALUATION_VERSION);
                     CommittedEvaluationResult committed = artifactStore.saveOrReturnCommittedEvaluationResult(
                             closedAttempt.attemptId(),
-                            CommittedEvaluationResult.RATIONALE_ASSESSMENT,
+                            responsibility,
                             CommittedEvaluationResult.EVALUATION_VERSION,
                             evaluated.schema(),
                             ApplyJson.writeContract(evaluated));

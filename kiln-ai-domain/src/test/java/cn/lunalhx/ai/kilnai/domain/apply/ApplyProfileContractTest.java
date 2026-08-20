@@ -760,7 +760,7 @@ class ApplyProfileContractTest {
     }
 
     @Test
-    void cannotDecideWithDisagreementIsInconclusiveWithoutFailureFeedbackOrEvidence() {
+    void cannotDecideWithDisagreementIsUnconfirmedWithoutFailureFeedbackOrEvidence() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
                 ApplyScriptData.taskReadyJson(),
                 ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
@@ -780,24 +780,17 @@ class ApplyProfileContractTest {
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE,
                 null);
 
-        assertInstanceOf(DiagnosticSubmissionResult.Inconclusive.class, result);
-        DiagnosticSubmissionResult.Inconclusive inconclusive =
-                (DiagnosticSubmissionResult.Inconclusive) result;
-        assertEquals(DiagnosticFlow.NEUTRAL_TRANSITION_MESSAGE, inconclusive.neutralTransitionMessage());
-        assertFalse(inconclusive.neutralTransitionMessage().contains("正确"), "no correctness feedback");
-        assertFalse(inconclusive.neutralTransitionMessage().contains("错误"), "no failure feedback");
-        assertFalse(inconclusive.neutralTransitionMessage().contains("答案"), "no answer feedback");
-        assertNotNull(inconclusive.independentAttempt(), "a fresh Independent task must be prepared");
-        String diagnosticFingerprint = harness.artifacts().findPackage(diagnostic.attempt().taskPackageId())
-                .orElseThrow().privateAssessorProjection().taskFingerprint().value();
-        String independentFingerprint = harness.artifacts().findPackage(inconclusive.independentAttempt().taskPackageId())
-                .orElseThrow().privateAssessorProjection().taskFingerprint().value();
-        assertFalse(independentFingerprint.equals(diagnosticFingerprint),
-                "the prepared Independent task must be fresh");
+        DiagnosticSubmissionResult.Unconfirmed unconfirmed =
+                assertInstanceOf(DiagnosticSubmissionResult.Unconfirmed.class, result);
+        assertEquals(List.of(), unconfirmed.facts().missingCriteria());
+        assertEquals(List.of(), unconfirmed.facts().errorDimensions());
+        assertEquals(1, generation.calls().size(),
+                "an Unconfirmed Diagnostic must not prepare an Independent task");
+        assertTrue(harness.flowStore().allEvidence().isEmpty());
     }
 
     @Test
-    void cannotDecideWithBothNonEquivalentIsInconclusiveNeverGuessedWrong() {
+    void cannotDecideWithBothNonEquivalentIsUnconfirmedNeverGuessedWrong() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
                 ApplyScriptData.taskReadyJson(),
                 ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
@@ -817,11 +810,14 @@ class ApplyProfileContractTest {
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE,
                 null);
 
-        assertInstanceOf(DiagnosticSubmissionResult.Inconclusive.class, result,
-                "an unresolved expression must never be judged a failure");
-        assertEquals(2, generation.calls().size(),
-                "the Inconclusive Diagnostic must prepare a fresh Independent task");
-        assertNotNull(((DiagnosticSubmissionResult.Inconclusive) result).independentAttempt());
+        DiagnosticSubmissionResult.Unconfirmed unconfirmed =
+                assertInstanceOf(DiagnosticSubmissionResult.Unconfirmed.class, result,
+                        "an unresolved expression must remain unconfirmed");
+        assertEquals(List.of(), unconfirmed.facts().missingCriteria());
+        assertEquals(List.of(), unconfirmed.facts().errorDimensions());
+        assertEquals(1, generation.calls().size(),
+                "an Unconfirmed Diagnostic must not prepare an Independent task");
+        assertTrue(harness.flowStore().allEvidence().isEmpty());
     }
 
     @Test
@@ -1165,8 +1161,13 @@ class ApplyProfileContractTest {
                                 List.of(RationaleEvaluationResult.ReasonCode.MATERIAL_GAP));
                     };
                 });
+        RationaleEvaluationProfileExecutor rationaleSufficiencyEvaluator = new RationaleEvaluationProfileExecutor(
+                ReferenceBundles.counterexampleReviewStack(),
+                (profile, prompt, contextJson) -> RationaleEvaluationResult.notApplicable(
+                        List.of(RationaleEvaluationResult.ReasonCode.MATERIAL_GAP)),
+                cn.lunalhx.ai.kilnai.domain.apply.profile.CounterexampleReviewProfile.BASE_SYSTEM_PROMPT);
         DiagnosticFlow flow = new DiagnosticFlow(executor, artifacts, flowStore, assessment, verification,
-                rationaleEvaluator,
+                rationaleEvaluator, rationaleSufficiencyEvaluator,
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
                 CLOCK);

@@ -532,6 +532,12 @@ class InconclusiveReviewReplacementContractTest {
                         (profile, prompt, contextJson) ->
                                 cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.notApplicable(
                                         List.of(cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.ReasonCode.MATERIAL_GAP))),
+                new cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor(
+                        ReferenceBundles.counterexampleReviewStack(),
+                        (profile, prompt, contextJson) ->
+                                cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.notApplicable(
+                                        List.of(cn.lunalhx.ai.kilnai.domain.apply.model.RationaleEvaluationResult.ReasonCode.MATERIAL_GAP)),
+                        cn.lunalhx.ai.kilnai.domain.apply.profile.CounterexampleReviewProfile.BASE_SYSTEM_PROMPT),
                 DiagnosticApplyFixture.diagnosticContext(), IndependentApplyFixture.independentContext(), clock);
         IndependentSubmissionFlow independentFlow = new IndependentSubmissionFlow(
                 artifacts, flowStore, assessment, verification, reviewScheduler, clock);

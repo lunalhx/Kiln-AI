@@ -179,14 +179,33 @@ public final class ReferenceBundles {
                     List.of("rationale_evaluation"), "rationale_evaluation/v1")
     );
 
+    private static final List<SkillBundle> COUNTEREXAMPLE_REVIEW_BUNDLES = List.of(
+            bundle("evaluation.counterexample-review", BundleSlot.EVALUATION, "1.0.0",
+                    "Challenge a complete learner rationale for missing support, misapplication, or contradiction.",
+                    List.of("task_text", "rationale", "task_rubric", "expected_answer_facts",
+                            "source_passages", "learner_locale"),
+                    List.of(),
+                    """
+                    # Counterexample Review
+
+                    Actively search the complete rationale for missing support,
+                    misapplication, material error, and contradiction using only
+                    the supplied Task Rubric and task-owned facts. Do not use
+                    keywords as proof and do not return reasoning.
+                    """,
+                    List.of("rationale_evaluation"), "rationale_evaluation/v1"),
+            RATIONALE_EVALUATION_BUNDLES.get(1)
+    );
+
     private ReferenceBundles() {
     }
 
     public static SkillBundle bundle(String pinnedId) {
         return java.util.stream.Stream.concat(BUNDLES.stream(),
-                        java.util.stream.Stream.concat(EXPLAIN_BUNDLES.stream(),
-                                java.util.stream.Stream.concat(TEACH_BACK_BUNDLES.stream(),
-                                        RATIONALE_EVALUATION_BUNDLES.stream())))
+                java.util.stream.Stream.concat(EXPLAIN_BUNDLES.stream(),
+                        java.util.stream.Stream.concat(TEACH_BACK_BUNDLES.stream(),
+                                java.util.stream.Stream.concat(RATIONALE_EVALUATION_BUNDLES.stream(),
+                                        COUNTEREXAMPLE_REVIEW_BUNDLES.stream()))))
                 .filter(bundle -> pinnedId.equals(bundle.pinnedId()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("no reference bundle: " + pinnedId));
@@ -216,6 +235,10 @@ public final class ReferenceBundles {
 
     public static EvaluationBundleStack rationaleEvaluationStack() {
         return new EvaluationBundleStack(RATIONALE_EVALUATION_BUNDLES);
+    }
+
+    public static EvaluationBundleStack counterexampleReviewStack() {
+        return new EvaluationBundleStack(COUNTEREXAMPLE_REVIEW_BUNDLES);
     }
 
     public static SkillBundle rewrap(BundleManifest manifest, SkillBundle bundle) {

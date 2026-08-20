@@ -64,10 +64,13 @@ public class ScriptedLearningGraphPortsConfiguration {
     private final AtomicInteger remainingInvalidAssessments = new AtomicInteger(0);
     private final AtomicInteger remainingAssessmentConfigurationFailures = new AtomicInteger(0);
     private final AtomicInteger remainingAssessmentProviderFailures = new AtomicInteger(0);
+    private final AtomicInteger remainingCounterexampleProviderFailures = new AtomicInteger(0);
+    private final AtomicInteger remainingCounterexampleContractFailures = new AtomicInteger(0);
     private final AtomicInteger remainingResponseVerificationProviderFailures = new AtomicInteger(0);
     private final AtomicInteger remainingTeachBackAssessmentProviderFailures = new AtomicInteger(0);
     private volatile boolean responseVerificationEnabled = false;
     private final Deque<ClarificationClassification> scriptedClarifications = new ArrayDeque<>();
+    private final Deque<RationaleEvaluationResult> scriptedRationaleEvaluations = new ArrayDeque<>();
 
     public void failNextApplyGeneration() {
         this.failNextApplyGeneration = true;
@@ -89,6 +92,18 @@ public class ScriptedLearningGraphPortsConfiguration {
         this.remainingAssessmentConfigurationFailures.set(count);
     }
 
+    public void failNextCounterexampleReviewProviderCalls(int count) {
+        this.remainingCounterexampleProviderFailures.set(count);
+    }
+
+    public void failNextCounterexampleReviewContractCalls(int count) {
+        this.remainingCounterexampleContractFailures.set(count);
+    }
+
+    public synchronized void scriptRationaleEvaluation(RationaleEvaluationResult result) {
+        this.scriptedRationaleEvaluations.addLast(result);
+    }
+
     public void failNextResponseVerificationProviderCalls(int count) {
         this.responseVerificationEnabled = true;
         this.remainingResponseVerificationProviderFailures.set(count);
@@ -104,9 +119,14 @@ public class ScriptedLearningGraphPortsConfiguration {
         remainingInvalidAssessments.set(0);
         remainingAssessmentConfigurationFailures.set(0);
         remainingAssessmentProviderFailures.set(0);
+        remainingCounterexampleProviderFailures.set(0);
+        remainingCounterexampleContractFailures.set(0);
         remainingResponseVerificationProviderFailures.set(0);
         remainingTeachBackAssessmentProviderFailures.set(0);
         responseVerificationEnabled = false;
+        synchronized (this) {
+            scriptedRationaleEvaluations.clear();
+        }
     }
 
     /**
@@ -228,6 +248,14 @@ public class ScriptedLearningGraphPortsConfiguration {
     @Primary
     RationaleAssessmentPort scriptedRationaleAssessment() {
         return (profile, compiledSystemPrompt, evaluationContextJson) -> {
+            if (compiledSystemPrompt.contains("evaluation.counterexample-review")
+                    && remainingCounterexampleProviderFailures.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+                throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, "provider unavailable");
+            }
+            if (compiledSystemPrompt.contains("evaluation.counterexample-review")
+                    && remainingCounterexampleContractFailures.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
+                throw new ModelContractInvalidException(List.of("unknown_field"));
+            }
             if (remainingAssessmentConfigurationFailures.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
                 throw new ApplicationException(ErrorCode.INVALID_ARGUMENT, "model configuration invalid");
             }
@@ -236,6 +264,13 @@ public class ScriptedLearningGraphPortsConfiguration {
             }
             if (remainingInvalidAssessments.getAndUpdate(n -> n > 0 ? n - 1 : 0) > 0) {
                 throw new ModelContractInvalidException(List.of("unknown_field"));
+            }
+            RationaleEvaluationResult scripted;
+            synchronized (this) {
+                scripted = scriptedRationaleEvaluations.pollFirst();
+            }
+            if (scripted != null) {
+                return scripted;
             }
             return RationaleEvaluationResult.notApplicable(
                     List.of(RationaleEvaluationResult.ReasonCode.MATERIAL_GAP));

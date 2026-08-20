@@ -11,7 +11,7 @@ import java.util.Objects;
  * Verification. A proven deterministic result is never overridden. On
  * Cannot Decide, both isolated judgments must return equivalent for the
  * final-expression channel to pass; disagreement or any non-equivalent result
- * is Inconclusive.
+ * is Unconfirmed for Diagnostic routing.
  */
 public final class ResponseAssessmentDecider {
 
@@ -61,13 +61,12 @@ public final class ResponseAssessmentDecider {
         if (finalExpression == FinalExpressionJudgment.EQUIVALENT) {
             return new AssessmentOutcome.Passed(assessment, verification);
         }
-        RationaleJudgment rationale = rationaleOf(assessment);
-        if (rationale == RationaleJudgment.APPLICABLE) {
-            return new AssessmentOutcome.Passed(assessment, verification);
+        if (finalExpression == FinalExpressionJudgment.INCONCLUSIVE) {
+            return new AssessmentOutcome.Unconfirmed(assessment, verification);
         }
-        if (finalExpression == FinalExpressionJudgment.INCONCLUSIVE || rationale == RationaleJudgment.INCONCLUSIVE) {
-            return new AssessmentOutcome.Inconclusive(assessment, verification);
-        }
+        // Diagnostic rationale rescue is owned exclusively by the two isolated
+        // rationale Evaluation Profiles. A response-assessment rationale can
+        // never override a proven non-equivalent primary answer.
         return new AssessmentOutcome.Failed(assessment, verification, List.of());
     }
 

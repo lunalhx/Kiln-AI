@@ -26,8 +26,8 @@ import java.util.UUID;
 /**
  * The Diagnostic submission flow: one formal submission atomically closes the
  * Diagnostic Attempt, a passing Diagnostic moves through a Neutral Transition
- * to a fresh verified Independent task, an inconclusive Diagnostic does the
- * same without failure feedback, and a Diagnostic Not Passed result ends safely. It
+ * to a fresh verified Independent task, an unconfirmed Diagnostic carries
+ * neutral facts into the Guard, and a Diagnostic Not Passed result ends safely. It
  * never creates Evidence. Every displayed package and assessment artifact is
  * persisted durably; the flow carries no in-memory state across calls.
  */
@@ -40,7 +40,8 @@ public final class DiagnosticFlow {
     private final LearningFlowStore flowStore;
     private final ArtifactStore artifactStore;
     private final AssessmentRunner assessmentRunner;
-    private final RationaleEvaluationProfileExecutor rationaleEvaluationExecutor;
+    private final RationaleEvaluationProfileExecutor rationaleAssessmentExecutor;
+    private final RationaleEvaluationProfileExecutor rationaleSufficiencyExecutor;
     private final SubmissionCloser submissionCloser;
     private final ApplyExecutionContext diagnosticContext;
     private final ApplyExecutionContext independentContextTemplate;
@@ -51,7 +52,8 @@ public final class DiagnosticFlow {
             LearningFlowStore flowStore,
             AssessmentPort assessmentPort,
             ResponseVerificationPort verificationPort,
-            RationaleEvaluationProfileExecutor rationaleEvaluationExecutor,
+            RationaleEvaluationProfileExecutor rationaleAssessmentExecutor,
+            RationaleEvaluationProfileExecutor rationaleSufficiencyExecutor,
             ApplyExecutionContext diagnosticContext,
             ApplyExecutionContext independentContextTemplate,
             Clock clock
@@ -63,8 +65,10 @@ public final class DiagnosticFlow {
                 Objects.requireNonNull(assessmentPort, "assessmentPort must not be null"),
                 Objects.requireNonNull(verificationPort, "verificationPort must not be null"),
                 artifactStore);
-        this.rationaleEvaluationExecutor = Objects.requireNonNull(
-                rationaleEvaluationExecutor, "rationaleEvaluationExecutor must not be null");
+        this.rationaleAssessmentExecutor = Objects.requireNonNull(
+                rationaleAssessmentExecutor, "rationaleAssessmentExecutor must not be null");
+        this.rationaleSufficiencyExecutor = Objects.requireNonNull(
+                rationaleSufficiencyExecutor, "rationaleSufficiencyExecutor must not be null");
         this.submissionCloser = new SubmissionCloser(artifactStore, clock);
         this.diagnosticContext = Objects.requireNonNull(diagnosticContext, "diagnosticContext must not be null");
         this.independentContextTemplate = Objects.requireNonNull(
@@ -151,10 +155,11 @@ public final class DiagnosticFlow {
     private DiagnosticSubmissionResult assess(UUID flowId, ModelProfile profile, TaskAttempt closedAttempt) {
         AssessmentOutcome outcome = assessmentRunner.runDiagnostic(
                 profile, closedAttempt, packageOf(closedAttempt), diagnosticContext,
-                rationaleEvaluationExecutor);
+                rationaleAssessmentExecutor, rationaleSufficiencyExecutor);
         return switch (outcome) {
             case AssessmentOutcome.Passed passed -> deliverIndependent(flowId, profile, closedAttempt, outcome);
-            case AssessmentOutcome.Inconclusive inconclusive -> deliverIndependent(flowId, profile, closedAttempt, outcome);
+            case AssessmentOutcome.Inconclusive inconclusive ->
+                    new DiagnosticSubmissionResult.Unconfirmed(closedAttempt, neutralFacts());
             case AssessmentOutcome.Unconfirmed unconfirmed ->
                     new DiagnosticSubmissionResult.Unconfirmed(closedAttempt, neutralFacts());
             // A failed submitted Diagnostic stays closed and is never
@@ -205,12 +210,8 @@ public final class DiagnosticFlow {
                         new DiagnosticSubmissionResult.Passed(
                                 closedDiagnosticAttempt, NEUTRAL_TRANSITION_MESSAGE,
                                 delivered.attempt(), delivered.learnerProjection());
-                case AssessmentOutcome.Inconclusive inconclusive ->
-                        new DiagnosticSubmissionResult.Inconclusive(
-                                closedDiagnosticAttempt, NEUTRAL_TRANSITION_MESSAGE,
-                                delivered.attempt(), delivered.learnerProjection());
                 default -> throw new IllegalStateException(
-                        "only a passing or inconclusive assessment delivers an Independent task: " + outcome);
+                        "only a passing assessment delivers an Independent task: " + outcome);
             };
         }
         ApplyDeliveryResult.Unavailable unavailable = (ApplyDeliveryResult.Unavailable) result;

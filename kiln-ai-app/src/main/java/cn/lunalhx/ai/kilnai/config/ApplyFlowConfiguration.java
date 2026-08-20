@@ -32,6 +32,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackGenerationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.TeachBackTaskVerifierPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.apply.profile.CounterexampleReviewProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfile;
@@ -209,6 +210,15 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
+    EvaluationBundleStack counterexampleReviewBundleStack() {
+        BundleLoader loader = new BundleLoader();
+        return new EvaluationBundleStack(CounterexampleReviewProfile.FIXED_STACK.stream()
+                .map(loader::load)
+                .map(SkillBundleSource::toBundle)
+                .toList());
+    }
+
+    @Bean
     ApplyProfileExecutor applyProfileExecutor(
             @Qualifier("applyBundleStack") BundleStack stack,
             ApplyGenerationPort generationPort,
@@ -277,6 +287,15 @@ public class ApplyFlowConfiguration {
     }
 
     @Bean
+    RationaleEvaluationProfileExecutor counterexampleReviewProfileExecutor(
+            @Qualifier("counterexampleReviewBundleStack") EvaluationBundleStack stack,
+            RationaleAssessmentPort assessmentPort
+    ) {
+        return new RationaleEvaluationProfileExecutor(
+                stack, assessmentPort, CounterexampleReviewProfile.BASE_SYSTEM_PROMPT);
+    }
+
+    @Bean
     TeachBackFlow teachBackFlow(
             TeachBackProfileExecutor executor,
             ArtifactStore artifactStore,
@@ -329,12 +348,15 @@ public class ApplyFlowConfiguration {
             LearningFlowStore flowStore,
             AssessmentPort assessmentPort,
             ResponseVerificationPort verificationPort,
-            RationaleEvaluationProfileExecutor rationaleEvaluationExecutor,
+            @Qualifier("rationaleEvaluationProfileExecutor")
+            RationaleEvaluationProfileExecutor rationaleAssessmentExecutor,
+            @Qualifier("counterexampleReviewProfileExecutor")
+            RationaleEvaluationProfileExecutor rationaleSufficiencyExecutor,
             Clock clock
     ) {
         return new DiagnosticFlow(
                 executor, artifactStore, flowStore, assessmentPort, verificationPort,
-                rationaleEvaluationExecutor,
+                rationaleAssessmentExecutor, rationaleSufficiencyExecutor,
                 DiagnosticApplyFixture.diagnosticContext(),
                 IndependentApplyFixture.independentContext(),
                 clock);

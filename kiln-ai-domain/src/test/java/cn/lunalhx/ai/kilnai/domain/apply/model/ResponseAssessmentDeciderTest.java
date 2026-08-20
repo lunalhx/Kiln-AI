@@ -45,21 +45,21 @@ class ResponseAssessmentDeciderTest {
     }
 
     @Test
-    void anApplicableDiagnosticRationalePassesIndependentlyOfAProvenNonEquivalentFinal() {
+    void anApplicableDiagnosticRationaleCannotOverrideAProvenNonEquivalentFinal() {
         AssessmentOutcome outcome = decide(
                 AttemptPurpose.DIAGNOSTIC, PROVEN_NOT_EQUIVALENT,
                 judgment(NOT_REQUESTED, APPLICABLE), null);
 
-        assertInstanceOf(AssessmentOutcome.Passed.class, outcome);
+        assertInstanceOf(AssessmentOutcome.Failed.class, outcome);
     }
 
     @Test
-    void anInconclusiveDiagnosticRationaleMakesAProvenNonEquivalentFinalInconclusive() {
+    void anInconclusiveDiagnosticRationaleCannotOverrideAProvenNonEquivalentFinal() {
         AssessmentOutcome outcome = decide(
                 AttemptPurpose.DIAGNOSTIC, PROVEN_NOT_EQUIVALENT,
                 judgment(NOT_REQUESTED, RationaleJudgment.INCONCLUSIVE), null);
 
-        assertInstanceOf(AssessmentOutcome.Inconclusive.class, outcome);
+        assertInstanceOf(AssessmentOutcome.Failed.class, outcome);
     }
 
     @Test
@@ -72,48 +72,48 @@ class ResponseAssessmentDeciderTest {
     }
 
     @Test
-    void cannotDecideWithDisagreeingJudgmentsIsInconclusiveNeverFailedOrPassed() {
+    void cannotDecideWithDisagreeingJudgmentsIsUnconfirmedNeverFailedOrPassed() {
         AssessmentOutcome outcome = decide(
                 AttemptPurpose.DIAGNOSTIC, CANNOT_DECIDE,
                 judgment(EQUIVALENT, NOT_APPLICABLE), judgment(NOT_EQUIVALENT, NOT_APPLICABLE));
 
-        assertInstanceOf(AssessmentOutcome.Inconclusive.class, outcome);
+        assertInstanceOf(AssessmentOutcome.Unconfirmed.class, outcome);
     }
 
     @Test
-    void cannotDecideWithBothNonEquivalentIsInconclusiveNeverGuessedWrong() {
+    void cannotDecideWithBothNonEquivalentIsUnconfirmedNeverGuessedWrong() {
         AssessmentOutcome outcome = decide(
                 AttemptPurpose.DIAGNOSTIC, CANNOT_DECIDE,
                 judgment(NOT_EQUIVALENT, NOT_APPLICABLE), judgment(NOT_EQUIVALENT, NOT_APPLICABLE));
 
-        assertInstanceOf(AssessmentOutcome.Inconclusive.class, outcome);
+        assertInstanceOf(AssessmentOutcome.Unconfirmed.class, outcome);
     }
 
     @Test
-    void cannotDecideWithAnInconclusiveModelJudgmentIsInconclusive() {
+    void cannotDecideWithAnInconclusiveModelJudgmentIsUnconfirmed() {
         AssessmentOutcome outcome = decide(
                 AttemptPurpose.DIAGNOSTIC, CANNOT_DECIDE,
                 judgment(EQUIVALENT, NOT_APPLICABLE), judgment(INCONCLUSIVE, NOT_APPLICABLE));
 
-        assertInstanceOf(AssessmentOutcome.Inconclusive.class, outcome);
+        assertInstanceOf(AssessmentOutcome.Unconfirmed.class, outcome);
     }
 
     @Test
-    void cannotDecideWithoutAResponseVerificationJudgmentIsInconclusive() {
+    void cannotDecideWithoutAResponseVerificationJudgmentIsUnconfirmed() {
         AssessmentOutcome outcome = decide(
                 AttemptPurpose.DIAGNOSTIC, CANNOT_DECIDE,
                 judgment(EQUIVALENT, NOT_APPLICABLE), null);
 
-        assertInstanceOf(AssessmentOutcome.Inconclusive.class, outcome);
+        assertInstanceOf(AssessmentOutcome.Unconfirmed.class, outcome);
     }
 
     @Test
-    void anApplicableRationalePassesEvenWhenCannotDecideJudgmentsAgreeOnNonEquivalent() {
+    void anApplicableRationaleCannotRescueCannotDecideJudgmentsAgreeingOnNonEquivalent() {
         AssessmentOutcome outcome = decide(
                 AttemptPurpose.DIAGNOSTIC, CANNOT_DECIDE,
                 judgment(NOT_EQUIVALENT, APPLICABLE), judgment(NOT_EQUIVALENT, APPLICABLE));
 
-        assertInstanceOf(AssessmentOutcome.Passed.class, outcome);
+        assertInstanceOf(AssessmentOutcome.Unconfirmed.class, outcome);
     }
 
     @Test
@@ -197,12 +197,12 @@ class ResponseAssessmentDeciderTest {
     }
 
     @Test
-    void aMissingModelJudgmentOnAnUnresolvedChannelIsInconclusiveNeverANpe() {
+    void aMissingModelJudgmentOnAProvenNonEquivalentDiagnosticFailsWithoutAnNpe() {
         AssessmentOutcome outcome = decide(
                 AttemptPurpose.DIAGNOSTIC, PROVEN_NOT_EQUIVALENT, null, null);
 
-        assertInstanceOf(AssessmentOutcome.Inconclusive.class, outcome,
-                "a missing model judgment is an unresolved channel, never a guessed result and never an NPE");
+        assertInstanceOf(AssessmentOutcome.Failed.class, outcome,
+                "a missing model judgment is handled as a conclusive Diagnostic gap and never an NPE");
     }
 
     @Test

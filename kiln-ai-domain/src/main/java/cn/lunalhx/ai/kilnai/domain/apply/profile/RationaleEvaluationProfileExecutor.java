@@ -20,14 +20,28 @@ public final class RationaleEvaluationProfileExecutor {
     private final EvaluationBundleStack stack;
     private final RationaleAssessmentPort assessmentPort;
     private final RationaleEvaluationPromptCompiler compiler;
+    private final String profileSystemPrompt;
 
     public RationaleEvaluationProfileExecutor(
             EvaluationBundleStack stack,
             RationaleAssessmentPort assessmentPort
     ) {
+        this(stack, assessmentPort, RationaleEvaluationProfile.BASE_SYSTEM_PROMPT);
+    }
+
+    public RationaleEvaluationProfileExecutor(
+            EvaluationBundleStack stack,
+            RationaleAssessmentPort assessmentPort,
+            String profileSystemPrompt
+    ) {
         this.stack = Objects.requireNonNull(stack, "stack must not be null");
         this.assessmentPort = Objects.requireNonNull(assessmentPort, "assessmentPort must not be null");
         this.compiler = new RationaleEvaluationPromptCompiler();
+        this.profileSystemPrompt = Objects.requireNonNull(
+                profileSystemPrompt, "profileSystemPrompt must not be null");
+        if (profileSystemPrompt.isBlank()) {
+            throw new IllegalArgumentException("profileSystemPrompt must not be blank");
+        }
     }
 
     public RationaleEvaluationResult evaluate(
@@ -48,7 +62,7 @@ public final class RationaleEvaluationProfileExecutor {
         try {
             return assessmentPort.assess(
                     profile,
-                    compiler.compile(stack, normalizedViolations),
+                    compiler.compile(stack, profileSystemPrompt, normalizedViolations),
                     compiler.serializeContext(context));
         } catch (CapabilityGap exception) {
             throw new ApplicationException(
