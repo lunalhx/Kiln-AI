@@ -9,7 +9,7 @@ import java.util.Objects;
 /**
  * The deterministic Workflow Guard (CONTEXT.md): it derives the closed legal
  * next-move set from committed state at every guarded decision node —
- * Diagnostic failure, Explain completion, Practice or Teach-back results, H5
+ * Diagnostic Not Passed, Explain completion, Practice or Teach-back results, H5
  * reveal, and readiness — so the Pedagogy Agent can choose only among valid
  * transitions. The guard, never the agent, owns legality and
  * state-transition authorization, and it bypasses model-based pedagogy
@@ -50,7 +50,7 @@ import java.util.Objects;
 public final class WorkflowGuard {
 
     public enum DecisionContext {
-        DIAGNOSTIC_FAILED,
+        DIAGNOSTIC_NOT_PASSED,
         EXPLAIN_COMPLETED,
         H5_REVEALED,
         PRACTICE_PASSED,
@@ -103,7 +103,7 @@ public final class WorkflowGuard {
         Objects.requireNonNull(context, "context must not be null");
         Objects.requireNonNull(facts, "facts must not be null");
         return switch (context) {
-            case DIAGNOSTIC_FAILED -> moves(List.of(
+            case DIAGNOSTIC_NOT_PASSED -> moves(List.of(
                     TeachingAction.EXPLAIN, TeachingAction.APPLY_PRACTICE), TeachingAction.EXPLAIN);
             case EXPLAIN_COMPLETED -> facts.openPracticeAttempt()
                     ? moves(List.of(TeachingAction.RESUME_PRACTICE), TeachingAction.RESUME_PRACTICE)

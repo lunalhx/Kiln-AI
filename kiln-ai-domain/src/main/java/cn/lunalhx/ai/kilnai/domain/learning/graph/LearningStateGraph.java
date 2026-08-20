@@ -72,7 +72,7 @@ import java.util.UUID;
  * Interaction Boundary by committing the learner interaction, its checkpoint,
  * and the processed command atomically.
  *
- * <p>At every guarded decision node — an accepted Diagnostic failure, Explain
+ * <p>At every guarded decision node — an accepted Diagnostic Not Passed result, Explain
  * completion, a Practice or Teach-back result, an H5 reveal, and readiness —
  * the deterministic Workflow Guard first derives the closed legal next-move
  * set from committed state, and the bounded Pedagogy Agent then selects one
@@ -933,7 +933,7 @@ public final class LearningStateGraph {
             // remediation actions from committed state and the Pedagogy Agent
             // selects the next teaching node from that closed set.
             case DiagnosticSubmissionResult.Failed failed ->
-                    executeMove(state, chooseDecision(state, WorkflowGuard.DecisionContext.DIAGNOSTIC_FAILED,
+                    executeMove(state, chooseDecision(state, WorkflowGuard.DecisionContext.DIAGNOSTIC_NOT_PASSED,
                                     failed.facts(), evaluationRecovery),
                             null, idempotencyKey, requestHash);
             case DiagnosticSubmissionResult.IndependentUnavailable unavailable -> commitUnavailable(
@@ -1223,7 +1223,7 @@ public final class LearningStateGraph {
 
     /**
      * Executes the guarded decision by invoking the single legal Teaching
-     * Node. The submission Evidence candidate (null for a Diagnostic failure
+     * Node. The submission Evidence candidate (null for a Diagnostic Not Passed result
      * or an Inconclusive judgment) is accepted only after the chosen node's
      * generation, gating, and verification succeed, so a failed generation
      * leaves no Evidence and the command can be retried.
@@ -1458,8 +1458,8 @@ public final class LearningStateGraph {
     /**
      * The readiness fact of the current remediation cycle, derived from the
      * single shared rule: at least one conclusive Apply Practice pass accepted
-     * after the latest triggering failure of this Flow (the Diagnostic
-     * failure starts the first cycle; an accepted no-hint Independent failure
+     * after the latest triggering failure of this Flow (Diagnostic Not Passed
+     * starts the first cycle; an accepted no-hint Independent failure
      * starts a new cycle). A qualifying pass must follow the failure, so the
      * learner cannot re-enter fresh Independent testing on an old pass.
      */
@@ -1478,7 +1478,7 @@ public final class LearningStateGraph {
      */
     private static String neutralMessage(WorkflowGuard.DecisionContext context) {
         return switch (context) {
-            case DIAGNOSTIC_FAILED -> ExplainFlow.EXPLAIN_START_MESSAGE;
+            case DIAGNOSTIC_NOT_PASSED -> ExplainFlow.EXPLAIN_START_MESSAGE;
             case EXPLAIN_COMPLETED -> PracticeSubmissionFlow.PRACTICE_START_MESSAGE;
             case H5_REVEALED -> TeachBackFlow.TEACH_BACK_AFTER_REVEAL_MESSAGE;
             case PRACTICE_PASSED -> PracticeSubmissionFlow.INDEPENDENT_READY_MESSAGE;

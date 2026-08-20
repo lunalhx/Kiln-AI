@@ -2,6 +2,7 @@ package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyJson;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext;
 import cn.lunalhx.ai.kilnai.domain.apply.model.CommittedEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.EquivalenceOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalEquivalenceCheck;
@@ -45,7 +46,43 @@ public final class AssessmentRunner {
         this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore must not be null");
     }
 
-    public AssessmentOutcome run(ModelProfile profile, TaskAttempt closedAttempt, TaskPackage taskPackage) {
+    AssessmentOutcome run(ModelProfile profile, TaskAttempt closedAttempt, TaskPackage taskPackage) {
+        Objects.requireNonNull(closedAttempt, "closedAttempt must not be null");
+        if (closedAttempt.purpose() == AttemptPurpose.DIAGNOSTIC) {
+            throw new IllegalArgumentException("Diagnostic assessment requires the explicit Diagnostic policy");
+        }
+        return run(profile, closedAttempt, taskPackage, false);
+    }
+
+    /**
+     * Runs the current Diagnostic policy. The Blueprint must explicitly opt
+     * into corroborated rationale rescue and declare the deterministic
+     * Mathematical Equivalence Check before this path can be used.
+     */
+    public AssessmentOutcome runDiagnostic(
+            ModelProfile profile,
+            TaskAttempt closedAttempt,
+            TaskPackage taskPackage,
+            ApplyExecutionContext.TaskBlueprint blueprint
+    ) {
+        Objects.requireNonNull(blueprint, "blueprint must not be null");
+        if (blueprint.attemptPurpose() != AttemptPurpose.DIAGNOSTIC
+                || !ApplyExecutionContext.TaskBlueprint.DIAGNOSTIC_PRIMARY_OR_CORROBORATED_RATIONALE_POLICY
+                .equals(blueprint.assessmentPolicyRef())
+                || !ApplyExecutionContext.TaskBlueprint.MATHEMATICAL_EQUIVALENCE_CHECK
+                .equals(blueprint.trustedPrimaryAnswerCheckRef())) {
+            throw new IllegalArgumentException(
+                    "Diagnostic requires the primary-or-corroborated-rationale policy and a Trusted Primary-Answer Check");
+        }
+        return run(profile, closedAttempt, taskPackage, true);
+    }
+
+    private AssessmentOutcome run(
+            ModelProfile profile,
+            TaskAttempt closedAttempt,
+            TaskPackage taskPackage,
+            boolean diagnosticPrimaryRouting
+    ) {
         Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(closedAttempt, "closedAttempt must not be null");
         Objects.requireNonNull(taskPackage, "taskPackage must not be null");
@@ -67,6 +104,11 @@ public final class AssessmentRunner {
         if (outcomeIsDeterminedWithoutModel(closedAttempt.purpose(), deterministic)) {
             return ResponseAssessmentDecider.decide(context, null, null);
         }
+        if (diagnosticPrimaryRouting
+                && deterministic == EquivalenceOutcome.PROVEN_NOT_EQUIVALENT
+                && isMissingRationale(submission.rationale())) {
+            return new AssessmentOutcome.Failed(null, null);
+        }
         ResponseAssessment assessment = loadOrCommit(
                 closedAttempt, context, CommittedEvaluationResult.RESPONSE_ASSESSMENT,
                 ModelContractAudit.ASSESSMENT,
@@ -85,6 +127,10 @@ public final class AssessmentRunner {
             }
         }
         return ResponseAssessmentDecider.decide(context, assessment, verification);
+    }
+
+    private static boolean isMissingRationale(String rationale) {
+        return rationale == null || rationale.isBlank();
     }
 
     private ResponseAssessment loadOrCommit(

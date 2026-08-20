@@ -71,13 +71,29 @@ public record ApplyExecutionContext(
             @JsonProperty("task_shape") TaskShape taskShape,
             @JsonProperty("mathematical_scope") MathematicalScope mathematicalScope,
             @JsonProperty("response_fields") ResponseFields responseFields,
-            @JsonProperty("assessment_policy_ref") String assessmentPolicyRef
+            @JsonProperty("assessment_policy_ref") String assessmentPolicyRef,
+            @JsonProperty("trusted_primary_answer_check_ref") String trustedPrimaryAnswerCheckRef
     ) {
+        public static final String DIAGNOSTIC_PRIMARY_OR_CORROBORATED_RATIONALE_POLICY =
+                "diagnostic.primary-or-corroborated-rationale@1";
+        public static final String MATHEMATICAL_EQUIVALENCE_CHECK = "mathematical-equivalence@1";
+
         public TaskBlueprint {
             Objects.requireNonNull(attemptPurpose, "attemptPurpose must not be null");
             Objects.requireNonNull(taskShape, "taskShape must not be null");
             Objects.requireNonNull(mathematicalScope, "mathematicalScope must not be null");
             Objects.requireNonNull(responseFields, "responseFields must not be null");
+            Objects.requireNonNull(assessmentPolicyRef, "assessmentPolicyRef must not be null");
+            if (attemptPurpose == AttemptPurpose.DIAGNOSTIC
+                    && (!DIAGNOSTIC_PRIMARY_OR_CORROBORATED_RATIONALE_POLICY.equals(assessmentPolicyRef)
+                    || !MATHEMATICAL_EQUIVALENCE_CHECK.equals(trustedPrimaryAnswerCheckRef))) {
+                throw new IllegalArgumentException(
+                        "Diagnostic must opt into corroborated rationale rescue with the mathematical equivalence check");
+            }
+            if (attemptPurpose != AttemptPurpose.DIAGNOSTIC && trustedPrimaryAnswerCheckRef != null) {
+                throw new IllegalArgumentException(
+                        "only a Diagnostic may declare a Trusted Primary-Answer Check");
+            }
         }
 
         public String pinnedId() {

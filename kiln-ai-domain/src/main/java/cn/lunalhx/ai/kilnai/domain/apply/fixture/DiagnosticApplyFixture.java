@@ -58,7 +58,8 @@ public final class DiagnosticApplyFixture {
                                 new ApplyExecutionContext.CoefficientConstraints("nonzero_integer", -9, 9),
                                 true),
                         new ApplyExecutionContext.ResponseFields("required", "optional"),
-                        "diagnostic.final-or-applicable-rationale@1"),
+                        ApplyExecutionContext.TaskBlueprint.DIAGNOSTIC_PRIMARY_OR_CORROBORATED_RATIONALE_POLICY,
+                        ApplyExecutionContext.TaskBlueprint.MATHEMATICAL_EQUIVALENCE_CHECK),
                 new ApplyExecutionContext.ConceptSourcePack(
                         "openstax-calculus-v1-3.3",
                         "1.0.0",

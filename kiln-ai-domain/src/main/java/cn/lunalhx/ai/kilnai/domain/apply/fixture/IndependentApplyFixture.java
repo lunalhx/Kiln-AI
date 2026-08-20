@@ -54,7 +54,8 @@ public final class IndependentApplyFixture {
                                 new ApplyExecutionContext.CoefficientConstraints("nonzero_integer", -9, 9),
                                 true),
                         new ApplyExecutionContext.ResponseFields("required", "optional"),
-                        "independent.final-derivative@1"),
+                        "independent.final-derivative@1",
+                        null),
                 new ApplyExecutionContext.ConceptSourcePack(
                         "openstax-calculus-v1-3.3",
                         "1.0.0",

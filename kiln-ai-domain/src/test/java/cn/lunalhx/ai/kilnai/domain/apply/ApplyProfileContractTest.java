@@ -126,6 +126,14 @@ class ApplyProfileContractTest {
     }
 
     @Test
+    void theDiagnosticBlueprintOptsIntoCorroboratedRationaleRescueWithATrustedPrimaryCheck() {
+        assertEquals("diagnostic.primary-or-corroborated-rationale@1",
+                context.taskBlueprint().assessmentPolicyRef());
+        assertEquals("mathematical-equivalence@1",
+                context.taskBlueprint().trustedPrimaryAnswerCheckRef());
+    }
+
+    @Test
     void separatesCompiledSystemInstructionsFromClosedExecutionContextJson() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson()));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
@@ -293,7 +301,7 @@ class ApplyProfileContractTest {
                 diagnostic.attempt().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL,
-                null);
+                "这段可选理由不参与正确主答案分流");
 
         assertInstanceOf(DiagnosticSubmissionResult.Passed.class, result);
         DiagnosticSubmissionResult.Passed passed = (DiagnosticSubmissionResult.Passed) result;
@@ -343,6 +351,44 @@ class ApplyProfileContractTest {
                 passed.independentLearnerProjection().taskText());
         assertFalse(passed.independentLearnerProjection().taskText()
                 .contains(ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION), "the expected answer must stay private");
+    }
+
+    @Test
+    void aProvenIncorrectDiagnosticWithNoRationaleDoesNotInvokeRationaleAssessment() {
+        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson()));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
+        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
+
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE,
+                diagnostic.attempt().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
+
+        assertInstanceOf(DiagnosticSubmissionResult.Failed.class, result);
+        assertTrue(assessment.contexts().isEmpty(), "a missing rationale must not invoke an evaluator");
+        assertEquals(1, generation.calls().size(), "a not-passed Diagnostic must not generate an Independent task");
+    }
+
+    @Test
+    void aProvenIncorrectDiagnosticWithEmptyOrWhitespaceRationaleDoesNotInvokeRationaleAssessment() {
+        for (String rationale : List.of("", " \t\n")) {
+            ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(
+                    List.of(ApplyScriptData.taskReadyJson()));
+            ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
+            ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
+            Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
+
+            ApplyDeliveryResult.Delivered diagnostic =
+                    (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
+            DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE,
+                    diagnostic.attempt().attemptId(),
+                    ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, rationale);
+
+            assertInstanceOf(DiagnosticSubmissionResult.Failed.class, result);
+            assertTrue(assessment.contexts().isEmpty(), "blank rationale must not invoke an evaluator");
+            assertEquals(1, generation.calls().size(), "blank rationale must not generate an Independent task");
+        }
     }
 
     @Test

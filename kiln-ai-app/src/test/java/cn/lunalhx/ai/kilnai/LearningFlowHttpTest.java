@@ -488,7 +488,7 @@ class LearningFlowHttpTest {
         LearningFlowResponse started = start(learnerId, UUID.randomUUID());
         ResponseEntity<Map> response = submitRawMap(
                 started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
-                "3*x^2", "3*x^2", null);
+                "3*x^2", "3*x^2", "我不知道这道题该如何判断。");
         assertEquals(HttpStatus.OK, response.getStatusCode(),
                 "a still-invalid Assessment must recover as Inconclusive, never as 503");
         Map body = response.getBody();

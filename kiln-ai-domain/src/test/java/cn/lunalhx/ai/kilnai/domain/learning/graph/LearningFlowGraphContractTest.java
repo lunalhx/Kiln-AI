@@ -747,6 +747,30 @@ class LearningFlowGraphContractTest {
     }
 
     @Test
+    void aProvenIncorrectDiagnosticWithoutRationaleEntersLearningAndPracticeWithoutAssessment() {
+        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())), assessment);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(
+                LEARNER_ID, UUID.randomUUID());
+
+        LearningFlowResult.Boundary failed = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
+
+        LearningFlowInteraction interaction = failed.interaction();
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, interaction.stage());
+        assertNull(interaction.attemptId(), "the first guarded move is Explain, not a Practice Attempt");
+        assertNotNull(interaction.teachingProjection());
+        assertTrue(assessment.contexts().isEmpty(), "missing rationale must not invoke rationale assessment");
+        assertEquals(1, harness.generation().calls().size(),
+                "a Diagnostic Not Passed result must not generate an Independent task");
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "a Diagnostic Not Passed result must not create Diagnostic Evidence");
+    }
+
+    @Test
     void aReplayedDiagnosticFailureReturnsTheOriginalExplainBoundaryWithoutRegeneration() {
         Harness harness = harness(
                 new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson(), practiceTaskJson())),

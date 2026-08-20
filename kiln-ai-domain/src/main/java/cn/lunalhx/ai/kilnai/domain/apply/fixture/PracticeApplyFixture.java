@@ -66,7 +66,8 @@ public final class PracticeApplyFixture {
                                 new ApplyExecutionContext.CoefficientConstraints("nonzero_integer", -9, 9),
                                 true),
                         new ApplyExecutionContext.ResponseFields("required", "optional"),
-                        "practice.final-derivative@1"),
+                        "practice.final-derivative@1",
+                        null),
                 new ApplyExecutionContext.ConceptSourcePack(
                         "openstax-calculus-v1-3.3",
                         "1.0.0",

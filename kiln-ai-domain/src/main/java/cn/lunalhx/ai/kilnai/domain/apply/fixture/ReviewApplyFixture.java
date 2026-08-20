@@ -66,7 +66,8 @@ public final class ReviewApplyFixture {
                                 new ApplyExecutionContext.CoefficientConstraints("nonzero_integer", -9, 9),
                                 true),
                         new ApplyExecutionContext.ResponseFields("required", "optional"),
-                        "review.final-derivative@1"),
+                        "review.final-derivative@1",
+                        null),
                 new ApplyExecutionContext.ConceptSourcePack(
                         "openstax-calculus-v1-3.3",
                         "1.0.0",

@@ -26,7 +26,7 @@ import java.util.UUID;
  * The Diagnostic submission flow: one formal submission atomically closes the
  * Diagnostic Attempt, a passing Diagnostic moves through a Neutral Transition
  * to a fresh verified Independent task, an inconclusive Diagnostic does the
- * same without failure feedback, and a failing Diagnostic ends safely. It
+ * same without failure feedback, and a Diagnostic Not Passed result ends safely. It
  * never creates Evidence. Every displayed package and assessment artifact is
  * persisted durably; the flow carries no in-memory state across calls.
  */
@@ -144,7 +144,8 @@ public final class DiagnosticFlow {
     }
 
     private DiagnosticSubmissionResult assess(UUID flowId, ModelProfile profile, TaskAttempt closedAttempt) {
-        AssessmentOutcome outcome = assessmentRunner.run(profile, closedAttempt, packageOf(closedAttempt));
+        AssessmentOutcome outcome = assessmentRunner.runDiagnostic(
+                profile, closedAttempt, packageOf(closedAttempt), diagnosticContext.taskBlueprint());
         return switch (outcome) {
             case AssessmentOutcome.Passed passed -> deliverIndependent(flowId, profile, closedAttempt, outcome);
             case AssessmentOutcome.Inconclusive inconclusive -> deliverIndependent(flowId, profile, closedAttempt, outcome);
