@@ -145,7 +145,6 @@ public final class DiagnosticFlow {
 
     private DiagnosticSubmissionResult assess(UUID flowId, ModelProfile profile, TaskAttempt closedAttempt) {
         AssessmentOutcome outcome = assessmentRunner.run(profile, closedAttempt, packageOf(closedAttempt));
-        AssessmentRunner.recordAssessments(artifactStore, closedAttempt.attemptId(), outcome);
         return switch (outcome) {
             case AssessmentOutcome.Passed passed -> deliverIndependent(flowId, profile, closedAttempt, outcome);
             case AssessmentOutcome.Inconclusive inconclusive -> deliverIndependent(flowId, profile, closedAttempt, outcome);

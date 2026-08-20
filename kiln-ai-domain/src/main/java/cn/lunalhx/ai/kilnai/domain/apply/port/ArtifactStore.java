@@ -3,18 +3,17 @@ package cn.lunalhx.ai.kilnai.domain.apply.port;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptConversionOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
+import cn.lunalhx.ai.kilnai.domain.apply.model.CommittedEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
-import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 
 import java.util.List;
@@ -25,7 +24,7 @@ import java.util.UUID;
  * The typed store for large and private Apply execution artifacts: curated
  * sources, Task Packages, Task Attempts with their submissions and Assistance
  * Traces, stable Hint Ladders, isolated Task Verification verdicts, and
- * isolated Response Assessment records.
+ * committed post-submission evaluation results.
  *
  * <p>{@link #openAttempt(TaskPackage)} persists the Task Package and opens its
  * Task Attempt atomically, and {@link #closeAttempt(UUID, TaskSubmission)}
@@ -125,18 +124,26 @@ public interface ArtifactStore {
      */
     void recordModelContractAudit(ModelContractAudit audit);
 
-    void recordResponseAssessment(UUID attemptId, ResponseAssessment assessment);
-
-    List<ResponseAssessment> assessmentsFor(UUID attemptId);
-
     /**
-     * Records one isolated Teach-back semantic Assessment as an audit record
-     * of the closed attempt. Duplicate recordings are audit records, never
-     * state.
+     * Commits one closed evaluation result exactly once for its
+     * (Attempt, responsibility, evaluation version) identity. A concurrent
+     * caller receives the already committed unique-key winner.
      */
-    void recordTeachBackAssessment(UUID attemptId, TeachBackAssessment assessment);
+    CommittedEvaluationResult saveOrReturnCommittedEvaluationResult(
+            UUID attemptId,
+            String responsibility,
+            String evaluationVersion,
+            String resultSchema,
+            String resultPayload
+    );
 
-    List<TeachBackAssessment> teachBackAssessmentsFor(UUID attemptId);
+    Optional<CommittedEvaluationResult> findCommittedEvaluationResult(
+            UUID attemptId,
+            String responsibility,
+            String evaluationVersion
+    );
+
+    List<CommittedEvaluationResult> committedEvaluationResultsFor(UUID attemptId);
 
     void saveSource(SourceArtifact source);
 

@@ -177,9 +177,9 @@ class LearningFlowPostgresRecoveryContractTest {
     void cleanDatabase() {
         jdbc.execute("""
                 TRUNCATE active_learning_work, pending_operations, review_tasks, hint_requests, hint_ladders, teach_back_anchors,
-                         teach_back_packages, teach_back_assessments, explain_artifacts,
+                         teach_back_packages, evaluation_results, explain_artifacts,
                          revealed_solution_exposures, hint_ladder_exposures, example_exposures,
-                         exposures, commands, checkpoints, interactions, evidence, assessments,
+                         exposures, commands, checkpoints, interactions, evidence,
                          verifications, attempts, packages, sources, flows RESTART IDENTITY CASCADE
                 """);
     }
@@ -328,7 +328,7 @@ class LearningFlowPostgresRecoveryContractTest {
                 "the retry must resume the evaluation of the saved submission exactly once");
         assertEquals(1, store.unfinishedReviewsFor(learnerId).size(),
                 "the resumed transition must still schedule the unique Review 1");
-        assertEquals(1, store.assessmentsFor(attemptId).size(),
+        assertEquals(1, store.committedEvaluationResultsFor(attemptId).size(),
                 "the resumed transition must run exactly one isolated Assessment");
 
         LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) useCase.submitAnswer(
@@ -338,7 +338,7 @@ class LearningFlowPostgresRecoveryContractTest {
         assertEquals(recovered.interaction(), replay.interaction(),
                 "a replay after the commit must return the original committed interaction");
         assertEquals(1, store.allEvidence().size());
-        assertEquals(1, store.assessmentsFor(attemptId).size(),
+        assertEquals(1, store.committedEvaluationResultsFor(attemptId).size(),
                 "a replay must never re-run the assessment");
         assertEquals(1, store.unfinishedReviewsFor(learnerId).size(),
                 "a replay must never schedule a second Review");

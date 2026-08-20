@@ -125,7 +125,6 @@ public final class IndependentSubmissionFlow {
             TaskAttempt closedAttempt
     ) {
         AssessmentOutcome outcome = assessmentRunner.run(flow.modelProfile(), closedAttempt, packageOf(closedAttempt));
-        AssessmentRunner.recordAssessments(artifactStore, closedAttempt.attemptId(), outcome);
         return switch (outcome) {
             case AssessmentOutcome.Passed passed -> acceptPass(flow, closedAttempt);
             // A conclusive no-hint Independent failure: exactly one fail

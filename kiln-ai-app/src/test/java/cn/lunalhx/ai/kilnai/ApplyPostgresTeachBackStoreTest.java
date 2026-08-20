@@ -4,7 +4,9 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyJson;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.CommittedEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalAnswer;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -16,6 +18,9 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
+import cn.lunalhx.ai.kilnai.infrastructure.adapter.repository.ApplyFlowMapper;
+import cn.lunalhx.ai.kilnai.infrastructure.adapter.repository.PostgresApplyFlowStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,18 +34,26 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
+import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The PostgreSQL store contract of the anchored Teach-back slice: the anchor
  * ledger (ordering and idempotency), the Teach-back task package with its
  * Practice-purpose Attempt, the one short-text formal submission, and the
- * isolated Teach-back Assessment records all persist atomically and
+ * committed Teach-back evaluation results all persist atomically and
  * round-trip across a fresh store.
  */
 @SpringBootTest
@@ -78,13 +91,22 @@ class ApplyPostgresTeachBackStoreTest {
     @Autowired
     LearningFlowStore flowStore;
 
+    @Autowired
+    ApplyFlowMapper mapper;
+
+    @Autowired
+    ObjectMapper json;
+
+    @Autowired
+    Clock clock;
+
     @BeforeEach
     void cleanDatabase() {
         jdbc.execute("""
-                TRUNCATE active_learning_work, teach_back_assessments, teach_back_packages,
+                TRUNCATE active_learning_work, evaluation_results, teach_back_packages,
                          teach_back_anchors, hint_requests, hint_ladders,
                          review_tasks, exposures, commands, checkpoints,
-                         interactions, evidence, assessments, verifications,
+                         interactions, evidence, verifications,
                          attempts, packages, sources, flows RESTART IDENTITY CASCADE
                 """);
     }
@@ -147,8 +169,96 @@ class ApplyPostgresTeachBackStoreTest {
                 TeachBackAssessment.DimensionJudgment.PASS,
                 TeachBackAssessment.DimensionJudgment.PASS,
                 List.of());
-        artifacts.recordTeachBackAssessment(attemptId, assessment);
-        assertEquals(List.of(assessment), artifacts.teachBackAssessmentsFor(attemptId));
+        CommittedEvaluationResult committed = artifacts.saveOrReturnCommittedEvaluationResult(
+                attemptId, CommittedEvaluationResult.TEACH_BACK_ASSESSMENT,
+                CommittedEvaluationResult.EVALUATION_VERSION, assessment.schema(), ApplyJson.writeContract(assessment));
+        CommittedEvaluationResult replayed = artifacts.saveOrReturnCommittedEvaluationResult(
+                attemptId, CommittedEvaluationResult.TEACH_BACK_ASSESSMENT,
+                CommittedEvaluationResult.EVALUATION_VERSION,
+                TeachBackAssessment.SCHEMA,
+                ApplyJson.writeContract(new TeachBackAssessment(
+                        TeachBackAssessment.SCHEMA,
+                        TeachBackAssessment.DimensionJudgment.FAIL,
+                        TeachBackAssessment.DimensionJudgment.FAIL,
+                        TeachBackAssessment.DimensionJudgment.FAIL,
+                        List.of("different_candidate"))));
+        assertEquals(committed.resultId(), replayed.resultId(),
+                "a replayed responsibility must return the committed unique-key winner");
+        assertEquals(committed.attemptId(), replayed.attemptId());
+        assertEquals(committed.responsibility(), replayed.responsibility());
+        assertEquals(committed.evaluationVersion(), replayed.evaluationVersion());
+        assertEquals(assessment, TeachBackAssessment.parse(replayed.resultPayload()),
+                "JSONB normalization must not change the committed evaluation semantics");
+        assertEquals(1, artifacts.committedEvaluationResultsFor(attemptId).size());
+    }
+
+    @Test
+    void concurrentResponsibilitiesReturnOneCommittedUniqueKeyWinner() throws Exception {
+        UUID attemptId = artifacts.openAttempt(teachBackPackage()).attemptId();
+        artifacts.closeAttempt(attemptId, new TaskSubmission(
+                new MathematicalAnswer("用了幂法则与和差法则。", "用了幂法则与和差法则。", AnswerInputFamily.PLAIN_TEXT),
+                null, Instant.parse("2026-08-16T00:05:00Z")));
+        TeachBackAssessment pass = new TeachBackAssessment(
+                TeachBackAssessment.SCHEMA,
+                TeachBackAssessment.DimensionJudgment.PASS,
+                TeachBackAssessment.DimensionJudgment.PASS,
+                TeachBackAssessment.DimensionJudgment.PASS,
+                List.of());
+        TeachBackAssessment fail = new TeachBackAssessment(
+                TeachBackAssessment.SCHEMA,
+                TeachBackAssessment.DimensionJudgment.FAIL,
+                TeachBackAssessment.DimensionJudgment.FAIL,
+                TeachBackAssessment.DimensionJudgment.FAIL,
+                List.of("different_candidate"));
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch go = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<CommittedEvaluationResult>> futures = new ArrayList<>();
+            for (TeachBackAssessment candidate : List.of(pass, fail)) {
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    assertTrue(go.await(30, TimeUnit.SECONDS));
+                    return artifacts.saveOrReturnCommittedEvaluationResult(
+                            attemptId, CommittedEvaluationResult.TEACH_BACK_ASSESSMENT,
+                            CommittedEvaluationResult.EVALUATION_VERSION,
+                            candidate.schema(), ApplyJson.writeContract(candidate));
+                }));
+            }
+            assertTrue(ready.await(30, TimeUnit.SECONDS));
+            go.countDown();
+            CommittedEvaluationResult first = futures.get(0).get(30, TimeUnit.SECONDS);
+            CommittedEvaluationResult second = futures.get(1).get(30, TimeUnit.SECONDS);
+
+            assertEquals(first.resultId(), second.resultId(),
+                    "the database unique key must return the committed winner to both callers");
+            assertEquals(1, jdbc.queryForObject(
+                    "SELECT count(*) FROM evaluation_results WHERE attempt_id = ?",
+                    Integer.class, attemptId));
+            TeachBackAssessment winner = TeachBackAssessment.parse(second.resultPayload());
+            assertTrue(List.of(pass, fail).contains(winner),
+                    "downstream callers must receive one of the committed candidates");
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void anOpenAttemptCannotCommitAnEvaluationResult() {
+        UUID attemptId = artifacts.openAttempt(teachBackPackage()).attemptId();
+        TeachBackAssessment assessment = new TeachBackAssessment(
+                TeachBackAssessment.SCHEMA,
+                TeachBackAssessment.DimensionJudgment.PASS,
+                TeachBackAssessment.DimensionJudgment.PASS,
+                TeachBackAssessment.DimensionJudgment.PASS,
+                List.of());
+
+        assertThrows(IllegalStateException.class, () -> artifacts.saveOrReturnCommittedEvaluationResult(
+                attemptId, CommittedEvaluationResult.TEACH_BACK_ASSESSMENT,
+                CommittedEvaluationResult.EVALUATION_VERSION, assessment.schema(), ApplyJson.writeContract(assessment)));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT count(*) FROM evaluation_results WHERE attempt_id = ?",
+                Integer.class, attemptId));
     }
 
     @Test
@@ -165,12 +275,18 @@ class ApplyPostgresTeachBackStoreTest {
                 anchorId, Instant.parse("2026-08-16T00:01:00Z")));
         TeachBackTaskPackage taskPackage = teachBackPackage();
         TaskAttempt attempt = artifacts.openAttempt(taskPackage);
-        artifacts.recordTeachBackAssessment(attempt.attemptId(), new TeachBackAssessment(
+        artifacts.closeAttempt(attempt.attemptId(), new TaskSubmission(
+                new MathematicalAnswer("用了幂法则与和差法则。", "用了幂法则与和差法则。", AnswerInputFamily.PLAIN_TEXT),
+                null, Instant.parse("2026-08-16T00:05:00Z")));
+        TeachBackAssessment assessment = new TeachBackAssessment(
                 TeachBackAssessment.SCHEMA,
                 TeachBackAssessment.DimensionJudgment.INCONCLUSIVE,
                 TeachBackAssessment.DimensionJudgment.INCONCLUSIVE,
                 TeachBackAssessment.DimensionJudgment.INCONCLUSIVE,
-                List.of("unreliable_judgment")));
+                List.of("unreliable_judgment"));
+        artifacts.saveOrReturnCommittedEvaluationResult(
+                attempt.attemptId(), CommittedEvaluationResult.TEACH_BACK_ASSESSMENT,
+                CommittedEvaluationResult.EVALUATION_VERSION, assessment.schema(), ApplyJson.writeContract(assessment));
 
         assertEquals(new TeachBackAnchor(
                         TeachBackAnchor.TeachBackAnchorKind.EXPLAIN_WORKED_EXAMPLE,
@@ -179,9 +295,16 @@ class ApplyPostgresTeachBackStoreTest {
                 "the anchor must survive a fresh read");
         assertEquals(taskPackage, artifacts.findTeachBackPackage(taskPackage.taskPackageId()).orElseThrow(),
                 "the Teach-back package must survive a fresh read");
-        assertEquals(AttemptStatus.OPEN, artifacts.findAttempt(attempt.attemptId()).orElseThrow().status());
-        assertEquals(1, artifacts.teachBackAssessmentsFor(attempt.attemptId()).size(),
-                "the isolated assessment must survive a fresh read");
+        assertEquals(AttemptStatus.SUBMITTED, artifacts.findAttempt(attempt.attemptId()).orElseThrow().status());
+        PostgresApplyFlowStore restartedStore = new PostgresApplyFlowStore(mapper, json, clock);
+        CommittedEvaluationResult recovered = restartedStore.findCommittedEvaluationResult(
+                        attempt.attemptId(), CommittedEvaluationResult.TEACH_BACK_ASSESSMENT,
+                        CommittedEvaluationResult.EVALUATION_VERSION)
+                .orElseThrow();
+        assertEquals(assessment, TeachBackAssessment.parse(recovered.resultPayload()),
+                "a fresh store instance must recover the committed assessment after restart");
+        assertEquals(1, restartedStore.committedEvaluationResultsFor(attempt.attemptId()).size(),
+                "the isolated assessment must survive a fresh store instance");
     }
 
     private TeachBackTaskPackage teachBackPackage() {

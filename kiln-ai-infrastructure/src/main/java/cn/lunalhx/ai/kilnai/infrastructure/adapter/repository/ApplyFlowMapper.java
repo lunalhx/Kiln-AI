@@ -519,23 +519,47 @@ public interface ApplyFlowMapper {
     );
 
     @Insert("""
-            INSERT INTO assessments (id, attempt_id, assessment, created_at)
-            VALUES (#{id}, #{attemptId}, CAST(#{assessmentJson} AS JSONB), #{createdAt})
+            INSERT INTO evaluation_results (
+                id, attempt_id, responsibility, evaluation_version,
+                result_schema, result_payload, created_at
+            ) VALUES (
+                #{id}, #{attemptId}, #{responsibility}, #{evaluationVersion},
+                #{resultSchema}, CAST(#{resultPayload} AS JSONB), #{createdAt}
+            )
+            ON CONFLICT (attempt_id, responsibility, evaluation_version) DO NOTHING
             """)
-    void insertAssessment(
+    int insertEvaluationResult(
             @Param("id") UUID id,
             @Param("attemptId") UUID attemptId,
-            @Param("assessmentJson") String assessmentJson,
+            @Param("responsibility") String responsibility,
+            @Param("evaluationVersion") String evaluationVersion,
+            @Param("resultSchema") String resultSchema,
+            @Param("resultPayload") String resultPayload,
             @Param("createdAt") Instant createdAt
     );
 
     @Select("""
-            SELECT assessment::text AS assessment_json
-            FROM assessments
+            SELECT id, attempt_id, responsibility, evaluation_version,
+                   result_schema, result_payload::text AS result_payload_json, created_at
+            FROM evaluation_results
             WHERE attempt_id = #{attemptId}
-            ORDER BY created_at ASC
+              AND responsibility = #{responsibility}
+              AND evaluation_version = #{evaluationVersion}
             """)
-    List<String> listAssessmentJson(UUID attemptId);
+    Optional<EvaluationResultRow> findEvaluationResult(
+            @Param("attemptId") UUID attemptId,
+            @Param("responsibility") String responsibility,
+            @Param("evaluationVersion") String evaluationVersion
+    );
+
+    @Select("""
+            SELECT id, attempt_id, responsibility, evaluation_version,
+                   result_schema, result_payload::text AS result_payload_json, created_at
+            FROM evaluation_results
+            WHERE attempt_id = #{attemptId}
+            ORDER BY created_at ASC, id ASC
+            """)
+    List<EvaluationResultRow> listEvaluationResults(UUID attemptId);
 
     @Insert("""
             INSERT INTO evidence (
@@ -752,25 +776,6 @@ public interface ApplyFlowMapper {
             """)
     Optional<TeachBackPackageRow> findTeachBackPackage(UUID taskPackageId);
 
-    @Insert("""
-            INSERT INTO teach_back_assessments (id, attempt_id, assessment, created_at)
-            VALUES (#{id}, #{attemptId}, CAST(#{assessmentJson} AS JSONB), #{createdAt})
-            """)
-    void insertTeachBackAssessment(
-            @Param("id") UUID id,
-            @Param("attemptId") UUID attemptId,
-            @Param("assessmentJson") String assessmentJson,
-            @Param("createdAt") Instant createdAt
-    );
-
-    @Select("""
-            SELECT assessment::text AS assessment_json
-            FROM teach_back_assessments
-            WHERE attempt_id = #{attemptId}
-            ORDER BY created_at ASC
-            """)
-    List<String> listTeachBackAssessmentJson(UUID attemptId);
-
     record ApplyFlowRow(
             UUID id,
             UUID learnerId,
@@ -898,6 +903,17 @@ public interface ApplyFlowMapper {
             String attemptPurpose,
             String learnerProjectionJson,
             String privateProjectionJson,
+            Instant createdAt
+    ) {
+    }
+
+    record EvaluationResultRow(
+            UUID id,
+            UUID attemptId,
+            String responsibility,
+            String evaluationVersion,
+            String resultSchema,
+            String resultPayloadJson,
             Instant createdAt
     ) {
     }

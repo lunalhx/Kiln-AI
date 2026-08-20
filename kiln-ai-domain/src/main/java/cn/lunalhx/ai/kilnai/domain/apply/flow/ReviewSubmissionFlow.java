@@ -167,7 +167,6 @@ public final class ReviewSubmissionFlow {
             String requestHash
     ) {
         AssessmentOutcome outcome = assessmentRunner.run(flow.modelProfile(), closedAttempt, packageOf(closedAttempt));
-        AssessmentRunner.recordAssessments(artifactStore, closedAttempt.attemptId(), outcome);
         return switch (outcome) {
             case AssessmentOutcome.Passed passed -> acceptReviewPass(flow, closedAttempt);
             case AssessmentOutcome.Failed failed ->

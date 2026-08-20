@@ -88,7 +88,7 @@ class ApplyPostgresHintStoreTest {
         jdbc.execute("""
                 TRUNCATE active_learning_work, hint_requests, hint_ladders, review_tasks,
                          exposures, commands, checkpoints,
-                         interactions, evidence, assessments, verifications,
+                         interactions, evidence, evaluation_results, verifications,
                          attempts, packages, sources, flows RESTART IDENTITY CASCADE
                 """);
     }

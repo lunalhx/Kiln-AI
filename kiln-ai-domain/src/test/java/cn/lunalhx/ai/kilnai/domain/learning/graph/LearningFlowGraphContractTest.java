@@ -33,6 +33,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.flow.TeachBackFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningCheckpoint;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyJson;
+import cn.lunalhx.ai.kilnai.domain.apply.model.CommittedEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
@@ -58,11 +60,13 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackUnavailableReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
+import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
@@ -284,8 +288,34 @@ class LearningFlowGraphContractTest {
         assertEquals(first.interaction(), replay.interaction());
         assertEquals(1, harness.flowStore().allEvidence().size(),
                 "a replayed key after completion must never accept a second Evidence");
-        assertEquals(1, harness.artifacts().assessmentsFor(independentAttemptId).size(),
+        assertEquals(1, responseAssessmentsFor(harness, independentAttemptId).size(),
                 "the isolated assessment record must be persisted exactly once");
+    }
+
+    @Test
+    void anIndependentAssessmentIsCommittedAsOneVersionedEvaluationResult() {
+        Harness harness = harness();
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(
+                LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        UUID independentAttemptId = transitioned.interaction().attemptId();
+
+        harness.useCase().submitAnswer(
+                started.interaction().flowId(), 2, UUID.randomUUID(), independentAttemptId,
+                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
+
+        List<CommittedEvaluationResult> results =
+                harness.artifacts().committedEvaluationResultsFor(independentAttemptId);
+        assertEquals(1, results.size());
+        CommittedEvaluationResult result = results.get(0);
+        assertEquals(CommittedEvaluationResult.RESPONSE_ASSESSMENT, result.responsibility());
+        assertEquals(CommittedEvaluationResult.EVALUATION_VERSION, result.evaluationVersion());
+        assertEquals(ResponseAssessment.SCHEMA, result.resultSchema());
+        assertEquals(ApplyScriptData.responseAssessment(
+                FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_PROVIDED),
+                ResponseAssessment.parse(result.resultPayload()));
     }
 
     @Test
@@ -307,7 +337,7 @@ class LearningFlowGraphContractTest {
                 "an already-produced outcome with a new key must never accept a second Evidence");
         assertEquals(1, harness.flowStore().unfinishedReviewsFor(LEARNER_ID).size(),
                 "an already-produced outcome must never stack a second Review");
-        assertEquals(1, harness.artifacts().assessmentsFor(independentAttemptId).size(),
+        assertEquals(1, responseAssessmentsFor(harness, independentAttemptId).size(),
                 "an already-produced outcome must never run a second evaluation");
     }
 
@@ -388,6 +418,91 @@ class LearningFlowGraphContractTest {
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
         assertEquals(recovered.interaction(), replay.interaction());
         assertEquals(1, harness.flowStore().allEvidence().size());
+    }
+
+    @Test
+    void aCrashAfterAssessmentCommitResumesWithTheSavedAssessmentAndOnlyRunsMissingVerification() {
+        FailsOnceThenPassesVerification verification = new FailsOnceThenPassesVerification();
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(
+                        ApplyScriptData.taskReadyJson(),
+                        ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
+                                ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION))),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of(ApplyScriptData.responseAssessment(
+                        FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_PROVIDED))),
+                verification);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(
+                LEARNER_ID, UUID.randomUUID());
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        UUID independentAttemptId = transitioned.interaction().attemptId();
+
+        assertThrows(IllegalStateException.class, () -> harness.useCase().submitAnswer(
+                started.interaction().flowId(), 2, UUID.randomUUID(), independentAttemptId,
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null));
+        assertEquals(1, responseAssessmentsFor(harness, independentAttemptId).size(),
+                "the first responsibility must survive a crash before verification");
+        assertEquals(1, harness.assessment().contexts().size());
+
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 2, UUID.randomUUID(), independentAttemptId,
+                ApplyScriptData.UNDECIDABLE_DERIVATIVE, ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
+        assertEquals(3, recovered.interaction().interactionVersion());
+        assertEquals(1, harness.assessment().contexts().size(),
+                "a committed Assessment must not be invoked again during recovery");
+        assertEquals(2, verification.calls,
+                "recovery may invoke only the missing Response Verification");
+        assertEquals(2, responseAssessmentsFor(harness, independentAttemptId).size());
+        assertEquals(1, harness.flowStore().allEvidence().size());
+    }
+
+    @Test
+    void aSavedEvaluationCheckpointUsesDeterministicRoutingWithoutReplanning() {
+        ScriptedPedagogyModel pedagogy = new ScriptedPedagogyModel(List.of(
+                ScriptedPedagogyModel.planJson(TeachingAction.APPLY_PRACTICE, "must not run")));
+        Harness harness = harness(
+                new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson())),
+                new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict())),
+                new ScriptedAssessmentModel(List.of()),
+                new ScriptedResponseVerificationModel(List.of()),
+                new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
+                new ScriptedHintGenerationModel(List.of(HintScriptData.ladderReadyJson())),
+                new ScriptedTeachBackGenerationModel(List.of(TeachBackScriptData.taskReadyJson())),
+                new ScriptedTeachBackAssessmentModel(List.of(TeachBackScriptData.passAssessment())),
+                new ScriptedTeachBackTaskVerifier(List.of(passVerdict(), passVerdict())),
+                pedagogy);
+        LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) harness.useCase().start(
+                LEARNER_ID, UUID.randomUUID());
+        UUID diagnosticAttemptId = started.interaction().attemptId();
+        harness.artifacts().closeAttempt(diagnosticAttemptId, new TaskSubmission(
+                new MathematicalAnswer(ApplyScriptData.WRONG_DERIVATIVE,
+                        ApplyScriptData.WRONG_DERIVATIVE, AnswerInputFamily.PLAIN_TEXT),
+                "我猜的", CLOCK.instant()));
+        ResponseAssessment savedFailure = diagnosticFailJudgment();
+        harness.artifacts().saveOrReturnCommittedEvaluationResult(
+                diagnosticAttemptId, CommittedEvaluationResult.RESPONSE_ASSESSMENT,
+                CommittedEvaluationResult.EVALUATION_VERSION, savedFailure.schema(),
+                ApplyJson.writeContract(savedFailure));
+        harness.artifacts().saveOrReturnCommittedEvaluationResult(
+                diagnosticAttemptId, CommittedEvaluationResult.RESPONSE_VERIFICATION,
+                CommittedEvaluationResult.EVALUATION_VERSION, savedFailure.schema(),
+                ApplyJson.writeContract(savedFailure));
+
+        LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
+                started.interaction().flowId(), 1, UUID.randomUUID(), diagnosticAttemptId,
+                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+
+        assertEquals(LearningStage.LEARNING_AND_PRACTICE, recovered.interaction().stage());
+        assertTrue(recovered.interaction().teachingProjection() != null,
+                "the deterministic recovery route must still deliver its committed teaching boundary");
+        assertTrue(harness.pedagogy().calls().isEmpty(),
+                "a saved evaluation without a committed route must not invoke Pedagogy again");
+        assertTrue(harness.assessment().contexts().isEmpty(),
+                "a saved Assessment must not be re-evaluated during route recovery");
+        assertTrue(harness.flowStore().allEvidence().isEmpty(),
+                "a failed Diagnostic recovery must not fabricate Evidence");
     }
 
     @Test
@@ -1001,7 +1116,7 @@ class LearningFlowGraphContractTest {
                 "a repaired valid fail must accept exactly one Evidence record");
         assertEquals(LearningResult.FAIL, harness.flowStore().allEvidence().get(0).result());
         assertEquals(List.of(conclusivePracticeJudgment()),
-                harness.artifacts().assessmentsFor(practiceAttemptId),
+                responseAssessmentsFor(harness, practiceAttemptId),
                 "only the repaired valid judgment is persisted");
         List<ModelContractAudit> audits = harness.artifacts().allContractAudits();
         assertEquals(1, audits.size());
@@ -1033,7 +1148,7 @@ class LearningFlowGraphContractTest {
         assertEquals(ApplyScriptData.SECOND_PRACTICE_TASK_TEXT, interaction.learnerProjection().taskText());
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "a still-invalid Assessment must never create Evidence");
-        assertTrue(harness.artifacts().assessmentsFor(practiceAttemptId).isEmpty(),
+        assertTrue(responseAssessmentsFor(harness, practiceAttemptId).isEmpty(),
                 "an invalid Assessment must never be persisted");
         List<ModelContractAudit> audits = harness.artifacts().allContractAudits();
         assertEquals(2, audits.size());
@@ -1067,7 +1182,7 @@ class LearningFlowGraphContractTest {
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "a still-invalid Response Verification must never create Evidence");
         assertEquals(List.of(inconclusiveJudgment()),
-                harness.artifacts().assessmentsFor(practiceAttemptId),
+                responseAssessmentsFor(harness, practiceAttemptId),
                 "the valid Assessment is persisted; the invalid Verification is not");
         List<ModelContractAudit> audits = harness.artifacts().allContractAudits();
         assertEquals(2, audits.size());
@@ -1138,7 +1253,7 @@ class LearningFlowGraphContractTest {
                 "a replay must never regenerate the Independent task");
         assertEquals(1, harness.flowStore().allEvidence().size(),
                 "a replayed key must never accept a second Evidence");
-        assertEquals(1, harness.artifacts().assessmentsFor(practiceAttemptId).size(),
+        assertEquals(1, responseAssessmentsFor(harness, practiceAttemptId).size(),
                 "the isolated assessment record must be persisted exactly once");
     }
 
@@ -1407,7 +1522,7 @@ class LearningFlowGraphContractTest {
         assertEquals(AttemptPurpose.INDEPENDENT_TEST, evidence.attemptPurpose());
         assertEquals(0, evidence.highestHintLevel(), "a no-hint Independent fail must never use a hint");
         assertTrue(evidence.assistanceTrace().isEmpty());
-        assertTrue(harness.artifacts().assessmentsFor(independentAttemptId).isEmpty(),
+        assertTrue(responseAssessmentsFor(harness, independentAttemptId).isEmpty(),
                 "a proven non-equivalence must never invoke a model judgment");
         assertEquals(1, harness.pedagogy().calls().size(),
                 "the Independent failure must be one guarded decision");
@@ -1565,7 +1680,7 @@ class LearningFlowGraphContractTest {
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "an Inconclusive Independent judgment must never create Evidence");
         assertEquals(3, harness.generation().calls().size());
-        assertEquals(2, harness.artifacts().assessmentsFor(independentAttemptId).size(),
+        assertEquals(2, responseAssessmentsFor(harness, independentAttemptId).size(),
                 "the isolated assessment and its response verification of the Inconclusive submission must be recorded once each");
         assertEquals(0, harness.pedagogy().calls().size());
     }
@@ -1898,7 +2013,7 @@ class LearningFlowGraphContractTest {
                 "the H5 reveal must close the attempt as Solution Revealed");
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "an H5 reveal must never create Evidence");
-        assertTrue(harness.artifacts().assessmentsFor(practiceAttemptId).isEmpty(),
+        assertTrue(responseAssessmentsFor(harness, practiceAttemptId).isEmpty(),
                 "an H5 reveal must never trigger Assessment");
         assertEquals(TeachBackScriptData.LEARNER_PROMPT, interaction.learnerProjection().taskText(),
                 "the anchored Teach-back task follows the reveal");
@@ -2064,7 +2179,7 @@ class LearningFlowGraphContractTest {
         assertEquals("18*x^2-4", recovered.interaction().hint().proposedFinalAnswer());
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "the resumed H5 reveal must never create Evidence");
-        assertTrue(harness.artifacts().assessmentsFor(practiceAttemptId).isEmpty());
+        assertTrue(responseAssessmentsFor(harness, practiceAttemptId).isEmpty());
         assertEquals(0, harness.hintGeneration().calls().size(),
                 "a resumed reveal must never call the model again");
     }
@@ -2111,7 +2226,7 @@ class LearningFlowGraphContractTest {
                 .contains("18*x^2-4"), "the assessor sees the already exposed H5 anchor content");
         assertEquals(TeachBackScriptData.PASS_EXPLANATION,
                 harness.teachBackAssessment().contexts().get(0).learnerResponse());
-        assertEquals(1, harness.artifacts().teachBackAssessmentsFor(teachBackAttemptId).size(),
+        assertEquals(1, committedTeachBackAssessmentsFor(harness, teachBackAttemptId).size(),
                 "the isolated Teach-back Assessment must be recorded for audit");
         assertEquals(AttemptStatus.SUBMITTED,
                 harness.artifacts().findAttempt(teachBackAttemptId).orElseThrow().status(),
@@ -2212,7 +2327,7 @@ class LearningFlowGraphContractTest {
         assertEquals(TeachBackFlow.TEACH_BACK_REPLACEMENT_MESSAGE, interaction.learnerMessage());
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "a still-invalid Teach-back Assessment must never create Evidence");
-        assertTrue(harness.artifacts().teachBackAssessmentsFor(teachBackAttemptId).isEmpty(),
+        assertTrue(committedTeachBackAssessmentsFor(harness, teachBackAttemptId).isEmpty(),
                 "an invalid Teach-back Assessment must never be persisted");
         List<ModelContractAudit> audits = harness.artifacts().allContractAudits();
         assertEquals(2, audits.size());
@@ -2246,7 +2361,7 @@ class LearningFlowGraphContractTest {
                 "a replay must never run a second Teach-back Assessment");
         assertEquals(1, harness.flowStore().allEvidence().size(),
                 "a replay must never accept a second Evidence");
-        assertEquals(1, harness.artifacts().teachBackAssessmentsFor(teachBackAttemptId).size());
+        assertEquals(1, committedTeachBackAssessmentsFor(harness, teachBackAttemptId).size());
     }
 
     @Test
@@ -2827,7 +2942,7 @@ class LearningFlowGraphContractTest {
                 harness.artifacts().findAttempt(revealedAttemptId).orElseThrow().status(),
                 "the revealed Attempt stays closed as Solution Revealed, never assessed");
         assertTrue(harness.flowStore().allEvidence().isEmpty());
-        assertTrue(harness.artifacts().assessmentsFor(revealedAttemptId).isEmpty());
+        assertTrue(responseAssessmentsFor(harness, revealedAttemptId).isEmpty());
     }
 
     @Test
@@ -3423,7 +3538,7 @@ class LearningFlowGraphContractTest {
         assertNull(abandoned.submission(), "an abandoned attempt carries no submission");
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "an abandoned attempt creates no Learning Evidence");
-        assertEquals(0, harness.artifacts().assessmentsFor(diagnosticAttemptId).size(),
+        assertEquals(0, responseAssessmentsFor(harness, diagnosticAttemptId).size(),
                 "an abandoned attempt is never assessed");
 
         LearningFlowResult.Boundary replay = (LearningFlowResult.Boundary) harness.useCase().flowControlRequested(
@@ -4162,6 +4277,21 @@ class LearningFlowGraphContractTest {
         return ApplyScriptData.responseAssessment(FinalExpressionJudgment.INCONCLUSIVE, RationaleJudgment.INCONCLUSIVE);
     }
 
+    private static List<ResponseAssessment> responseAssessmentsFor(Harness harness, UUID attemptId) {
+        return harness.artifacts().committedEvaluationResultsFor(attemptId).stream()
+                .filter(result -> result.responsibility().equals(CommittedEvaluationResult.RESPONSE_ASSESSMENT)
+                        || result.responsibility().equals(CommittedEvaluationResult.RESPONSE_VERIFICATION))
+                .map(result -> ResponseAssessment.parse(result.resultPayload()))
+                .toList();
+    }
+
+    private static List<TeachBackAssessment> committedTeachBackAssessmentsFor(Harness harness, UUID attemptId) {
+        return harness.artifacts().committedEvaluationResultsFor(attemptId).stream()
+                .filter(result -> result.responsibility().equals(CommittedEvaluationResult.TEACH_BACK_ASSESSMENT))
+                .map(result -> TeachBackAssessment.parse(result.resultPayload()))
+                .toList();
+    }
+
     private static TaskVerificationVerdict passVerdict() {
         return new TaskVerificationVerdict(
                 TaskVerificationVerdict.SCHEMA,
@@ -4188,7 +4318,7 @@ class LearningFlowGraphContractTest {
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
             ScriptedAssessmentModel assessment,
-            ScriptedResponseVerificationModel verification
+            ResponseVerificationPort verification
     ) {
         return harness(generation, verifier, assessment, verification,
                 new ScriptedExplainGenerationModel(List.of(ExplainScriptData.explainReadyJson())),
@@ -4199,7 +4329,7 @@ class LearningFlowGraphContractTest {
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
             ScriptedAssessmentModel assessment,
-            ScriptedResponseVerificationModel verification,
+            ResponseVerificationPort verification,
             ScriptedExplainGenerationModel explainGeneration
     ) {
         return harness(generation, verifier, assessment, verification, explainGeneration,
@@ -4210,7 +4340,7 @@ class LearningFlowGraphContractTest {
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
             ScriptedAssessmentModel assessment,
-            ScriptedResponseVerificationModel verification,
+            ResponseVerificationPort verification,
             ScriptedHintGenerationModel hintGeneration
     ) {
         return harness(generation, verifier, assessment, verification,
@@ -4222,7 +4352,7 @@ class LearningFlowGraphContractTest {
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
             ScriptedAssessmentModel assessment,
-            ScriptedResponseVerificationModel verification,
+            ResponseVerificationPort verification,
             ScriptedExplainGenerationModel explainGeneration,
             ScriptedHintGenerationModel hintGeneration
     ) {
@@ -4236,7 +4366,7 @@ class LearningFlowGraphContractTest {
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
             ScriptedAssessmentModel assessment,
-            ScriptedResponseVerificationModel verification,
+            ResponseVerificationPort verification,
             ScriptedExplainGenerationModel explainGeneration,
             ScriptedHintGenerationModel hintGeneration,
             ScriptedTeachBackGenerationModel teachBackGeneration,
@@ -4251,7 +4381,7 @@ class LearningFlowGraphContractTest {
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
             ScriptedAssessmentModel assessment,
-            ScriptedResponseVerificationModel verification,
+            ResponseVerificationPort verification,
             ScriptedExplainGenerationModel explainGeneration,
             ScriptedHintGenerationModel hintGeneration,
             ScriptedTeachBackGenerationModel teachBackGeneration,
@@ -4266,7 +4396,7 @@ class LearningFlowGraphContractTest {
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
             ScriptedAssessmentModel assessment,
-            ScriptedResponseVerificationModel verification,
+            ResponseVerificationPort verification,
             ScriptedExplainGenerationModel explainGeneration,
             ScriptedHintGenerationModel hintGeneration,
             ScriptedTeachBackGenerationModel teachBackGeneration,
@@ -4282,7 +4412,7 @@ class LearningFlowGraphContractTest {
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
             ScriptedAssessmentModel assessment,
-            ScriptedResponseVerificationModel verification,
+            ResponseVerificationPort verification,
             ScriptedExplainGenerationModel explainGeneration,
             ScriptedHintGenerationModel hintGeneration,
             ScriptedTeachBackGenerationModel teachBackGeneration,
@@ -4301,7 +4431,7 @@ class LearningFlowGraphContractTest {
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
             ScriptedAssessmentModel assessment,
-            ScriptedResponseVerificationModel verification,
+            ResponseVerificationPort verification,
             ScriptedExplainGenerationModel explainGeneration,
             ScriptedHintGenerationModel hintGeneration,
             ScriptedTeachBackGenerationModel teachBackGeneration,
@@ -4319,7 +4449,7 @@ class LearningFlowGraphContractTest {
             ScriptedApplyGenerationModel generation,
             ScriptedTaskVerifier verifier,
             ScriptedAssessmentModel assessment,
-            ScriptedResponseVerificationModel verification,
+            ResponseVerificationPort verification,
             ScriptedExplainGenerationModel explainGeneration,
             ScriptedHintGenerationModel hintGeneration,
             ScriptedTeachBackGenerationModel teachBackGeneration,
@@ -4362,7 +4492,7 @@ class LearningFlowGraphContractTest {
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
                 flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort);
         return new Harness(artifacts, flowStore, generation, hintGeneration, useCase, graph,
-                explainGeneration, teachBackGeneration, teachBackAssessment, teachBackFlow, pedagogy,
+                assessment, explainGeneration, teachBackGeneration, teachBackAssessment, teachBackFlow, pedagogy,
                 reviewStartFlow, classifier);
     }
 
@@ -4373,6 +4503,7 @@ class LearningFlowGraphContractTest {
             ScriptedHintGenerationModel hintGeneration,
             LearningFlowCommandUseCase useCase,
             LearningStateGraph graph,
+            ScriptedAssessmentModel assessment,
             ScriptedExplainGenerationModel explainGeneration,
             ScriptedTeachBackGenerationModel teachBackGeneration,
             ScriptedTeachBackAssessmentModel teachBackAssessment,
@@ -4385,6 +4516,20 @@ class LearningFlowGraphContractTest {
             return new LearningFlowCommandUseCase(
                     flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
                     () -> ScriptedModelProfile.PROFILE);
+        }
+    }
+
+    private static final class FailsOnceThenPassesVerification implements ResponseVerificationPort {
+        private int calls;
+
+        @Override
+        public ResponseAssessment verify(ModelProfile profile, cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessmentContext context) {
+            calls++;
+            if (calls == 1) {
+                throw new IllegalStateException("simulated crash after the Assessment checkpoint");
+            }
+            return ApplyScriptData.responseAssessment(
+                    FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_PROVIDED);
         }
     }
 }

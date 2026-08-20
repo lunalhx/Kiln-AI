@@ -88,7 +88,7 @@ class ApplyPostgresRecoveryTest {
                 TRUNCATE active_learning_work, review_tasks, exposures, example_exposures,
                          hint_ladder_exposures, revealed_solution_exposures,
                          commands, checkpoints,
-                         interactions, evidence, assessments, verifications,
+                         interactions, evidence, evaluation_results, verifications,
                          attempts, packages, sources, flows RESTART IDENTITY CASCADE
                 """);
     }
@@ -454,7 +454,7 @@ class ApplyPostgresRecoveryTest {
         assertEquals(FlowStatus.TERMINAL, completed.interaction().status());
         assertEquals(1, flowStore.allEvidence().size());
         assertTrue(flowStore.evidenceExists(transitioned.interaction().attemptId()));
-        assertTrue(artifacts.assessmentsFor(transitioned.interaction().attemptId()).size() >= 1,
+        assertTrue(artifacts.committedEvaluationResultsFor(transitioned.interaction().attemptId()).size() >= 1,
                 "the isolated assessment record must be persisted");
         assertTrue(artifacts.verificationsFor(artifacts.findAttempt(started.interaction().attemptId())
                 .orElseThrow().taskPackageId()).size() >= 1,

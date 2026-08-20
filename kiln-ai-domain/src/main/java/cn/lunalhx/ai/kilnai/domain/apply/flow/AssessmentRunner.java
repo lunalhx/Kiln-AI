@@ -1,6 +1,8 @@
 package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyJson;
+import cn.lunalhx.ai.kilnai.domain.apply.model.CommittedEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.EquivalenceOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalEquivalenceCheck;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
@@ -18,7 +20,6 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.UUID;
 
 /**
  * Runs the isolated response assessment for one closed attempt: builds the
@@ -66,24 +67,50 @@ public final class AssessmentRunner {
         if (outcomeIsDeterminedWithoutModel(closedAttempt.purpose(), deterministic)) {
             return ResponseAssessmentDecider.decide(context, null, null);
         }
-        ResponseAssessment assessment = ModelContractRepair.once(
-                () -> assessmentPort.assess(profile, context),
-                artifactStore, null, closedAttempt.attemptId(), closedAttempt.taskPackageId(),
-                ModelContractAudit.ASSESSMENT);
+        ResponseAssessment assessment = loadOrCommit(
+                closedAttempt, context, CommittedEvaluationResult.RESPONSE_ASSESSMENT,
+                ModelContractAudit.ASSESSMENT,
+                () -> assessmentPort.assess(profile, context));
         if (assessment == null) {
             return new AssessmentOutcome.Inconclusive(null, null);
         }
         ResponseAssessment verification = null;
         if (deterministic == EquivalenceOutcome.CANNOT_DECIDE) {
-            verification = ModelContractRepair.once(
-                    () -> verificationPort.verify(profile, context),
-                    artifactStore, null, closedAttempt.attemptId(), closedAttempt.taskPackageId(),
-                    ModelContractAudit.RESPONSE_VERIFICATION);
+            verification = loadOrCommit(
+                    closedAttempt, context, CommittedEvaluationResult.RESPONSE_VERIFICATION,
+                    ModelContractAudit.RESPONSE_VERIFICATION,
+                    () -> verificationPort.verify(profile, context));
             if (verification == null) {
                 return new AssessmentOutcome.Inconclusive(assessment, null);
             }
         }
         return ResponseAssessmentDecider.decide(context, assessment, verification);
+    }
+
+    private ResponseAssessment loadOrCommit(
+            TaskAttempt closedAttempt,
+            ResponseAssessmentContext context,
+            String responsibility,
+            String auditResponsibility,
+            java.util.function.Supplier<ResponseAssessment> evaluator
+    ) {
+        return artifactStore.findCommittedEvaluationResult(
+                        closedAttempt.attemptId(), responsibility, CommittedEvaluationResult.EVALUATION_VERSION)
+                .map(committed -> ResponseAssessment.parse(committed.resultPayload()))
+                .orElseGet(() -> {
+                    ResponseAssessment evaluated = ModelContractRepair.once(
+                            evaluator,
+                            artifactStore, null, closedAttempt.attemptId(), closedAttempt.taskPackageId(),
+                            auditResponsibility);
+                    if (evaluated == null) {
+                        return null;
+                    }
+                    CommittedEvaluationResult committed = artifactStore.saveOrReturnCommittedEvaluationResult(
+                            closedAttempt.attemptId(), responsibility,
+                            CommittedEvaluationResult.EVALUATION_VERSION,
+                            evaluated.schema(), ApplyJson.writeContract(evaluated));
+                    return ResponseAssessment.parse(committed.resultPayload());
+                });
     }
 
     private static boolean outcomeIsDeterminedWithoutModel(AttemptPurpose purpose, EquivalenceOutcome deterministic) {
@@ -123,32 +150,4 @@ public final class AssessmentRunner {
         return List.copyOf(dimensions);
     }
 
-    /**
-     * Appends every non-null isolated judgment carried by the outcome to the
-     * Artifact Store. Duplicate recordings are audit records, never state.
-     */
-    public static void recordAssessments(
-            ArtifactStore artifactStore,
-            UUID attemptId,
-            AssessmentOutcome outcome
-    ) {
-        ResponseAssessment assessment = switch (outcome) {
-            case AssessmentOutcome.Passed passed -> passed.assessment();
-            case AssessmentOutcome.Failed failed -> failed.assessment();
-            case AssessmentOutcome.Inconclusive inconclusive -> inconclusive.assessment();
-            case AssessmentOutcome.Blocked blocked -> blocked.assessment();
-        };
-        if (assessment != null) {
-            artifactStore.recordResponseAssessment(attemptId, assessment);
-        }
-        ResponseAssessment verification = switch (outcome) {
-            case AssessmentOutcome.Passed passed -> passed.verification();
-            case AssessmentOutcome.Failed failed -> failed.verification();
-            case AssessmentOutcome.Inconclusive inconclusive -> inconclusive.verification();
-            case AssessmentOutcome.Blocked blocked -> blocked.verification();
-        };
-        if (verification != null) {
-            artifactStore.recordResponseAssessment(attemptId, verification);
-        }
-    }
 }

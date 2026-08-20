@@ -1,7 +1,9 @@
 package cn.lunalhx.ai.kilnai.domain.apply.flow;
 
 import cn.lunalhx.ai.kilnai.domain.apply.model.AnswerInputFamily;
+import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyJson;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.CommittedEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.MathematicalAnswer;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionRejectionReason;
@@ -253,13 +255,24 @@ public final class TeachBackFlow {
                 anchorView.get().learnerContent(),
                 learnerResponse,
                 closedAttempt.purpose());
-        TeachBackAssessment assessment = ModelContractRepair.once(
-                () -> assessmentPort.assess(flow.modelProfile(), context),
-                artifactStore, flow.flowId(), closedAttempt.attemptId(), closedAttempt.taskPackageId(),
-                ModelContractAudit.TEACH_BACK_ASSESSMENT);
-        if (assessment != null) {
-            artifactStore.recordTeachBackAssessment(closedAttempt.attemptId(), assessment);
-        }
+        TeachBackAssessment assessment = artifactStore.findCommittedEvaluationResult(
+                        closedAttempt.attemptId(), CommittedEvaluationResult.TEACH_BACK_ASSESSMENT,
+                        CommittedEvaluationResult.EVALUATION_VERSION)
+                .map(committed -> TeachBackAssessment.parse(committed.resultPayload()))
+                .orElseGet(() -> {
+                    TeachBackAssessment evaluated = ModelContractRepair.once(
+                            () -> assessmentPort.assess(flow.modelProfile(), context),
+                            artifactStore, flow.flowId(), closedAttempt.attemptId(), closedAttempt.taskPackageId(),
+                            ModelContractAudit.TEACH_BACK_ASSESSMENT);
+                    if (evaluated == null) {
+                        return null;
+                    }
+                    CommittedEvaluationResult committed = artifactStore.saveOrReturnCommittedEvaluationResult(
+                            closedAttempt.attemptId(), CommittedEvaluationResult.TEACH_BACK_ASSESSMENT,
+                            CommittedEvaluationResult.EVALUATION_VERSION,
+                            evaluated.schema(), ApplyJson.writeContract(evaluated));
+                    return TeachBackAssessment.parse(committed.resultPayload());
+                });
         return new TeachBackSubmissionResult.TeachBackAssessed(
                 closedAttempt,
                 assessment,

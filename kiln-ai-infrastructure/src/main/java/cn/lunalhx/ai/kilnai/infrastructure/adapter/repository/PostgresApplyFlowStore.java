@@ -5,6 +5,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptConversionOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.CommittedEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
@@ -15,7 +16,6 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.model.PendingOperation;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
@@ -23,7 +23,6 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
-import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
@@ -1034,26 +1033,58 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
-    public void recordResponseAssessment(UUID attemptId, ResponseAssessment assessment) {
-        mapper.insertAssessment(UUID.randomUUID(), attemptId, writeJson(assessment), clock.instant());
+    @Transactional
+    public CommittedEvaluationResult saveOrReturnCommittedEvaluationResult(
+            UUID attemptId,
+            String responsibility,
+            String evaluationVersion,
+            String resultSchema,
+            String resultPayload
+    ) {
+        TaskAttempt attempt = findAttempt(attemptId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "evaluation result references an unknown Attempt"));
+        if (attempt.status() != AttemptStatus.SUBMITTED) {
+            throw new IllegalStateException("evaluation result requires a submitted Attempt");
+        }
+        UUID resultId = UUID.randomUUID();
+        Instant createdAt = clock.instant();
+        CommittedEvaluationResult candidate = new CommittedEvaluationResult(
+                resultId, attemptId, responsibility, evaluationVersion,
+                resultSchema, resultPayload, createdAt);
+        int inserted = mapper.insertEvaluationResult(
+                resultId, attemptId, responsibility, evaluationVersion,
+                resultSchema, resultPayload, createdAt);
+        if (inserted == 0) {
+            return mapper.findEvaluationResult(attemptId, responsibility, evaluationVersion)
+                    .map(this::toCommittedEvaluationResult)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "evaluation result conflict has no committed winner"));
+        }
+        return candidate;
     }
 
     @Override
-    public List<ResponseAssessment> assessmentsFor(UUID attemptId) {
-        return mapper.listAssessmentJson(attemptId).stream()
-                .map(payload -> readJson(payload, ResponseAssessment.class)).toList();
+    public Optional<CommittedEvaluationResult> findCommittedEvaluationResult(
+            UUID attemptId,
+            String responsibility,
+            String evaluationVersion
+    ) {
+        return mapper.findEvaluationResult(attemptId, responsibility, evaluationVersion)
+                .map(this::toCommittedEvaluationResult);
     }
 
     @Override
-    public void recordTeachBackAssessment(UUID attemptId, TeachBackAssessment assessment) {
-        mapper.insertTeachBackAssessment(
-                UUID.randomUUID(), attemptId, writeJson(assessment), clock.instant());
+    public List<CommittedEvaluationResult> committedEvaluationResultsFor(UUID attemptId) {
+        return mapper.listEvaluationResults(attemptId).stream()
+                .map(this::toCommittedEvaluationResult)
+                .toList();
     }
 
-    @Override
-    public List<TeachBackAssessment> teachBackAssessmentsFor(UUID attemptId) {
-        return mapper.listTeachBackAssessmentJson(attemptId).stream()
-                .map(payload -> readJson(payload, TeachBackAssessment.class)).toList();
+    private CommittedEvaluationResult toCommittedEvaluationResult(ApplyFlowMapper.EvaluationResultRow row) {
+        return new CommittedEvaluationResult(
+                row.id(), row.attemptId(), row.responsibility(), row.evaluationVersion(),
+                row.resultSchema(), row.resultPayloadJson(), row.createdAt());
     }
 
     @Override

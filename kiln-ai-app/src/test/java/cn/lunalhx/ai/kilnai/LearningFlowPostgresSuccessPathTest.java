@@ -74,6 +74,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -165,9 +166,9 @@ class LearningFlowPostgresSuccessPathTest {
     void cleanDatabase() {
         jdbc.execute("""
                 TRUNCATE active_learning_work, pending_operations, review_tasks, hint_requests, hint_ladders, teach_back_anchors,
-                         teach_back_packages, teach_back_assessments, explain_artifacts,
+                         teach_back_packages, evaluation_results, explain_artifacts,
                          revealed_solution_exposures, hint_ladder_exposures, example_exposures,
-                         exposures, commands, checkpoints, interactions, evidence, assessments,
+                         exposures, commands, checkpoints, interactions, evidence,
                          verifications, attempts, packages, sources, flows RESTART IDENTITY CASCADE
                 """);
     }
@@ -186,10 +187,14 @@ class LearningFlowPostgresSuccessPathTest {
                 WHERE table_schema = 'public'
                 """, String.class);
         for (String required : List.of("flows", "interactions", "checkpoints", "commands",
-                "attempts", "evidence", "review_tasks")) {
+                "attempts", "evidence", "evaluation_results", "review_tasks")) {
             assertTrue(tables.contains(required),
                     "the baseline must persist the " + required + " table");
         }
+        assertFalse(tables.contains("assessments"),
+                "the destructive cutover must remove the append-only assessment table");
+        assertFalse(tables.contains("teach_back_assessments"),
+                "the destructive cutover must remove the append-only Teach-back table");
     }
 
     @Test

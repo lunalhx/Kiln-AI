@@ -16,6 +16,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.AssessmentOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceConsentView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptConversionOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.CommittedEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.DiagnosticSubmissionResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintResult;
@@ -33,6 +34,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
+import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAnchor;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackDeliveryResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackSubmissionResult;
@@ -259,21 +261,22 @@ public final class LearningStateGraph {
         if (ownership.isPresent()) {
             return new LearningFlowResult.SubmissionIgnored(ownership.get());
         }
+        boolean evaluationRecovery = hasCommittedEvaluationCheckpoint(attemptId);
         AttemptPurpose purpose = artifactStore.findAttempt(attemptId)
                 .map(TaskAttempt::purpose)
                 .orElseThrow();
         return switch (purpose) {
             case DIAGNOSTIC -> submitDiagnostic(state, attemptId, rawDerivative, confirmedCanonical, rationale,
-                    idempotencyKey, requestHash);
+                    evaluationRecovery, idempotencyKey, requestHash);
             case INDEPENDENT_TEST -> submitIndependent(state, attemptId, rawDerivative, confirmedCanonical, rationale,
-                    idempotencyKey, requestHash);
+                    evaluationRecovery, idempotencyKey, requestHash);
             case REVIEW -> submitReview(state, attemptId, rawDerivative, confirmedCanonical, rationale,
                     idempotencyKey, requestHash);
             case PRACTICE -> isTeachBackAttempt(attemptId)
                     ? submitTeachBack(state, attemptId, rawDerivative, confirmedCanonical,
-                            idempotencyKey, requestHash)
+                            evaluationRecovery, idempotencyKey, requestHash)
                     : submitPractice(state, attemptId, rawDerivative, confirmedCanonical, rationale,
-                            idempotencyKey, requestHash);
+                            evaluationRecovery, idempotencyKey, requestHash);
             default -> new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         };
     }
@@ -304,6 +307,18 @@ public final class LearningStateGraph {
                 .map(TaskAttempt::taskPackageId)
                 .flatMap(artifactStore::findTeachBackPackage)
                 .isPresent();
+    }
+
+    private boolean hasCommittedEvaluationCheckpoint(UUID attemptId) {
+        return artifactStore.findCommittedEvaluationResult(
+                        attemptId, CommittedEvaluationResult.RESPONSE_ASSESSMENT,
+                        CommittedEvaluationResult.EVALUATION_VERSION).isPresent()
+                || artifactStore.findCommittedEvaluationResult(
+                        attemptId, CommittedEvaluationResult.RESPONSE_VERIFICATION,
+                        CommittedEvaluationResult.EVALUATION_VERSION).isPresent()
+                || artifactStore.findCommittedEvaluationResult(
+                        attemptId, CommittedEvaluationResult.TEACH_BACK_ASSESSMENT,
+                        CommittedEvaluationResult.EVALUATION_VERSION).isPresent();
     }
 
     /**
@@ -893,6 +908,7 @@ public final class LearningStateGraph {
             String rawDerivative,
             String confirmedCanonical,
             String rationale,
+            boolean evaluationRecovery,
             UUID idempotencyKey,
             String requestHash
     ) {
@@ -917,12 +933,14 @@ public final class LearningStateGraph {
             // remediation actions from committed state and the Pedagogy Agent
             // selects the next teaching node from that closed set.
             case DiagnosticSubmissionResult.Failed failed ->
-                    executeMove(state, decide(state, WorkflowGuard.DecisionContext.DIAGNOSTIC_FAILED, failed.facts()),
+                    executeMove(state, chooseDecision(state, WorkflowGuard.DecisionContext.DIAGNOSTIC_FAILED,
+                                    failed.facts(), evaluationRecovery),
                             null, idempotencyKey, requestHash);
             case DiagnosticSubmissionResult.IndependentUnavailable unavailable -> commitUnavailable(
                     state, LearningStage.DIAGNOSTIC, unavailable.learnerMessage(), null,
                     new PendingOperation(PendingOperation.Kind.DELIVER_INDEPENDENT, null, null, null,
-                            unavailable.learnerMessage(), null, null, null, 0),
+                            unavailable.learnerMessage(), null, null, null,
+                            null, null, null, 0),
                     idempotencyKey, requestHash);
             case DiagnosticSubmissionResult.NotSubmittable notSubmittable ->
                     new LearningFlowResult.SubmissionRejected(notSubmittable.reason());
@@ -937,6 +955,7 @@ public final class LearningStateGraph {
             String rawDerivative,
             String confirmedCanonical,
             String rationale,
+            boolean evaluationRecovery,
             UUID idempotencyKey,
             String requestHash
     ) {
@@ -952,8 +971,8 @@ public final class LearningStateGraph {
             // begin remediation through the Guard — Explain and fresh Apply
             // Practice are both legal and the Pedagogy Agent selects one.
             case IndependentSubmissionResult.FailureEvidenceAccepted failed ->
-                    executeMove(state, decide(state, WorkflowGuard.DecisionContext.INDEPENDENT_FAILED,
-                                    failed.facts()),
+                    executeMove(state, chooseDecision(state, WorkflowGuard.DecisionContext.INDEPENDENT_FAILED,
+                                    failed.facts(), evaluationRecovery),
                             failed.evidence(), idempotencyKey, requestHash);
             // A Blocked or Inconclusive judgment creates no Evidence and no
             // milestone change: deliver a fresh verified Independent
@@ -992,7 +1011,8 @@ public final class LearningStateGraph {
             case ApplyDeliveryResult.Unavailable unavailable -> commitUnavailable(
                     state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), null,
                     new PendingOperation(PendingOperation.Kind.DELIVER_INDEPENDENT_REPLACEMENT, null, null, null,
-                            learnerMessage, null, null, null, 0),
+                            learnerMessage, null, null, null,
+                            null, null, null, 0),
                     idempotencyKey, requestHash);
         };
     }
@@ -1056,6 +1076,7 @@ public final class LearningStateGraph {
             String rawDerivative,
             String confirmedCanonical,
             String rationale,
+            boolean evaluationRecovery,
             UUID idempotencyKey,
             String requestHash
     ) {
@@ -1063,7 +1084,7 @@ public final class LearningStateGraph {
                 state.flow(), attemptId, rawDerivative, confirmedCanonical, rationale);
         return switch (result) {
             case PracticeSubmissionResult.PracticeAssessed assessed ->
-                    routePracticeDecision(state, assessed, idempotencyKey, requestHash);
+                    routePracticeDecision(state, assessed, evaluationRecovery, idempotencyKey, requestHash);
             case PracticeSubmissionResult.NotSubmittable notSubmittable ->
                     new LearningFlowResult.SubmissionRejected(notSubmittable.reason());
             case PracticeSubmissionResult.Ignored ignored ->
@@ -1074,6 +1095,7 @@ public final class LearningStateGraph {
     private LearningFlowResult routePracticeDecision(
             LearningState state,
             PracticeSubmissionResult.PracticeAssessed assessed,
+            boolean evaluationRecovery,
             UUID idempotencyKey,
             String requestHash
     ) {
@@ -1086,7 +1108,7 @@ public final class LearningStateGraph {
             case AssessmentOutcome.Inconclusive inconclusive ->
                     WorkflowGuard.DecisionContext.PRACTICE_INCONCLUSIVE;
         };
-        Decision decision = decide(state, context, assessed.facts());
+        Decision decision = chooseDecision(state, context, assessed.facts(), evaluationRecovery);
         return executeMove(state, decision, assessed.evidence(), idempotencyKey, requestHash);
     }
 
@@ -1105,6 +1127,7 @@ public final class LearningStateGraph {
             UUID attemptId,
             String rawText,
             String confirmedText,
+            boolean evaluationRecovery,
             UUID idempotencyKey,
             String requestHash
     ) {
@@ -1112,7 +1135,7 @@ public final class LearningStateGraph {
                 state.flow(), attemptId, rawText, confirmedText);
         return switch (result) {
             case TeachBackSubmissionResult.TeachBackAssessed assessed ->
-                    routeTeachBackDecision(state, assessed, idempotencyKey, requestHash);
+                    routeTeachBackDecision(state, assessed, evaluationRecovery, idempotencyKey, requestHash);
             case TeachBackSubmissionResult.Unavailable unavailable -> commitUnavailable(
                     state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), null,
                     executeMoveSeed(new Decision(TeachingAction.TEACH_BACK, unavailable.learnerMessage(),
@@ -1130,6 +1153,7 @@ public final class LearningStateGraph {
     private LearningFlowResult routeTeachBackDecision(
             LearningState state,
             TeachBackSubmissionResult.TeachBackAssessed assessed,
+            boolean evaluationRecovery,
             UUID idempotencyKey,
             String requestHash
     ) {
@@ -1140,7 +1164,7 @@ public final class LearningStateGraph {
                     case FAIL -> WorkflowGuard.DecisionContext.TEACH_BACK_FAILED;
                     case INCONCLUSIVE -> WorkflowGuard.DecisionContext.TEACH_BACK_INCONCLUSIVE;
                 };
-        Decision decision = decide(state, context, assessed.facts());
+        Decision decision = chooseDecision(state, context, assessed.facts(), evaluationRecovery);
         return executeMove(state, decision, assessed.evidence(), idempotencyKey, requestHash);
     }
 
@@ -1160,12 +1184,27 @@ public final class LearningStateGraph {
             WorkflowGuard.DecisionContext context,
             FeedbackFacts facts
     ) {
+        return chooseDecision(state, context, facts, false);
+    }
+
+    /**
+     * Replays a post-submission route from committed evaluation checkpoints.
+     * The guard owns the deterministic fallback; a replay never asks the
+     * Pedagogy Agent to make a second decision for a route that has not yet
+     * reached its learner boundary.
+     */
+    private Decision chooseDecision(
+            LearningState state,
+            WorkflowGuard.DecisionContext context,
+            FeedbackFacts facts,
+            boolean evaluationRecovery
+    ) {
         WorkflowGuard.GuardFacts guardFacts = new WorkflowGuard.GuardFacts(
                 flowStore.latestAnchor(state.flow().flowId()).isPresent(),
                 openPracticeAttempt(state).isPresent(),
                 readinessSatisfied(state.flow().flowId()));
         WorkflowGuard.LegalMoves moves = guard.derive(context, guardFacts);
-        if (moves.single()) {
+        if (moves.single() || evaluationRecovery) {
             return new Decision(moves.fallback(),
                     moves.fallback() == TeachingAction.RESUME_PRACTICE
                             ? RESUME_PRACTICE_MESSAGE
@@ -1561,6 +1600,9 @@ public final class LearningStateGraph {
                 decision.intent(),
                 evidence,
                 hint,
+                null,
+                null,
+                null,
                 0);
     }
 
@@ -1585,6 +1627,43 @@ public final class LearningStateGraph {
             case DELIVER_INDEPENDENT -> deliverIndependentAfterDiagnostic(state, idempotencyKey, requestHash);
             case DELIVER_INDEPENDENT_REPLACEMENT ->
                     deliverIndependentReplacement(state, pending.learnerMessage(), idempotencyKey, requestHash);
+            case RESUME_SUBMISSION_EVALUATION ->
+                    resumeSubmissionEvaluation(state, pending, idempotencyKey, requestHash);
+        };
+    }
+
+    /**
+     * Rehydrates the saved formal submission for an evaluation retry. The
+     * pending operation carries no learner answer or evaluation payload; the
+     * closed Attempt is the sole source of both, and each submission flow
+     * skips any responsibility already present in {@code evaluation_results}.
+     */
+    private LearningFlowResult resumeSubmissionEvaluation(
+            LearningState state,
+            PendingOperation pending,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        TaskAttempt attempt = artifactStore.findAttempt(pending.attemptId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "evaluation resume references an unknown Attempt"));
+        TaskSubmission submission = Objects.requireNonNull(attempt.submission(),
+                "evaluation resume requires a saved submission");
+        String raw = submission.finalDerivative().raw();
+        String confirmed = submission.finalDerivative().confirmedCanonical();
+        String rationale = submission.rationale();
+        return switch (attempt.purpose()) {
+            case DIAGNOSTIC -> submitDiagnostic(
+                    state, attempt.attemptId(), raw, confirmed, rationale, true, idempotencyKey, requestHash);
+            case INDEPENDENT_TEST -> submitIndependent(
+                    state, attempt.attemptId(), raw, confirmed, rationale, true, idempotencyKey, requestHash);
+            case PRACTICE -> isTeachBackAttempt(attempt.attemptId())
+                    ? submitTeachBack(state, attempt.attemptId(), raw, confirmed, true, idempotencyKey, requestHash)
+                    : submitPractice(state, attempt.attemptId(), raw, confirmed, rationale,
+                            true, idempotencyKey, requestHash);
+            case REVIEW -> submitReview(
+                    state, attempt.attemptId(), raw, confirmed, rationale, idempotencyKey, requestHash);
+            default -> new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         };
     }
 
@@ -1609,7 +1688,8 @@ public final class LearningStateGraph {
             case ApplyDeliveryResult.Unavailable unavailable -> commitUnavailable(
                     state, LearningStage.DIAGNOSTIC, unavailable.learnerMessage(), null,
                     new PendingOperation(PendingOperation.Kind.DELIVER_INDEPENDENT, null, null, null,
-                            unavailable.learnerMessage(), null, null, null, 0),
+                            unavailable.learnerMessage(), null, null, null,
+                            null, null, null, 0),
                     idempotencyKey, requestHash);
         };
     }

@@ -3,27 +3,28 @@ package cn.lunalhx.ai.kilnai.domain.apply.store;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceTraceEntry;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptCloseOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AttemptConversionOutcome;
+import cn.lunalhx.ai.kilnai.domain.apply.model.CommittedEvaluationResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ExplainTeachingArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintExposureOutcome;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLadder;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintLevel;
 import cn.lunalhx.ai.kilnai.domain.apply.model.HintRequestRecord;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ModelContractAudit;
-import cn.lunalhx.ai.kilnai.domain.apply.model.ResponseAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SubmissionIgnoreReason;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskAttempt;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskSubmission;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TaskVerificationVerdict;
-import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackAssessment;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachBackTaskPackage;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ArtifactStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -40,8 +41,7 @@ public final class InMemoryArtifactStore implements ArtifactStore {
     private final Map<UUID, List<HintRequestRecord>> hintRequests = new HashMap<>();
     private final Map<UUID, List<TaskVerificationVerdict>> verifications = new HashMap<>();
     private final List<ModelContractAudit> contractAudits = new ArrayList<>();
-    private final Map<UUID, List<ResponseAssessment>> assessments = new HashMap<>();
-    private final Map<UUID, List<TeachBackAssessment>> teachBackAssessments = new HashMap<>();
+    private final Map<EvaluationKey, CommittedEvaluationResult> evaluationResults = new LinkedHashMap<>();
     private final Map<String, SourceArtifact> sources = new HashMap<>();
     private final Map<UUID, ExplainTeachingArtifact> explainArtifacts = new HashMap<>();
     private final Clock clock;
@@ -267,25 +267,48 @@ public final class InMemoryArtifactStore implements ArtifactStore {
     }
 
     @Override
-    public synchronized void recordResponseAssessment(UUID attemptId, ResponseAssessment assessment) {
-        assessments.computeIfAbsent(attemptId, key -> new ArrayList<>()).add(assessment);
-    }
-
-    @Override
-    public synchronized List<ResponseAssessment> assessmentsFor(UUID attemptId) {
-        return List.copyOf(assessments.getOrDefault(attemptId, List.of()));
-    }
-
-    @Override
-    public synchronized void recordTeachBackAssessment(UUID attemptId, TeachBackAssessment assessment) {
+    public synchronized CommittedEvaluationResult saveOrReturnCommittedEvaluationResult(
+            UUID attemptId,
+            String responsibility,
+            String evaluationVersion,
+            String resultSchema,
+            String resultPayload
+    ) {
         Objects.requireNonNull(attemptId, "attemptId must not be null");
-        Objects.requireNonNull(assessment, "assessment must not be null");
-        teachBackAssessments.computeIfAbsent(attemptId, key -> new ArrayList<>()).add(assessment);
+        TaskAttempt attempt = attempts.get(attemptId);
+        if (attempt == null) {
+            throw new IllegalStateException("evaluation result references an unknown Attempt");
+        }
+        if (attempt.status() != AttemptStatus.SUBMITTED) {
+            throw new IllegalStateException("evaluation result requires a submitted Attempt");
+        }
+        EvaluationKey key = new EvaluationKey(attemptId, responsibility, evaluationVersion);
+        CommittedEvaluationResult candidate = new CommittedEvaluationResult(
+                UUID.randomUUID(), attemptId, responsibility, evaluationVersion,
+                resultSchema, resultPayload, clock.instant());
+        CommittedEvaluationResult existing = evaluationResults.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        evaluationResults.put(key, candidate);
+        return candidate;
     }
 
     @Override
-    public synchronized List<TeachBackAssessment> teachBackAssessmentsFor(UUID attemptId) {
-        return List.copyOf(teachBackAssessments.getOrDefault(attemptId, List.of()));
+    public synchronized Optional<CommittedEvaluationResult> findCommittedEvaluationResult(
+            UUID attemptId,
+            String responsibility,
+            String evaluationVersion
+    ) {
+        return Optional.ofNullable(evaluationResults.get(
+                new EvaluationKey(attemptId, responsibility, evaluationVersion)));
+    }
+
+    @Override
+    public synchronized List<CommittedEvaluationResult> committedEvaluationResultsFor(UUID attemptId) {
+        return evaluationResults.values().stream()
+                .filter(result -> result.attemptId().equals(attemptId))
+                .toList();
     }
 
     @Override
@@ -311,5 +334,13 @@ public final class InMemoryArtifactStore implements ArtifactStore {
     @Override
     public synchronized Optional<ExplainTeachingArtifact> findExplainArtifact(UUID artifactId) {
         return Optional.ofNullable(explainArtifacts.get(artifactId));
+    }
+
+    private record EvaluationKey(UUID attemptId, String responsibility, String evaluationVersion) {
+        private EvaluationKey {
+            Objects.requireNonNull(attemptId, "attemptId must not be null");
+            Objects.requireNonNull(responsibility, "responsibility must not be null");
+            Objects.requireNonNull(evaluationVersion, "evaluationVersion must not be null");
+        }
     }
 }

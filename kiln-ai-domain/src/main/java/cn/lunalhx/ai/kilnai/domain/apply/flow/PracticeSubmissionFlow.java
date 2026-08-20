@@ -154,7 +154,6 @@ public final class PracticeSubmissionFlow {
             TaskAttempt closedAttempt
     ) {
         AssessmentOutcome outcome = assessmentRunner.run(flow.modelProfile(), closedAttempt, packageOf(closedAttempt));
-        AssessmentRunner.recordAssessments(artifactStore, closedAttempt.attemptId(), outcome);
         return new PracticeSubmissionResult.PracticeAssessed(
                 closedAttempt,
                 outcome,
