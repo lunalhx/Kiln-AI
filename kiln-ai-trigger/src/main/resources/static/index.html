@@ -386,11 +386,35 @@
       function canonicalize(raw) {
         const superscripts = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' };
         const value = String(raw || '')
+          .replace(/\\cdot/g, '*').replace(/\\times/g, '*').replace(/\^\{\\prime\}/g, "'")
           .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, (character) => '^' + superscripts[character])
-          .replace(/−/g, '-').replace(/[×·]/g, '*').replace(/′/g, "'")
-          .replace(/^f\s*'\s*\(\s*x\s*\)\s*=\s*/, '')
-          .replace(/(\d)([a-zA-Z])/g, '$1*$2');
-        return value.trim().replace(/\s+/g, ' ');
+          .replace(/−/g, '-').replace(/[×·]/g, '*').replace(/′/g, "'");
+        let translated = '';
+        for (let index = 0; index < value.length; index++) {
+          if (value[index] === '^' && value[index + 1] === '{') {
+            const close = value.indexOf('}', index + 2);
+            const exponent = close < 0 ? '' : value.slice(index + 2, close);
+            if (close >= 0 && /^[0-9]+$/.test(exponent)) {
+              translated += '^' + exponent;
+              index = close;
+              continue;
+            }
+          }
+          translated += value[index];
+        }
+        const expression = translated.replace(/^f\s*'\s*\(\s*x\s*\)\s*=\s*/, '');
+        const isDigit = (character) => character >= '0' && character <= '9';
+        const isLetter = (character) => /^[a-zA-Z]$/.test(character);
+        let explicit = '';
+        for (const character of expression) {
+          const previous = explicit.at(-1);
+          const needsMultiplication = isDigit(previous) && isLetter(character)
+            || previous === ')' && (isDigit(character) || isLetter(character) || character === '(')
+            || isLetter(previous) && character === '(';
+          if (needsMultiplication) explicit += '*';
+          explicit += character;
+        }
+        return explicit.trim().replace(/\s+/g, ' ');
       }
 
       function appendMathField(container, field, index) {

@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.Response;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -162,6 +163,48 @@ class LearningFlowUiTest {
                     "the explicit leave must render its transition message");
             assertTrue(left.contains("当前状态：已完成"));
             assertFalse(left.contains("15x² − 4x"), "the teaching content must not persist after leaving");
+        }
+    }
+
+    @Test
+    void uiConfirmsImplicitMultiplicationBeforeSubmitting() {
+        try (Playwright playwright = Playwright.create();
+             Browser browser = playwright.chromium().launch()) {
+            Page page = browser.newPage();
+            page.navigate("http://127.0.0.1:" + port + "/");
+            page.click("#start");
+            page.waitForFunction("() => document.getElementById('task').textContent.includes('设 f(x)')");
+
+            page.fill("#derivative", "x(x+1)");
+            Response response = page.waitForResponse(
+                    candidate -> candidate.url().contains("/api/learning/flows/")
+                            && "POST".equals(candidate.request().method()),
+                    () -> page.click("#submit"));
+            assertEquals(200, response.status(),
+                    "a parseable expression must not be rejected as an invalid submission");
+            page.waitForFunction("() => document.getElementById('teaching-region').hidden === false");
+            assertEquals("", page.innerText("#error"));
+        }
+    }
+
+    @Test
+    void uiConfirmsSupportedLatexBeforeSubmitting() {
+        try (Playwright playwright = Playwright.create();
+             Browser browser = playwright.chromium().launch()) {
+            Page page = browser.newPage();
+            page.navigate("http://127.0.0.1:" + port + "/");
+            page.click("#start");
+            page.waitForFunction("() => document.getElementById('task').textContent.includes('设 f(x)')");
+
+            page.fill("#derivative", "f^{\\prime}(x) = 12 \\cdot x^{2} - 6x + 7");
+            assertEquals("12 * x^2 - 6*x + 7", page.inputValue("#canonical"));
+            Response response = page.waitForResponse(
+                    candidate -> candidate.url().contains("/api/learning/flows/")
+                            && "POST".equals(candidate.request().method()),
+                    () -> page.click("#submit"));
+            assertEquals(200, response.status(),
+                    "a supported LaTeX-like expression must not be rejected as an invalid submission");
+            page.waitForFunction("() => document.getElementById('task').textContent.includes('设 g(x)')");
         }
     }
 
