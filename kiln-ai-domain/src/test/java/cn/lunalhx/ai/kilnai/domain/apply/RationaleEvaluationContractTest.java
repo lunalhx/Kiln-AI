@@ -7,6 +7,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedApplyGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedModelProfile;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTaskVerifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticPlanFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyDeliveryResult;
@@ -193,6 +194,7 @@ class RationaleEvaluationContractTest {
         ResponseVerificationPort verification = (profile, context) -> {
             throw new AssertionError("response verification must not run");
         };
+        flowStore.attachAcceptedPlan(FLOW_ID, DiagnosticPlanFixture.acceptedPlan());
         DiagnosticFlow flow = new DiagnosticFlow(
                 new cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor(
                         ReferenceBundles.stack(), generation, verifier, artifacts),
@@ -243,6 +245,7 @@ class RationaleEvaluationContractTest {
                     ? RationaleEvaluationResult.inconclusive()
                     : RationaleEvaluationResult.applicable();
         };
+        flowStore.attachAcceptedPlan(FLOW_ID, DiagnosticPlanFixture.acceptedPlan());
         DiagnosticFlow flow = new DiagnosticFlow(
                 new cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor(
                         ReferenceBundles.stack(), generation, verifier, artifacts),
@@ -458,6 +461,7 @@ class RationaleEvaluationContractTest {
             ScriptedTaskVerifier verifier,
             RationaleAssessmentPort rationalePort
     ) {
+        flowStore.attachAcceptedPlan(FLOW_ID, DiagnosticPlanFixture.acceptedPlan());
         return new DiagnosticFlow(
                 new cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor(
                         ReferenceBundles.stack(), generation, verifier, artifacts),

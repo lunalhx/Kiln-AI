@@ -35,6 +35,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding;
 import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticPlan;
 import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticProgress;
 import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
@@ -106,6 +107,29 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
+    public List<DiagnosticFinding> diagnosticFindings(UUID flowId) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        return mapper.findDiagnosticFindings(flowId).stream()
+                .map(this::toFinding)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void recordDiagnosticFinding(DiagnosticFinding finding) {
+        Objects.requireNonNull(finding, "finding must not be null");
+        mapper.insertDiagnosticFinding(new ApplyFlowMapper.DiagnosticFindingRow(
+                finding.findingId(),
+                finding.flowId(),
+                finding.attemptId(),
+                finding.kind().name(),
+                writeJson(finding.coveredCriterionIds()),
+                writeJson(finding.missingCriteria()),
+                writeJson(finding.errorDimensions()),
+                finding.recordedAt()));
+    }
+
+    @Override
     public Optional<UUID> activeWorkFlowId(UUID learnerId, UUID conceptId) {
         Objects.requireNonNull(learnerId, "learnerId must not be null");
         Objects.requireNonNull(conceptId, "conceptId must not be null");
@@ -154,7 +178,8 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
             LearningFlowInteraction interaction,
             LearningCheckpoint checkpoint,
             ProcessedCommand command,
-            PendingOperation pending
+            PendingOperation pending,
+            DiagnosticFinding diagnosticFinding
     ) {
         Optional<ApplyFlowMapper.CommandRow> existingCommand = mapper.findCommand(command.idempotencyKey());
         if (existingCommand.isPresent()) {
@@ -203,6 +228,17 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
             mapper.deletePendingOperation(interaction.flowId());
         } else {
             mapper.upsertPendingOperation(interaction.flowId(), writeJson(pending), checkpoint.createdAt());
+        }
+        if (diagnosticFinding != null) {
+            mapper.insertDiagnosticFinding(new ApplyFlowMapper.DiagnosticFindingRow(
+                    diagnosticFinding.findingId(),
+                    diagnosticFinding.flowId(),
+                    diagnosticFinding.attemptId(),
+                    diagnosticFinding.kind().name(),
+                    writeJson(diagnosticFinding.coveredCriterionIds()),
+                    writeJson(diagnosticFinding.missingCriteria()),
+                    writeJson(diagnosticFinding.errorDimensions()),
+                    diagnosticFinding.recordedAt()));
         }
         return interaction;
     }
@@ -1129,6 +1165,21 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 row.sourcePackId(), row.version(), readJson(row.passagesJson(),
                         new TypeReference<List<cn.lunalhx.ai.kilnai.domain.apply.model.ApplyExecutionContext.SourcePassage>>() {
                         })));
+    }
+
+    private DiagnosticFinding toFinding(ApplyFlowMapper.DiagnosticFindingRow row) {
+        return new DiagnosticFinding(
+                row.findingId(),
+                row.flowId(),
+                row.attemptId(),
+                DiagnosticFinding.Kind.valueOf(row.kind()),
+                readJson(row.coveredCriterionIdsJson(), new TypeReference<List<String>>() {
+                }),
+                readJson(row.missingCriteriaJson(), new TypeReference<List<String>>() {
+                }),
+                readJson(row.errorDimensionsJson(), new TypeReference<List<String>>() {
+                }),
+                row.recordedAt());
     }
 
     private String writeJson(Object value) {

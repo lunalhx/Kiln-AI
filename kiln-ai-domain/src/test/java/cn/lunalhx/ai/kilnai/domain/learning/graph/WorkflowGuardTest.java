@@ -24,8 +24,8 @@ class WorkflowGuardTest {
     private final WorkflowGuard guard = new WorkflowGuard();
 
     @Test
-    void aDiagnosticNotPassedOffersExplainAndFreshPracticeWithExplainAsFallback() {
-        LegalMoves moves = guard.derive(DecisionContext.DIAGNOSTIC_NOT_PASSED, GuardFacts.none());
+    void targetLearningAndPracticeOffersExplainAndFreshPracticeWithExplainAsFallback() {
+        LegalMoves moves = guard.derive(DecisionContext.TARGET_LEARNING_AND_PRACTICE, GuardFacts.none());
         assertEquals(Set.of(TeachingAction.EXPLAIN, TeachingAction.APPLY_PRACTICE),
                 Set.copyOf(moves.legalActions()));
         assertEquals(TeachingAction.EXPLAIN, moves.fallback());

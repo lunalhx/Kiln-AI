@@ -9,6 +9,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedAssessmentModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedResponseVerificationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTaskVerifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticPlanFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.DiagnosticFlow;
 import cn.lunalhx.ai.kilnai.domain.apply.flow.IndependentSubmissionFlow;
@@ -1142,6 +1143,7 @@ class ApplyProfileContractTest {
     ) {
         ArtifactStore artifacts = new InMemoryArtifactStore(CLOCK);
         InMemoryLearningFlowStore flowStore = new InMemoryLearningFlowStore(CLOCK);
+        flowStore.attachAcceptedPlan(FLOW_ID, DiagnosticPlanFixture.acceptedPlan());
         ApplyProfileExecutor executor = new ApplyProfileExecutor(stack, generation, verifier, artifacts);
         RationaleEvaluationProfileExecutor rationaleEvaluator = new RationaleEvaluationProfileExecutor(
                 ReferenceBundles.rationaleEvaluationStack(), (profile, prompt, contextJson) -> {

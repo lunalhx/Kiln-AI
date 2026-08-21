@@ -243,10 +243,22 @@ class LearningFlowGraphContractTest {
                 "the displayed Independent package must also be exposed");
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
                 "a passing Diagnostic must never create Evidence");
+        List<cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding> findings =
+                harness.flowStore().diagnosticFindings(interaction.flowId());
+        assertEquals(1, findings.size());
+        assertEquals(cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding.Kind.PASSING_OBSERVATION,
+                findings.get(0).kind());
+        assertEquals(List.of("differentiate-polynomial"), findings.get(0).coveredCriterionIds());
+        assertEquals(MasteryMilestone.UNASSESSED,
+                new ConceptProgressProjector().projectFor(harness.flowStore(), LEARNER_ID, CONCEPT_ID)
+                        .currentMilestone(),
+                "Diagnostic must never create an Independent milestone");
         assertEquals(2, harness.flowStore().latestCheckpoint(interaction.flowId()).orElseThrow().interactionVersion(),
                 "the second boundary must commit its own checkpoint");
         assertEquals(interaction, harness.flowStore().findCommand(submitKey).orElseThrow().response(),
                 "the submission result must be persisted with its idempotency key");
+        assertFalse(interaction.learnerMessage().contains(ApplyScriptData.UNICODE_CORRECT_CANONICAL),
+                "the Neutral Transition must not leak the answer");
     }
 
     @Test
@@ -740,8 +752,10 @@ class LearningFlowGraphContractTest {
         assertEquals(ExplainScriptData.EXPLAIN_FINAL_RESULT, teaching.workedExample().finalResult());
         assertEquals(List.of(ApplyLearnerEvent.CONTINUE_REQUESTED, ApplyLearnerEvent.CLARIFICATION_ASKED,
                 ApplyLearnerEvent.FLOW_CONTROL), teaching.allowedEvents());
-        assertEquals(ScriptedPedagogyModel.DEFAULT_FEEDBACK, interaction.learnerMessage(),
+        assertTrue(interaction.learnerMessage().contains(ScriptedPedagogyModel.DEFAULT_FEEDBACK),
                 "the guarded Explain decision carries the validated plan's feedback");
+        assertTrue(interaction.learnerMessage().contains("教学重点"),
+                "a Conclusive Gap also projects a learner-safe Diagnostic Summary");
         assertEquals(AttemptStatus.SUBMITTED,
                 harness.artifacts().findAttempt(started.interaction().attemptId()).orElseThrow().status(),
                 "a failed submitted Diagnostic stays closed and is never retroactively converted");
@@ -801,13 +815,24 @@ class LearningFlowGraphContractTest {
         assertNotNull(interaction.teachingProjection());
         assertTrue(assessment.contexts().isEmpty(), "missing rationale must not invoke rationale assessment");
         assertEquals(1, harness.generation().calls().size(),
-                "a Diagnostic Not Passed result must not generate an Independent task");
+                "a Conclusive Diagnostic Gap must not generate an Independent task");
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
-                "a Diagnostic Not Passed result must not create Diagnostic Evidence");
+                "a Conclusive Diagnostic Gap must not create Diagnostic Evidence");
+        cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding finding =
+                harness.flowStore().diagnosticFindings(interaction.flowId()).get(0);
+        assertEquals(cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding.Kind.CONCLUSIVE_GAP,
+                finding.kind());
+        assertTrue(interaction.learnerMessage().contains("教学重点"),
+                "a Conclusive Gap enters Learning and Practice with a learner-safe Diagnostic Summary");
+        assertTrue(interaction.learnerMessage().contains(ScriptedPedagogyModel.DEFAULT_FEEDBACK)
+                        || interaction.learnerMessage().contains(ExplainFlow.EXPLAIN_START_MESSAGE),
+                "the Diagnostic Summary is shown with the next teaching interaction");
+        assertFalse(interaction.learnerMessage().contains(ApplyScriptData.WRONG_DERIVATIVE),
+                "the Diagnostic Summary must not leak the answer");
     }
 
     @Test
-    void anApplicableFirstRationaleIsUnconfirmedAndUsesTheDiagnosticNotPassedGuard() {
+    void anApplicableFirstRationaleIsUnconfirmedAndEntersLearningNeutrally() {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
                 ApplyScriptData.responseAssessment(
                         FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.APPLICABLE)));
@@ -828,10 +853,17 @@ class LearningFlowGraphContractTest {
                 "an unconfirmed first result must not prepare an Independent task");
         assertEquals(1, harness.assessment().contexts().size());
         assertTrue(harness.flowStore().allEvidence().isEmpty());
+        cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding finding =
+                harness.flowStore().diagnosticFindings(unconfirmed.interaction().flowId()).get(0);
+        assertEquals(cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding.Kind.UNCONFIRMED_PERFORMANCE,
+                finding.kind());
+        assertFalse(unconfirmed.interaction().learnerMessage().contains("教学重点"),
+                "Unconfirmed performance enters Learning and Practice without a deficit claim");
+        assertFalse(unconfirmed.interaction().learnerMessage().contains("缺陷"));
     }
 
     @Test
-    void anInconclusiveFirstRationaleUsesNeutralDiagnosticNotPassedRouting() {
+    void anInconclusiveFirstRationaleUsesNeutralTargetLearningRouting() {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of(
                 ApplyScriptData.responseAssessment(
                         FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.INCONCLUSIVE)));
@@ -2746,7 +2778,7 @@ class LearningFlowGraphContractTest {
                 "the agent's selected Apply Practice is the legal next move after a Diagnostic failure");
         assertEquals(AttemptPurpose.PRACTICE, practice.interaction().attemptPurpose());
         assertEquals(ApplyScriptData.PRACTICE_TASK_TEXT, practice.interaction().learnerProjection().taskText());
-        assertEquals("好的，请完成一道练习题。", practice.interaction().learnerMessage(),
+        assertTrue(practice.interaction().learnerMessage().contains("好的，请完成一道练习题。"),
                 "the learner message is the validated plan's feedback summary");
         assertEquals(0, harness.explainGeneration().calls().size(),
                 "the agent's Practice choice must not deliver the Explain node");
@@ -2800,7 +2832,7 @@ class LearningFlowGraphContractTest {
                 "one initial plan and at most one same-plan repair, then the fallback");
         assertNotNull(explained.interaction().teachingProjection(),
                 "the deterministic fallback after a Diagnostic failure is Explain");
-        assertEquals(ExplainFlow.EXPLAIN_START_MESSAGE, explained.interaction().learnerMessage(),
+        assertTrue(explained.interaction().learnerMessage().contains(ExplainFlow.EXPLAIN_START_MESSAGE),
                 "the invalid output is discarded and neutral deterministic feedback is shown");
         assertEquals(1, harness.explainGeneration().calls().size(),
                 "the fallback Explain runs exactly one generation");
@@ -2833,7 +2865,7 @@ class LearningFlowGraphContractTest {
                 "a well-formed plan outside the legal set is as invalid as malformed output");
         assertNotNull(explained.interaction().teachingProjection(),
                 "the illegal Independent Test plan must never be routed before readiness");
-        assertEquals(ExplainFlow.EXPLAIN_START_MESSAGE, explained.interaction().learnerMessage());
+        assertTrue(explained.interaction().learnerMessage().contains(ExplainFlow.EXPLAIN_START_MESSAGE));
         assertFalse(explained.interaction().learnerMessage().contains(illegalFeedback),
                 "the discarded plan's feedback must never reach the learner");
         assertFalse(explained.interaction().learnerProjection() != null
@@ -2964,7 +2996,7 @@ class LearningFlowGraphContractTest {
         assertEquals(4, harness.pedagogy().calls().size());
         assertNotNull(explained.interaction().teachingProjection(),
                 "the Practice-failure fallback is Explain");
-        assertEquals(ExplainFlow.EXPLAIN_START_MESSAGE, explained.interaction().learnerMessage());
+        assertTrue(explained.interaction().learnerMessage().contains(ExplainFlow.EXPLAIN_START_MESSAGE));
         assertEquals(1, harness.flowStore().allEvidence().size(),
                 "the fallback route still accepts the assisted Practice fail Evidence exactly once");
         assertEquals(LearningResult.FAIL, harness.flowStore().allEvidence().get(0).result());
@@ -3038,7 +3070,7 @@ class LearningFlowGraphContractTest {
         assertEquals(5, harness.pedagogy().calls().size());
         assertNotNull(explained.interaction().teachingProjection(),
                 "the Teach-back-failure fallback is Explain");
-        assertEquals(ExplainFlow.EXPLAIN_START_MESSAGE, explained.interaction().learnerMessage());
+        assertTrue(explained.interaction().learnerMessage().contains(ExplainFlow.EXPLAIN_START_MESSAGE));
         assertEquals(1, harness.flowStore().allEvidence().size(),
                 "the fallback route still accepts the understanding FAIL Evidence exactly once");
         assertEquals(LearningResult.FAIL, harness.flowStore().allEvidence().get(0).result());

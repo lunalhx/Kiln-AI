@@ -14,6 +14,9 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.apply.port.ResponseVerificationPort;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticPlan;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticRoutingDecision;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.FeedbackFacts;
 
@@ -25,11 +28,10 @@ import java.util.UUID;
 
 /**
  * The Diagnostic submission flow: one formal submission atomically closes the
- * Diagnostic Attempt, a passing Diagnostic moves through a Neutral Transition
- * to a fresh verified Independent task, an unconfirmed Diagnostic carries
- * neutral facts into the Guard, and a Diagnostic Not Passed result ends safely. It
- * never creates Evidence. Every displayed package and assessment artifact is
- * persisted durably; the flow carries no in-memory state across calls.
+ * Diagnostic Attempt and records a Flow-scoped Finding. The Diagnostic Routing
+ * Decision — not the last Attempt alone — then authorizes a Neutral Transition
+ * to a fresh Independent task, Target Learning with a learner-safe Summary, or
+ * a neutral Target Learning entry. It never creates Evidence.
  */
 public final class DiagnosticFlow {
 
@@ -43,6 +45,7 @@ public final class DiagnosticFlow {
     private final RationaleEvaluationProfileExecutor rationaleAssessmentExecutor;
     private final RationaleEvaluationProfileExecutor rationaleSufficiencyExecutor;
     private final SubmissionCloser submissionCloser;
+    private final Clock clock;
     private final ApplyExecutionContext diagnosticContext;
     private final ApplyExecutionContext independentContextTemplate;
 
@@ -70,6 +73,7 @@ public final class DiagnosticFlow {
         this.rationaleSufficiencyExecutor = Objects.requireNonNull(
                 rationaleSufficiencyExecutor, "rationaleSufficiencyExecutor must not be null");
         this.submissionCloser = new SubmissionCloser(artifactStore, clock);
+        this.clock = Objects.requireNonNull(clock, "clock must not be null");
         this.diagnosticContext = Objects.requireNonNull(diagnosticContext, "diagnosticContext must not be null");
         this.independentContextTemplate = Objects.requireNonNull(
                 independentContextTemplate, "independentContextTemplate must not be null");
@@ -142,11 +146,11 @@ public final class DiagnosticFlow {
             ModelProfile profile,
             TaskAttempt closedAttempt
     ) {
-        boolean independentAlreadyExposed = flowStore.exposedTaskPackageIds(flowId).stream()
+        boolean successorAlreadyExposed = flowStore.exposedTaskPackageIds(flowId).stream()
                 .map(artifactStore::findPackage)
                 .flatMap(Optional::stream)
-                .anyMatch(taskPackage -> taskPackage.attemptPurpose() == AttemptPurpose.INDEPENDENT_TEST);
-        if (independentAlreadyExposed) {
+                .anyMatch(taskPackage -> taskPackage.attemptPurpose() != AttemptPurpose.DIAGNOSTIC);
+        if (successorAlreadyExposed) {
             return new DiagnosticSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
         return assess(flowId, profile, closedAttempt);
@@ -156,22 +160,90 @@ public final class DiagnosticFlow {
         AssessmentOutcome outcome = assessmentRunner.runDiagnostic(
                 profile, closedAttempt, packageOf(closedAttempt), diagnosticContext,
                 rationaleAssessmentExecutor, rationaleSufficiencyExecutor);
-        return switch (outcome) {
-            case AssessmentOutcome.Passed passed -> deliverIndependent(flowId, profile, closedAttempt, outcome);
+        DiagnosticSubmissionResult assessed = switch (outcome) {
+            case AssessmentOutcome.Passed passed ->
+                    new DiagnosticSubmissionResult.PassedAttempt(closedAttempt, passingFacts(), null);
             case AssessmentOutcome.Inconclusive inconclusive ->
-                    new DiagnosticSubmissionResult.Unconfirmed(closedAttempt, neutralFacts());
+                    new DiagnosticSubmissionResult.Unconfirmed(closedAttempt, neutralFacts(), null);
             case AssessmentOutcome.Unconfirmed unconfirmed ->
-                    new DiagnosticSubmissionResult.Unconfirmed(closedAttempt, neutralFacts());
-            // A failed submitted Diagnostic stays closed and is never
-            // retroactively converted. The next learner-visible move is not
-            // chosen here: the Learning StateGraph derives the legal
-            // remediation actions through the Workflow Guard and Pedagogy
-            // Agent, which receive only the sanitized Feedback Facts.
+                    new DiagnosticSubmissionResult.Unconfirmed(closedAttempt, neutralFacts(), null);
             case AssessmentOutcome.Failed failed ->
-                    new DiagnosticSubmissionResult.Failed(closedAttempt, failureFacts(closedAttempt, outcome));
+                    new DiagnosticSubmissionResult.Failed(closedAttempt, failureFacts(closedAttempt, outcome), null);
             case AssessmentOutcome.Blocked blocked -> throw new IllegalStateException(
                     "a contradictory rationale is only valid for an Independent Test");
         };
+        DiagnosticFinding.Kind kind = switch (assessed) {
+            case DiagnosticSubmissionResult.PassedAttempt passed -> DiagnosticFinding.Kind.PASSING_OBSERVATION;
+            case DiagnosticSubmissionResult.Failed failed -> DiagnosticFinding.Kind.CONCLUSIVE_GAP;
+            case DiagnosticSubmissionResult.Unconfirmed unconfirmed -> DiagnosticFinding.Kind.UNCONFIRMED_PERFORMANCE;
+            default -> throw new IllegalStateException("unexpected assessed result: " + assessed);
+        };
+        FeedbackFacts facts = switch (assessed) {
+            case DiagnosticSubmissionResult.PassedAttempt passed -> passed.facts();
+            case DiagnosticSubmissionResult.Failed failed -> failed.facts();
+            case DiagnosticSubmissionResult.Unconfirmed unconfirmed -> unconfirmed.facts();
+            default -> throw new IllegalStateException("unexpected assessed result: " + assessed);
+        };
+        DiagnosticPlan plan = flowStore.diagnosticPlan(flowId).orElseThrow(
+                () -> new IllegalStateException("Diagnostic requires a frozen Plan"));
+        List<String> covered = kind == DiagnosticFinding.Kind.PASSING_OBSERVATION
+                ? facts.satisfiedCriteria()
+                : plan.targetReadinessCriterionIds();
+        DiagnosticFinding finding = new DiagnosticFinding(
+                UUID.randomUUID(), flowId, closedAttempt.attemptId(), kind, covered,
+                facts.missingCriteria(), facts.errorDimensions(), clock.instant());
+        List<DiagnosticFinding> accumulated = new java.util.ArrayList<>(flowStore.diagnosticFindings(flowId));
+        accumulated.add(finding);
+        DiagnosticSubmissionResult routed = switch (DiagnosticRoutingDecision.decide(plan, accumulated)) {
+            case FRESH_INDEPENDENT_TEST -> deliverIndependent(flowId, profile, closedAttempt);
+            case TARGET_LEARNING_WITH_SUMMARY, TARGET_LEARNING_NEUTRAL -> assessed;
+        };
+        if (routed instanceof DiagnosticSubmissionResult.IndependentUnavailable) {
+            return routed;
+        }
+        return withFinding(routed, finding);
+    }
+
+    private static DiagnosticSubmissionResult withFinding(
+            DiagnosticSubmissionResult result,
+            DiagnosticFinding finding
+    ) {
+        return switch (result) {
+            case DiagnosticSubmissionResult.Passed passed -> new DiagnosticSubmissionResult.Passed(
+                    passed.closedDiagnosticAttempt(), passed.neutralTransitionMessage(),
+                    passed.independentAttempt(), passed.independentLearnerProjection(), finding);
+            case DiagnosticSubmissionResult.PassedAttempt passed ->
+                    new DiagnosticSubmissionResult.PassedAttempt(passed.closedDiagnosticAttempt(), passed.facts(), finding);
+            case DiagnosticSubmissionResult.Failed failed ->
+                    new DiagnosticSubmissionResult.Failed(failed.closedDiagnosticAttempt(), failed.facts(), finding);
+            case DiagnosticSubmissionResult.Unconfirmed unconfirmed ->
+                    new DiagnosticSubmissionResult.Unconfirmed(
+                            unconfirmed.closedDiagnosticAttempt(), unconfirmed.facts(), finding);
+            default -> result;
+        };
+    }
+
+    public DiagnosticSubmissionResult deliverIndependent(
+            UUID flowId,
+            ModelProfile profile,
+            TaskAttempt closedDiagnosticAttempt
+    ) {
+        ApplyExecutionContext independentContext = independentContextTemplate.withNoveltyExclusions(
+                flowStore.noveltyExclusions(flowId));
+        ApplyDeliveryResult result = executor.deliver(profile, independentContext);
+        if (result instanceof ApplyDeliveryResult.Delivered delivered) {
+            recordExposure(flowId, delivered.attempt().taskPackageId());
+            return new DiagnosticSubmissionResult.Passed(
+                    closedDiagnosticAttempt, NEUTRAL_TRANSITION_MESSAGE,
+                    delivered.attempt(), delivered.learnerProjection(), null);
+        }
+        ApplyDeliveryResult.Unavailable unavailable = (ApplyDeliveryResult.Unavailable) result;
+        return new DiagnosticSubmissionResult.IndependentUnavailable(
+                unavailable.reason(), unavailable.learnerMessage());
+    }
+
+    private FeedbackFacts passingFacts() {
+        return new FeedbackFacts(criterionIds(), List.of(), List.of(), 0, List.of(), false);
     }
 
     private FeedbackFacts failureFacts(TaskAttempt closedAttempt, AssessmentOutcome outcome) {
@@ -192,31 +264,6 @@ public final class DiagnosticFlow {
         return diagnosticContext.masteryRubric().criteria().stream()
                 .map(criterion -> criterion.id())
                 .toList();
-    }
-
-    private DiagnosticSubmissionResult deliverIndependent(
-            UUID flowId,
-            ModelProfile profile,
-            TaskAttempt closedDiagnosticAttempt,
-            AssessmentOutcome outcome
-    ) {
-        ApplyExecutionContext independentContext = independentContextTemplate.withNoveltyExclusions(
-                flowStore.noveltyExclusions(flowId));
-        ApplyDeliveryResult result = executor.deliver(profile, independentContext);
-        if (result instanceof ApplyDeliveryResult.Delivered delivered) {
-            recordExposure(flowId, delivered.attempt().taskPackageId());
-            return switch (outcome) {
-                case AssessmentOutcome.Passed passed ->
-                        new DiagnosticSubmissionResult.Passed(
-                                closedDiagnosticAttempt, NEUTRAL_TRANSITION_MESSAGE,
-                                delivered.attempt(), delivered.learnerProjection());
-                default -> throw new IllegalStateException(
-                        "only a passing assessment delivers an Independent task: " + outcome);
-            };
-        }
-        ApplyDeliveryResult.Unavailable unavailable = (ApplyDeliveryResult.Unavailable) result;
-        return new DiagnosticSubmissionResult.IndependentUnavailable(
-                unavailable.reason(), unavailable.learnerMessage());
     }
 
     private void recordExposure(UUID flowId, UUID taskPackageId) {

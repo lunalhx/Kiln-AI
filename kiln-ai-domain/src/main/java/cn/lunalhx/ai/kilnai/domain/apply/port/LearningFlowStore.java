@@ -14,6 +14,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding;
 import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticPlan;
 import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticProgress;
 
@@ -54,6 +55,18 @@ public interface LearningFlowStore {
     Optional<DiagnosticProgress> diagnosticProgress(UUID flowId);
 
     /**
+     * Flow-scoped Diagnostic Findings in commit order. Empty when none have
+     * been recorded. Findings are never Learning Evidence.
+     */
+    List<DiagnosticFinding> diagnosticFindings(UUID flowId);
+
+    /**
+     * Records one Finding for a closed Diagnostic Attempt. The same Attempt
+     * is idempotent: a replay or recovered submission never duplicates it.
+     */
+    void recordDiagnosticFinding(DiagnosticFinding finding);
+
+    /**
      * The existing Active Learning Work claim of one learner and Target
      * Concept (ADR-0070): the Flow id of a non-terminal Flow, or the Flow id
      * of an unfinished Review Task (SCHEDULED, DUE, or STARTED) belonging to
@@ -87,7 +100,8 @@ public interface LearningFlowStore {
             LearningFlowInteraction interaction,
             LearningCheckpoint checkpoint,
             ProcessedCommand command,
-            PendingOperation pending);
+            PendingOperation pending,
+            DiagnosticFinding diagnosticFinding);
 
     /**
      * Commits a boundary and clears any Pending Operation. Every successful
@@ -99,7 +113,16 @@ public interface LearningFlowStore {
             LearningCheckpoint checkpoint,
             ProcessedCommand command
     ) {
-        return commitBoundary(interaction, checkpoint, command, null);
+        return commitBoundary(interaction, checkpoint, command, null, null);
+    }
+
+    default LearningFlowInteraction commitBoundary(
+            LearningFlowInteraction interaction,
+            LearningCheckpoint checkpoint,
+            ProcessedCommand command,
+            PendingOperation pending
+    ) {
+        return commitBoundary(interaction, checkpoint, command, pending, null);
     }
 
     /**

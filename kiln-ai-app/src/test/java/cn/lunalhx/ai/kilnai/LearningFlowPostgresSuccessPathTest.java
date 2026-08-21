@@ -258,6 +258,9 @@ class LearningFlowPostgresSuccessPathTest {
                 flowId, 1, diagnosticKey, started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
         assertEquals(new DiagnosticProgress(1, 3), flowStore.diagnosticProgress(flowId).orElseThrow());
+        assertEquals(1, flowStore.diagnosticFindings(flowId).size());
+        assertEquals(cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding.Kind.PASSING_OBSERVATION,
+                flowStore.diagnosticFindings(flowId).get(0).kind());
         UUID independentKey = UUID.randomUUID();
         LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 2, independentKey, transitioned.interaction().attemptId(),

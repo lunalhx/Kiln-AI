@@ -125,6 +125,33 @@ public interface ApplyFlowMapper {
     int incrementDiagnosticAttempts(UUID flowId);
 
     @Insert("""
+            INSERT INTO diagnostic_findings (
+                finding_id, flow_id, attempt_id, kind, covered_criterion_ids,
+                missing_criteria, error_dimensions, recorded_at
+            ) VALUES (
+                #{findingId}, #{flowId}, #{attemptId}, #{kind},
+                CAST(#{coveredCriterionIdsJson} AS JSONB),
+                CAST(#{missingCriteriaJson} AS JSONB),
+                CAST(#{errorDimensionsJson} AS JSONB),
+                #{recordedAt}
+            )
+            ON CONFLICT (attempt_id) DO NOTHING
+            """)
+    int insertDiagnosticFinding(DiagnosticFindingRow row);
+
+    @Select("""
+            SELECT finding_id, flow_id, attempt_id, kind,
+                   covered_criterion_ids::text AS covered_criterion_ids_json,
+                   missing_criteria::text AS missing_criteria_json,
+                   error_dimensions::text AS error_dimensions_json,
+                   recorded_at
+            FROM diagnostic_findings
+            WHERE flow_id = #{flowId}
+            ORDER BY recorded_at, finding_id
+            """)
+    List<DiagnosticFindingRow> findDiagnosticFindings(UUID flowId);
+
+    @Insert("""
             INSERT INTO interactions (
                 id, flow_id, interaction_version, kind, status, stage, attempt_id, attempt_purpose,
                 learner_projection, learner_message, teaching_projection, hint, assistance_consent, created_at
@@ -818,6 +845,18 @@ public interface ApplyFlowMapper {
             String planJson,
             int completedAttempts,
             Instant createdAt
+    ) {
+    }
+
+    record DiagnosticFindingRow(
+            UUID findingId,
+            UUID flowId,
+            UUID attemptId,
+            String kind,
+            String coveredCriterionIdsJson,
+            String missingCriteriaJson,
+            String errorDimensionsJson,
+            Instant recordedAt
     ) {
     }
 

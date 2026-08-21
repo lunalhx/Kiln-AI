@@ -18,6 +18,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding;
 import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticPlan;
 import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticProgress;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
@@ -56,6 +57,8 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     private final Map<UUID, PendingOperation> pendingOperations = new HashMap<>();
     private final Map<UUID, DiagnosticPlan> diagnosticPlans = new HashMap<>();
     private final Map<UUID, Integer> diagnosticCompletedAttempts = new HashMap<>();
+    private final Map<UUID, List<DiagnosticFinding>> diagnosticFindings = new HashMap<>();
+    private final Map<UUID, UUID> diagnosticFindingByAttempt = new HashMap<>();
     private final ArtifactStore artifactStore;
     private final java.time.Clock clock;
 
@@ -105,6 +108,32 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         }
         return Optional.of(new DiagnosticProgress(
                 diagnosticCompletedAttempts.getOrDefault(flowId, 0), plan.maximumAttempts()));
+    }
+
+    @Override
+    public synchronized List<DiagnosticFinding> diagnosticFindings(UUID flowId) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        return List.copyOf(diagnosticFindings.getOrDefault(flowId, List.of()));
+    }
+
+    @Override
+    public synchronized void recordDiagnosticFinding(DiagnosticFinding finding) {
+        Objects.requireNonNull(finding, "finding must not be null");
+        if (diagnosticFindingByAttempt.containsKey(finding.attemptId())) {
+            return;
+        }
+        diagnosticFindingByAttempt.put(finding.attemptId(), finding.findingId());
+        diagnosticFindings.computeIfAbsent(finding.flowId(), key -> new ArrayList<>()).add(finding);
+    }
+
+    /**
+     * Test seam for Apply-profile contracts that never go through Start bind.
+     */
+    public synchronized void attachAcceptedPlan(UUID flowId, DiagnosticPlan plan) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(plan, "plan must not be null");
+        diagnosticPlans.put(flowId, plan);
+        diagnosticCompletedAttempts.putIfAbsent(flowId, 0);
     }
 
     @Override
@@ -161,7 +190,8 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
             LearningFlowInteraction interaction,
             LearningCheckpoint checkpoint,
             ProcessedCommand command,
-            PendingOperation pending
+            PendingOperation pending,
+            DiagnosticFinding diagnosticFinding
     ) {
         Objects.requireNonNull(interaction, "interaction must not be null");
         Objects.requireNonNull(checkpoint, "checkpoint must not be null");
@@ -205,6 +235,9 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         if (isCompletedDiagnosticAttempt(previous)) {
             diagnosticCompletedAttempts.computeIfPresent(
                     interaction.flowId(), (flowId, completed) -> completed + 1);
+        }
+        if (diagnosticFinding != null) {
+            recordDiagnosticFinding(diagnosticFinding);
         }
         return interaction;
     }
