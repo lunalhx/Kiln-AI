@@ -65,62 +65,49 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The plain Java Learning StateGraph runner (ADR-0066). It owns one Graph Run
- * per learner command: rehydrates the Learning State from the durable records
- * and the saved checkpoint, runs the deterministic input gate, routes the
- * command through the single legal node (Diagnostic, Explain, Practice,
- * Independent submission, Hint, or Teach-back), and stops at the next Learner
- * Interaction Boundary by committing the learner interaction, its checkpoint,
- * and the processed command atomically.
+ * 学习状态图运行器（ADR-0066）。每条学习者命令执行一次 Graph Run：
+ * 从持久化记录和已保存的检查点恢复学习状态，跑确定性入门检查，把命令
+ * 路由到唯一合法的节点（诊断、讲解、练习、独立提交、提示或 Teach-back），
+ * 然后原子提交下一条学习者交互边界（交互、检查点、已处理命令一起落库）。
  *
- * <p>At every guarded decision node — an accepted Diagnostic Not Passed result, Explain
- * completion, a Practice or Teach-back result, an H5 reveal, and readiness —
- * the deterministic Workflow Guard first derives the closed legal next-move
- * set from committed state, and the bounded Pedagogy Agent then selects one
- * move only within that set (one initial plan and at most one same-plan
- * repair; an invalid output is discarded entirely and the spec's deterministic
- * fallback runs; an unavailable fallback node stops at a safe boundary). The
- * Guard bypasses model-based selection when exactly one move is legal. The
- * Agent receives only sanitized Feedback Facts and the legal-action set —
- * never raw answers, expected answers, assessment reasoning, Skill ids, or
- * state access — and never writes Learning State; only this runner and its
- * nodes own the store. A crash between the two committed halves of a
- * submission or hint exposure resumes from the saved Attempt or saved hint
- * request through the reused node capability.
+ * <p>在每个需要教学决策的节点（诊断未通过、讲解完成、练习或 Teach-back
+ * 结果、H5 揭示、是否够格做独立测试），先由确定性的 Workflow Guard 从
+ * 已提交状态推导出合法下一步集合，有界 Pedagogy Agent 只能在集合内选一个
+ * （一次初始规划 + 至多一次同规划修复；输出非法就整体丢弃，走 spec 的
+ * 确定性 fallback；fallback 节点不可用时停在安全边界）。只有一个合法动作
+ * 时 Guard 直接绕过模型。Agent 只收到清理过的 FeedbackFacts 和合法动作
+ * 集合——永远看不到原始答案、期望答案、评估理由、Skill id，也不能访问
+ * 状态——它从不写学习状态，只有本运行器及其节点能操作 store。提交或提示
+ * 暴露两次提交之间崩溃时，从已保存的 Attempt 或提示请求恢复。
  */
 public final class LearningStateGraph {
 
     public static final String RESUME_PRACTICE_MESSAGE = "请继续完成当前练习题。";
 
     /**
-     * The generic learner-safe message of an initial Start preparation
-     * failure (spec: "Initial failure returns a generic 503 and the client
-     * reuses the original Idempotency-Key"). The failed Start persists
-     * nothing, so the learner message never exposes provider, model, source,
-     * or parser details.
+     * 开始流程时初始准备失败的通用提示（spec："Initial failure returns a
+     * generic 503 and the client reuses the original Idempotency-Key"）。
+     * 失败的 Start 不落库，所以这条提示永远不会暴露 provider、模型、
+     * 来源或解析器细节。
      */
     public static final String START_UNAVAILABLE_MESSAGE = "暂时无法开始学习，请稍后重试。";
 
     /**
-     * The neutral learner-safe boundary for a submitted Attempt whose
-     * evaluation responsibility could not complete. The saved Attempt and
-     * Pending Operation, rather than this message, carry the recovery state.
+     * 提交后评估无法完成时的中性提示。恢复状态在已保存的 Attempt 和
+     * Pending Operation 里，不在这条消息里。
      */
     public static final String POST_SUBMISSION_EVALUATION_UNAVAILABLE_MESSAGE =
             ModelContractInvalidException.LEARNER_SAFE_MESSAGE;
 
     /**
-     * The teaching intent of every clarification-driven temporary Explain: a
-     * pure teaching action answering the learner's substantive question, never
-     * an assessment or a new task.
+     * 澄清驱动的临时讲解的教学意图：纯粹回答学习者的实质问题，
+     * 不是评估，也不是新题目。
      */
     public static final String CLARIFICATION_INTENT = "clarification_assistance";
 
     /**
-     * The learner-visible consequence of accepting help on an open
-     * Independent Test or Review Attempt: the attempt will be converted
-     * one-way to Practice before any assistance content is exposed
-     * (ADR-0014).
+     * 学习者接受帮助时看到的后果提示：开放的独立测试或复习 Attempt 会在
+     * 展示任何帮助内容之前单向转为练习（ADR-0014）。
      */
     public static final String CONSENT_WARNING_MESSAGE =
             "请求帮助将不再计入独立成绩：本次尝试将不可逆地转为练习。是否继续？";
@@ -134,27 +121,23 @@ public final class LearningStateGraph {
             "以下是针对您疑问的讲解，之后请继续完成当前题目。";
 
     /**
-     * The learner-visible refusal of a substantive or uncertain clarification
-     * on a Diagnostic or Teach-back task (ticket 06): this stage offers no
-     * concept help, so the message adds no teaching content and the open
-     * Attempt's purpose and evidence eligibility are never changed.
+     * 诊断或 Teach-back 任务上拒绝实质/不确定澄清的提示（ticket 06）：
+     * 该阶段不提供概念讲解，不补充教学内容，开放 Attempt 的用途和
+     * 证据资格永远不变。
      */
     public static final String TASK_CLARIFICATION_NOT_OFFERED_MESSAGE =
             "当前任务阶段不提供概念讲解。请按题目中已展示的格式与记号继续作答。";
 
     /**
-     * The learner-visible refusal of a substantive or uncertain clarification
-     * on a standalone Explain teaching interaction (ticket 06): the
-     * explanation adds no further teaching content and the teaching boundary
-     * is left unchanged.
+     * 独立讲解交互上拒绝实质/不确定澄清的提示（ticket 06）：
+     * 讲解不再补充教学内容，教学边界保持不变。
      */
     public static final String TEACHING_CLARIFICATION_NOT_OFFERED_MESSAGE =
             "本次讲解不回答额外概念问题。您可以继续进入下一步，或就已展示内容的格式、记号与界面操作提问。";
 
     /**
-     * The learner-visible message of an explicit leave (ADR-0015): any open
-     * Attempt is closed as Abandoned without submission, Assessment, or
-     * Evidence, and the Flow stops at a terminal transition boundary.
+     * 显式离开流程的提示（ADR-0015）：任何开放的 Attempt 以 Abandoned
+     * 关闭——不提交、不评估、不产生证据——流程停在终结性 transition 边界。
      */
     public static final String FLOW_LEAVE_MESSAGE = "已离开本次学习，未作答的题目已放弃。";
 
@@ -206,13 +189,11 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Graph Run of a flow start: the Diagnostic node is fully prepared —
-     * profile resolution, generation, Output Gate, and Task Verification all
-     * complete first — and the whole Start binds atomically in one durable
-     * commit: the Flow record, Source Pack, Task Package, open Attempt,
-     * exposure, first learner interaction, checkpoint, and processed command
-     * (ADR-0063). An initial preparation failure returns the generic 503 with
-     * no durable trace, and the client reuses the original Idempotency-Key.
+     * 流程开始的 Graph Run：先完整准备诊断节点——解析配置、生成、输出
+     * 门控、任务验证全部完成（不落库）——然后整个 Start 原子提交一次：
+     * Flow 记录、来源包、任务包、开放的 Attempt、曝光、第一条学习者交互、
+     * 检查点和已处理命令（ADR-0063）。初始准备失败返回通用 503，不留任何
+     * 痕迹，客户端复用原 Idempotency-Key 重试。
      */
     public LearningFlowResult start(
             UUID flowId,
@@ -242,10 +223,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Graph Run of an answer-submitted command: rehydrate the committed
-     * state, reject a stale interaction version or an unknown Attempt, route
-     * through the single legal Apply node for the Attempt's purpose, and stop
-     * at the next committed Learner Interaction Boundary.
+     * 提交答案的 Graph Run：恢复已提交状态，拒绝过期 interactionVersion
+     * 或未知 Attempt，按 Attempt 的 purpose 路由到唯一合法的节点，
+     * 停在下一个已提交的学习者交互边界。
      */
     public LearningFlowResult submitAnswer(
             UUID flowId,
@@ -295,9 +275,8 @@ public final class LearningStateGraph {
     }
 
     /**
-     * An Attempt must belong to the current Flow and be the Attempt addressed
-     * by the current Interaction. An unknown Attempt is not found; an Attempt
-     * already replaced by a later Interaction cannot be routed again.
+     * Attempt 必须属于当前 Flow，且必须是当前交互指向的那个。
+     * 未知 Attempt 视为找不到；已被后续交互替换的 Attempt 不能再路由。
      */
     private Optional<SubmissionIgnoreReason> ignoredAttemptOwnership(LearningState state, UUID attemptId) {
         if (artifactStore.findAttempt(attemptId).isEmpty()) {
@@ -310,10 +289,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Teach-back Attempt is Practice-purpose but lives behind a
-     * teach-back task package; the graph discriminates by the package type so
-     * an Apply Practice submission is never routed into the Teach-back node
-     * and vice versa.
+     * Teach-back Attempt 的 purpose 是 PRACTICE，但它后面是 teach-back
+     * 任务包；图按包类型区分，普通练习提交永远不会路由进 Teach-back 节点，
+     * 反之亦然。
      */
     private boolean isTeachBackAttempt(UUID attemptId) {
         return artifactStore.findAttempt(attemptId)
@@ -341,14 +319,11 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Graph Run of a continue-requested command: rehydrate the committed
-     * state, reject a stale interaction version, and only a teaching boundary
-     * may be continued. When a temporary Explain was shown inside an open
-     * Apply Practice Attempt, the Guard derives the single legal move back to
-     * the same Practice interaction and the model is bypassed; otherwise the
-     * legal moves are derived from committed state and the Pedagogy Agent
-     * selects the next teaching node. Continue on any other boundary is
-     * ignored without state change.
+     * continue-requested 的 Graph Run：恢复已提交状态，拒绝过期版本，
+     * 只有教学边界可以继续。开放练习 Attempt 内的临时讲解结束时，Guard
+     * 推导出唯一合法动作——回到同一个练习交互——直接绕过模型；否则从
+     * 已提交状态推导合法动作，由 Pedagogy Agent 选择下一个教学节点。
+     * 在其他边界上 continue 被忽略，状态不变。
      */
     public LearningFlowResult continueRequested(
             UUID flowId,
@@ -369,18 +344,13 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Graph Run of a hint-requested command: the Hint node generates and
-     * gates the private ladder on the first request, exposes only the
-     * requested legal level, and the run stops at the next committed Learner
-     * Interaction Boundary. H1-H4 keep the Practice Attempt open for a later
-     * formal submission; an H5 reveal atomically closes the Attempt as
-     * Solution Revealed without Assessment or Evidence, records it as the
-     * eligible Teach-back anchor, and the guarded decision routes the next
-     * move (Teach-back and fresh Apply Practice are both legal; the
-     * deterministic fallback chooses Teach-back). A failed ladder exposes
-     * nothing and keeps the open Attempt at a safe message boundary. Hints
-     * are never legal for Diagnostic, Independent, Review, or Teach-back
-     * Attempts.
+     * hint-requested 的 Graph Run：第一次请求时生成并门控整条私有阶梯，
+     * 只揭示请求的合法级别，停在下一个已提交的交互边界。H1-H4 保持练习
+     * Attempt 开放，供之后正式提交；H5 揭示原子地以 Solution Revealed
+     * 关闭 Attempt——不评估、不产生证据——并把它记为 Teach-back anchor，
+     * 然后 Guard 推导下一步（Teach-back 和新练习都合法，确定性 fallback
+     * 选 Teach-back）。阶梯生成失败不暴露任何内容，Attempt 保持在安全的
+     * 消息边界。诊断、独立、复习、Teach-back Attempt 永远不允许提示。
      */
     public LearningFlowResult requestHint(
             UUID flowId,
@@ -413,24 +383,14 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Graph Run of a clarification-asked command: the Clarification Gate
-     * classifies the free-form message and routes by the current Interaction.
-     * On a standalone Explain teaching interaction the command addresses the
-     * current Interaction Boundary, never an Attempt (spec): a procedural
-     * request is answered with a deterministic restatement of the displayed
-     * teaching conditions and leaves the teaching boundary unchanged; a
-     * substantive or uncertain request adds no teaching content and keeps the
-     * same teaching boundary. On a Diagnostic or Teach-back task only
-     * procedural clarification is allowed — it restates the Task Package's own
-     * format contract and records the procedural assistance; a substantive or
-     * uncertain request adds no teaching content and never changes the Attempt
-     * purpose or its evidence eligibility (ticket 06). On an open Apply
-     * Practice Attempt a substantive or uncertain request records the
-     * assistance and delivers a temporary Explain teaching boundary; on an
-     * open Independent Test or Review Attempt it first projects an
-     * assistance-consent request with no conversion, recording, or teaching
-     * content. Practice, Independent, and Review keep their existing
-     * clarification and consent rules.
+     * clarification-asked 的 Graph Run：Clarification Gate 对自由文本分类，
+     * 按当前交互路由。独立讲解交互上，命令指向当前交互边界而不是 Attempt
+     * （spec）：程序性问题用确定性重述回答、教学边界不变；实质/不确定问题
+     * 不补充教学内容。诊断或 Teach-back 任务只允许程序性澄清——重述题目
+     * 格式契约并记录帮助；实质/不确定请求不改变 Attempt 用途和证据资格
+     * （ticket 06）。开放的练习 Attempt 上，实质/不确定请求记录帮助并给出
+     * 临时讲解教学边界；开放的独立或复习 Attempt 上，先展示帮助-同意请求
+     * （不转换、不记录、不教学）。
      */
     public LearningFlowResult clarificationAsked(
             UUID flowId,
@@ -446,10 +406,9 @@ public final class LearningStateGraph {
         if (state.latestInteraction().interactionVersion() != interactionVersion) {
             throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
         }
-        // A standalone Explain (or any teaching interaction) addresses the
-        // current Interaction Boundary without an Attempt ID: its
-        // clarification neither requires nor uses one — any supplied Attempt
-        // ID is ignored because the current interaction is authoritative.
+        // 独立讲解（或任何教学交互）指向当前交互边界，不需要 Attempt ID：
+        // 它的澄清既不要求也不使用它——任何传入的 Attempt ID 都被忽略，
+        // 因为当前交互才是权威。
         if (state.latestInteraction().kind() == InteractionKind.TEACHING) {
             return explainClarification(state, message, idempotencyKey, requestHash);
         }
@@ -465,9 +424,8 @@ public final class LearningStateGraph {
             return new LearningFlowResult.ClarificationIgnored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
         ClarificationClassification classification = classifyClarification(state, attempt, null, message);
-        // Diagnostic and Teach-back accept procedural clarification only: a
-        // substantive or uncertain request adds no teaching content and changes
-        // neither the Attempt purpose nor its evidence eligibility.
+        // 诊断和 Teach-back 只接受程序性澄清：实质或不确定请求不补充
+        // 教学内容，不改变 Attempt 用途和证据资格。
         if (attempt.purpose() == AttemptPurpose.DIAGNOSTIC || isTeachBackAttempt(attemptId)) {
             return switch (classification) {
                 case PROCEDURAL -> answerProcedurally(state, attempt, idempotencyKey, requestHash);
@@ -488,11 +446,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * One classification of a clarification message against the learner-visible
-     * displayed content (a Task Package's task text or an Explain teaching
-     * interaction's content). A Model Contract Invalid falls back to
-     * {@code UNCERTAIN} and is recorded as a bounded clarification audit with
-     * only the available identity — never a raw invalid payload.
+     * 对澄清消息做一次分类，对照学习者可见的展示内容（题目文本或讲解
+     * 内容）。模型契约非法时回退为 UNCERTAIN，并记录一条有界澄清审计
+     * （只含可用身份，绝不含原始非法载荷）。
      */
     private ClarificationClassification classifyClarification(
             LearningState state,
@@ -515,13 +471,10 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The standalone Explain clarification path: the command addresses the
-     * current teaching Interaction Boundary and carries no Attempt ID. A
-     * procedural request is answered directly with a deterministic restatement
-     * of the displayed teaching conditions; a substantive or uncertain request
-     * is refused with no added teaching content. Either way the same teaching
-     * boundary is committed again, so the auditable record is the committed
-     * interaction and processed command (ticket 06).
+     * 独立讲解上的澄清路径：命令指向当前教学交互边界，不带 Attempt ID。
+     * 程序性问题直接用确定性重述回答；实质/不确定问题拒绝且不补充内容。
+     * 两种情况都重新提交同一个教学边界，可审计记录就是已提交的交互和
+     * 已处理命令（ticket 06）。
      */
     private LearningFlowResult explainClarification(
             LearningState state,
@@ -539,9 +492,8 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The procedural Explain clarification: the gate restates the displayed
-     * teaching conditions and the same teaching boundary is committed again.
-     * No Teaching Node Profile is loaded and no new Explain is generated.
+     * 程序性讲解澄清：gate 重述展示的教学条件，重新提交同一个教学边界。
+     * 不加载任何教学 Profile，也不生成新的讲解。
      */
     private LearningFlowResult explainProceduralAnswer(
             LearningState state,
@@ -554,9 +506,8 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The substantive or uncertain Explain clarification: no teaching content
-     * is added and the same teaching boundary is committed again with the
-     * refusal message.
+     * 实质/不确定讲解澄清：不补充教学内容，用拒绝消息重新提交同一个
+     * 教学边界。
      */
     private LearningFlowResult teachingClarificationRefused(
             LearningState state,
@@ -569,11 +520,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The substantive or uncertain clarification refusal on a Diagnostic or
-     * Teach-back task: no teaching content is added, no assistance is recorded,
-     * and the open Attempt's purpose and evidence eligibility are unchanged.
-     * The committed same-task boundary and processed command are the auditable
-     * record.
+     * 诊断或 Teach-back 任务上拒绝实质/不确定澄清：不补充内容、不记录
+     * 帮助，开放 Attempt 的用途和证据资格不变。提交的同一任务边界和
+     * 已处理命令就是可审计记录。
      */
     private LearningFlowResult taskClarificationRefused(
             LearningState state,
@@ -591,20 +540,14 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Graph Run of an assistance-decided command over an open Independent
-     * Test or Review Attempt. A refusal preserves the attempt completely
-     * unchanged and returns to the same task boundary. An acceptance
-     * generates the temporary Explain first, then atomically converts the
-     * Attempt one-way to Practice (recording the substantive clarification
-     * and the temporary Explain), cancels the STARTED Review Task when the
-     * Attempt was a Review — with no Review Evidence and no milestone change
-     * (ADR-0062) — and exposes the teaching boundary. A failed generation
-     * converts nothing and returns to the unchanged task; the learner can
-     * retry or refuse. A retry of an acceptance whose conversion already
-     * committed (the process crashed between the conversion and its boundary)
-     * resumes the same teaching boundary through the Already-Practice path:
-     * the trace is never appended twice and the command never 409s a
-     * committed half.
+     * assistance-decided 的 Graph Run，作用于开放的独立或复习 Attempt。
+     * 拒绝时 Attempt 完全不变，回到同一任务边界。接受时先生成临时讲解，
+     * 然后原子地把 Attempt 单向转为练习（记录实质澄清和临时讲解），若原来
+     * 是复习还取消已开始的复习任务——不产生复习证据、milestone 不变
+     * （ADR-0062）——再展示教学边界。生成失败不转换任何东西，回到原任务，
+     * 学习者可以重试或拒绝。接受后转换已提交但进程崩溃的（转换和它的边界
+     * 之间），重试走 Already-Practice 路径恢复同一个教学边界：轨迹不会
+     * 追加两次，命令也不会对已提交的一半报 409。
      */
     public LearningFlowResult assistanceDecided(
             UUID flowId,
@@ -632,10 +575,9 @@ public final class LearningStateGraph {
             return new LearningFlowResult.AssistanceIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
         }
         if (attempt.purpose() == AttemptPurpose.PRACTICE) {
-            // An open Practice attempt is either the retried half of a
-            // committed conversion or a wrong-purpose client request; an
-            // accepted retry resumes the assistance exposure, a refusal can
-            // never undo a committed one-way conversion.
+            // 开放的练习 Attempt 要么是已提交转换的重试的一半，要么是
+            // 客户端发错了 purpose；接受的重试恢复帮助展示，拒绝永远不能
+            // 撤销已提交的单向转换。
             return accept
                     ? acceptAssistance(state, attempt, idempotencyKey, requestHash)
                     : new LearningFlowResult.AssistanceIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
@@ -647,15 +589,11 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Graph Run of a flow-control-requested command: the learner
-     * explicitly leaves the Flow (ADR-0015). Any open Attempt is closed as
-     * Abandoned first — no submission, Assessment, Evidence, or Mastery
-     * Milestone change — while a Started Review remains Started until the
-     * learner explicitly uses the independent Review cancellation resource
-     * (ADR-0073). The run then stops at a terminal transition boundary
-     * carrying only the leave message; a network disconnect or ordinary delay
-     * is never an explicit Flow Control Requested event and leaves the attempt
-     * open.
+     * flow-control-requested 的 Graph Run：学习者显式离开流程（ADR-0015）。
+     * 任何开放的 Attempt 先以 Abandoned 关闭——不提交、不评估、不产生证据、
+     * milestone 不变——已开始的复习保持 Started，直到学习者用独立的复习
+     * 取消接口（ADR-0073）。然后停在只带离开消息的终结性 transition 边界；
+     * 网络断开或普通延迟不是显式离开事件，Attempt 保持开放。
      */
     public LearningFlowResult flowControlRequested(
             UUID flowId,
@@ -682,12 +620,10 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Graph Run of a retry-requested command: legal only on an
-     * {@code unavailable} Interaction whose Retry Chain has not been
-     * exhausted. It rehydrates the saved Pending Operation and resumes that
-     * operation from durable state with no client answer payload (ADR-0069).
-     * A failed retry increments the chain and commits a new unavailable
-     * version; a successful next interaction clears the pending operation.
+     * retry-requested 的 Graph Run：只在 unavailable 交互上合法，且重试链
+     * 未耗尽。它从持久状态恢复保存的 Pending Operation 并继续，不带任何
+     * 客户端答案载荷（ADR-0069）。重试失败递增重试链并提交新的 unavailable
+     * 版本；成功进入下一条交互时清除 Pending Operation。
      */
     public LearningFlowResult retryRequested(
             UUID flowId,
@@ -715,13 +651,10 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The accepted assistance conversion: the temporary Explain teaching
-     * content is generated, gated, and persisted before any durable mutation,
-     * and only a delivered artifact converts the Attempt and cancels the
-     * Review Task. An unavailable generation keeps the independent attempt
-     * untouched at a safe retry boundary. An Already-Practice conversion — a
-     * retried acceptance whose conversion already committed — resumes the
-     * same teaching boundary without appending the trace again.
+     * 接受帮助的转换：先生成、门控、持久化临时讲解，只有交付成功才转换
+     * Attempt 并取消复习任务。生成失败时独立 Attempt 保持原样，停在可
+     * 重试的边界。Already-Practice 转换——重试时转换已提交——恢复同一个
+     * 教学边界，不重复追加轨迹。
      */
     private LearningFlowResult acceptAssistance(
             LearningState state,
@@ -754,14 +687,10 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The substantive-clarification path of an open Apply Practice Attempt:
-     * the temporary Explain is generated and persisted first, the recorded
-     * assistance (the substantive clarification and the temporary Explain)
-     * is appended to the open Attempt's Trace, and the teaching boundary is
-     * committed. The Workflow Guard's single legal next move — resuming the
-     * SAME open Practice interaction — is then reached through the existing
-     * Continue command. A failed generation appends nothing and keeps the
-     * open Attempt at a safe retry boundary.
+     * 开放练习 Attempt 上的实质澄清路径：先生成并持久化临时讲解，把记录的
+     * 帮助（实质澄清和临时讲解）追加到开放 Attempt 的轨迹，再提交教学边界。
+     * Guard 的唯一合法下一步——回到同一个开放练习交互——由现有 Continue
+     * 命令到达。生成失败不追加任何东西，Attempt 停在可重试边界。
      */
     private LearningFlowResult deliverClarificationExplain(
             LearningState state,
@@ -793,10 +722,8 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The assistance entries recorded whenever substantive clarification
-     * content and its temporary Explain are shown inside an open Attempt:
-     * one entry per actually delivered assistance, so the later Practice
-     * assessment honestly carries both.
+     * 在开放 Attempt 内展示实质澄清内容和临时讲解时记录的帮助条目：
+     * 每次实际交付的帮助一条，之后的练习评估会如实带上两者。
      */
     private List<AssistanceTraceEntry> recordedClarification() {
         return List.of(
@@ -807,11 +734,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The procedural-clarification path: the gate answers directly with a
-     * deterministic restatement of the Task Package's own exposed format
-     * contract, the answer is recorded as procedural assistance on the open
-     * Attempt, and the run stops at the same task boundary. No Teaching Node
-     * Profile is loaded and the Attempt's purpose is untouched.
+     * 程序性澄清路径：gate 用确定性重述直接回答题目自身的格式契约，该回答
+     * 作为程序性帮助记录在开放 Attempt 上，然后停在同一个任务边界。不加载
+     * 任何教学 Profile，Attempt 的用途不变。
      */
     private LearningFlowResult answerProcedurally(
             LearningState state,
@@ -846,10 +771,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The assistance-consent Learner Interaction Boundary: the open attempt
-     * stays untouched and the learner-visible consent projection states the
-     * one-way conversion consequence. No teaching content, trace entry, or
-     * conversion ever precedes this boundary (ADR-0014).
+     * 帮助-同意学习者交互边界：开放 Attempt 保持原样，学习者看到的同意
+     * 投影说明单向转换的后果。任何教学内容、轨迹或转换都不会先于这个
+     * 边界（ADR-0014）。
      */
     private LearningFlowResult consentBoundary(
             LearningState state,
@@ -873,10 +797,9 @@ public final class LearningStateGraph {
             String requestHash
     ) {
         TaskAttempt attempt = revealed.attempt();
-        // The generated ladder's content fingerprint enters the Flow's
-        // novelty ledger once it exists; the H5 reveal additionally records
-        // the revealed-solution fingerprint, so later generation never
-        // reuses the exposed hint content or the revealed answer.
+        // 生成的阶梯出现后，其内容指纹进入 Flow 的 novelty 账本；H5 揭示
+        // 还额外记录已揭示答案的指纹，之后生成永远不会复用已暴露的提示
+        // 内容或已揭示的答案。
         artifactStore.findLadder(attempt.attemptId()).ifPresent(ladder -> {
             flowStore.recordHintLadderExposure(state.flow().flowId(), ladder.fingerprint());
             if (!attempt.isOpen()) {
@@ -889,10 +812,9 @@ public final class LearningStateGraph {
                     projectionOf(attempt), null, revealed.hint(), InteractionKind.TASK,
                     idempotencyKey, requestHash);
         }
-        // The H5 reveal closes the attempt as Solution Revealed and becomes
-        // the most recently exposed eligible Teach-back anchor; the graph
-        // records it durably (idempotent per anchor id) before the guarded
-        // decision routes the next move.
+        // H5 揭示以 Solution Revealed 关闭 Attempt，成为最近暴露的合法
+        // Teach-back anchor；图在 Guard 决策下一步之前持久化记录它
+        // （按 anchor id 幂等）。
         flowStore.recordAnchor(state.flow().flowId(),
                 new TeachBackAnchor(
                         TeachBackAnchor.TeachBackAnchorKind.H5_SOLUTION_REVEAL,
@@ -939,18 +861,16 @@ public final class LearningStateGraph {
                 state.flow().flowId(), state.flow().modelProfile(),
                 attemptId, rawDerivative, confirmedCanonical, rationale);
         return switch (result) {
-            // The Neutral Transition message is learner-visible content
-            // (CONTEXT.md) and is projected on the boundary; the legacy Apply
-            // seam dropped it at the interaction level. It states only the
-            // next interaction and carries no feedback.
+            // Neutral Transition 消息是学习者可见内容（CONTEXT.md），
+            // 投影在边界上；旧的 Apply seam 在交互层面丢掉了它。它只说
+            // 下一步交互，不带任何反馈。
             case DiagnosticSubmissionResult.Passed passed -> boundary(
                     state, LearningStage.INDEPENDENT_TEST, passed.independentAttempt().attemptId(),
                     passed.independentAttempt().purpose(), passed.independentLearnerProjection(),
                     passed.neutralTransitionMessage(), null, InteractionKind.TASK, idempotencyKey, requestHash);
-            // A failed submitted Diagnostic stays closed and is never
-            // retroactively converted. The Workflow Guard derives the legal
-            // remediation actions from committed state and the Pedagogy Agent
-            // selects the next teaching node from that closed set.
+            // 已提交的诊断失败保持关闭，永远不会追溯转换。Workflow Guard
+            // 从已提交状态推导合法补救动作，Pedagogy Agent 从该封闭集合
+            // 中选择下一个教学节点。
             case DiagnosticSubmissionResult.Failed failed ->
                     executeMove(state, chooseDecision(state, WorkflowGuard.DecisionContext.DIAGNOSTIC_NOT_PASSED,
                                     failed.facts(), evaluationRecovery),
@@ -972,6 +892,12 @@ public final class LearningStateGraph {
         };
     }
 
+    /**
+     * 独立测试节点的一次提交：Flow 关闭并评估 Attempt，证据被原子接受，
+     * 停在安全的终结 transition。结论性通过或失败恰好接受一条独立证据；
+     * Inconclusive 判定不产生证据，store 原子地绑定已验证的替换题（或
+     * 无法准备时的中性继续）。重复提交或未关闭的提交永远不产生证据。
+     */
     private LearningFlowResult submitIndependent(
             LearningState state,
             UUID attemptId,
@@ -988,18 +914,15 @@ public final class LearningStateGraph {
             case IndependentSubmissionResult.EvidenceAccepted accepted -> boundary(
                     state, LearningStage.INDEPENDENT_TEST, null, null, null,
                     accepted.learnerMessage(), null, InteractionKind.TRANSITION, idempotencyKey, requestHash);
-            // A conclusive no-hint Independent failure: accept exactly one
-            // fail Evidence (only after the chosen remediation node's
-            // generation succeeds), drop Current Milestone to Learning, and
-            // begin remediation through the Guard — Explain and fresh Apply
-            // Practice are both legal and the Pedagogy Agent selects one.
+            // 结论性无提示独立失败：恰好接受一条失败证据（只在所选补救
+            // 节点生成成功之后），Current Milestone 降回 Learning，通过
+            // Guard 开始补救——Explain 和新练习都合法，Pedagogy Agent 选一个。
             case IndependentSubmissionResult.FailureEvidenceAccepted failed ->
                     executeMove(state, chooseDecision(state, WorkflowGuard.DecisionContext.INDEPENDENT_FAILED,
                                     failed.facts(), evaluationRecovery),
                             failed.evidence(), idempotencyKey, requestHash);
-            // A Blocked or Inconclusive judgment creates no Evidence and no
-            // milestone change: deliver a fresh verified Independent
-            // replacement using all applicable novelty exclusions.
+            // Blocked 或 Inconclusive 判定不产生证据、milestone 不变：
+            // 用所有适用的 novelty 排除交付一道全新已验证独立替换题。
             case IndependentSubmissionResult.ReplacementRequired replacement ->
                     deliverIndependentReplacement(state, replacement.learnerMessage(),
                             idempotencyKey, requestHash);
@@ -1014,10 +937,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The mandated fresh verified Independent replacement of a Blocked or
-     * Inconclusive judgment: generated with all applicable novelty exclusions,
-     * or a recoverable unavailable boundary when no task can be prepared. No
-     * Evidence and no milestone change on either path.
+     * Blocked 或 Inconclusive 判定要求的全新已验证独立替换题：用所有适用
+     * novelty 排除生成；无法准备时给出可恢复的 unavailable 边界。
+     * 两条路径都不产生证据、milestone 不变。
      */
     private LearningFlowResult deliverIndependentReplacement(
             LearningState state,
@@ -1041,13 +963,10 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Review node of one submission: the flow closes and assesses the
-     * Attempt and advances the cadence exactly once. A conclusive pass or
-     * fail accepts exactly one Review Evidence record and stops at the safe
-     * terminal transition; an Inconclusive judgment creates no Evidence and
-     * the store durably binds the verified replacement (or the neutral
-     * continuation when none could be prepared). A duplicate or unclosed
-     * submission never creates Evidence.
+     * 复习节点的一次提交：Flow 关闭并评估 Attempt，恰好推进一次 cadence。
+     * 结论性通过或失败恰好接受一条复习证据并停在安全的终结 transition；
+     * Inconclusive 判定不产生证据，store 原子地绑定已验证的替换题（或
+     * 无法准备时的中性继续）。重复提交或未关闭的提交永远不产生证据。
      */
     private LearningFlowResult submitReview(
             LearningState state,
@@ -1070,8 +989,8 @@ public final class LearningStateGraph {
             case ReviewSubmissionResult.NoEvidence noEvidence -> boundary(
                     state, LearningStage.DELAYED_REVIEW, null, null, null,
                     noEvidence.learnerMessage(), null, InteractionKind.TRANSITION, idempotencyKey, requestHash);
-            // The inconclusive replacement boundary was committed atomically
-            // by the Review store itself (task or neutral continuation).
+            // Inconclusive 替换边界由复习 store 自己原子提交
+            // （任务或中性继续）。
             case ReviewSubmissionResult.ReplacementBound bound ->
                     new LearningFlowResult.Boundary(bound.interaction());
             case ReviewSubmissionResult.ReplacementUnavailable unavailable ->
@@ -1084,14 +1003,11 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Apply Practice node of one submission: the flow closes and assesses
-     * the Attempt, the Workflow Guard derives the legal next moves from the
-     * outcome and committed state, and the Pedagogy Agent selects one — a
-     * conclusive pass can make the fresh Independent Test legal (readiness),
-     * a conclusive fail or an Inconclusive judgment can never. The Evidence
-     * is accepted only after the chosen follow-up node's generation
-     * succeeds, so a failed generation leaves no Evidence and a retry
-     * recovers the original outcome.
+     * 练习节点的一次提交：Flow 关闭并评估 Attempt，Workflow Guard 从结果
+     * 和已提交状态推导合法下一步，Pedagogy Agent 选一个——结论性通过可能
+     * 让新的独立测试合法（readiness），结论性失败或 Inconclusive 永远不能。
+     * 证据只在所选后续节点生成成功后才接受，所以生成失败不留下证据，
+     * 重试会恢复原始结果。
      */
     private LearningFlowResult submitPractice(
             LearningState state,
@@ -1125,8 +1041,7 @@ public final class LearningStateGraph {
         WorkflowGuard.DecisionContext context = switch (assessed.outcome()) {
             case AssessmentOutcome.Passed passed -> WorkflowGuard.DecisionContext.PRACTICE_PASSED;
             case AssessmentOutcome.Failed failed -> WorkflowGuard.DecisionContext.PRACTICE_FAILED;
-            // ADR-0067: a clearly contradictory rationale over a correct
-            // final answer is a conclusive failure in Practice too.
+            // ADR-0067：答案正确但理由明显矛盾，在练习里同样是结论性失败。
             case AssessmentOutcome.Blocked blocked -> WorkflowGuard.DecisionContext.PRACTICE_FAILED;
             case AssessmentOutcome.Inconclusive inconclusive ->
                     WorkflowGuard.DecisionContext.PRACTICE_INCONCLUSIVE;
@@ -1138,14 +1053,11 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Teach-back node of one submission: the flow closes and assesses the
-     * Attempt, the Workflow Guard derives the legal next moves from the
-     * outcome and committed state, and the Pedagogy Agent selects one. A
-     * conclusive pass or fail accepts exactly one understanding-dimension
-     * Evidence record — never Independent Evidence, because a Teach-back pass
-     * does not satisfy Apply Practice readiness — while an Inconclusive
-     * judgment creates no Evidence and the single legal move is a fresh
-     * Teach-back replacement over the same anchor.
+     * Teach-back 节点的一次提交：Flow 关闭并评估 Attempt，Workflow Guard
+     * 推导合法下一步，Pedagogy Agent 选一个。结论性通过或失败恰好接受一条
+     * 理解维度证据——绝不是独立证据，因为 Teach-back 通过不算练习
+     * readiness——Inconclusive 判定不产生证据，唯一合法动作是同一 anchor
+     * 上的全新 Teach-back 替换。
      */
     private LearningFlowResult submitTeachBack(
             LearningState state,
@@ -1194,15 +1106,12 @@ public final class LearningStateGraph {
     }
 
     /**
-     * One guarded pedagogy decision: the deterministic Workflow Guard derives
-     * the closed legal move set from committed state (eligible anchor, open
-     * Practice Attempt, readiness), and the bounded Pedagogy Agent selects
-     * one move only within that set — one initial plan and at most one
-     * same-plan repair, after which the entire invalid output is discarded
-     * and the spec's deterministic fallback runs with neutral learner
-     * feedback. A single legal move bypasses the model entirely. The Agent
-     * receives only the sanitized Feedback Facts and the legal set, never
-     * answers, assessment reasoning, or Skill ids.
+     * 一次受 Guard 约束的教学决策：确定性 Workflow Guard 从已提交状态
+     * 推导合法动作集合（合法 anchor、开放练习 Attempt、readiness），有界
+     * Pedagogy Agent 只在集合内选一个——一次初始规划 + 至多一次同规划修复，
+     * 之后整个非法输出丢弃，走 spec 的确定性 fallback 并给出中性反馈。
+     * 只有一个合法动作时完全绕过模型。Agent 只收到清理过的 FeedbackFacts
+     * 和合法集合，永远看不到答案、评估理由或 Skill id。
      */
     private Decision decide(
             LearningState state,
@@ -1213,10 +1122,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * Replays a post-submission route from committed evaluation checkpoints.
-     * The guard owns the deterministic fallback; a replay never asks the
-     * Pedagogy Agent to make a second decision for a route that has not yet
-     * reached its learner boundary.
+     * 从已提交的评估检查点重放提交后的路由。fallback 由 Guard 决定；
+     * 重放永远不会为尚未到达学习者边界的路由让 Pedagogy Agent 做第二次
+     * 决策。
      */
     private Decision chooseDecision(
             LearningState state,
@@ -1247,11 +1155,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * Executes the guarded decision by invoking the single legal Teaching
-     * Node. The submission Evidence candidate (null for a Diagnostic Not Passed result
-     * or an Inconclusive judgment) is accepted only after the chosen node's
-     * generation, gating, and verification succeed, so a failed generation
-     * leaves no Evidence and the command can be retried.
+     * 执行受 Guard 约束的决策，调用唯一合法的教学节点。提交的证据候选
+     * （诊断未通过或 Inconclusive 判定时为 null）只在所选节点生成、门控、
+     * 验证成功之后接受，所以生成失败不留下证据，命令可以重试。
      */
     private LearningFlowResult executeMove(
             LearningState state,
@@ -1274,11 +1180,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * Accepts the submission Evidence candidate after the chosen follow-up
-     * node's generation, gating, and verification already succeeded, so a
-     * failed generation leaves no Evidence and the command can be retried.
-     * Returns the already-submitted ignore outcome when a concurrent or
-     * replayed command already accepted Evidence for the same Attempt.
+     * 在所选后续节点生成、门控、验证成功后接受提交的证据候选，所以生成
+     * 失败不接受证据，命令可以重试。并发或重放的命令已为同一 Attempt 接受
+     * 证据时，返回已提交的 ignore 结果。
      */
     private Optional<LearningFlowResult> acceptEvidenceOrIgnore(AcceptedLearningEvidence evidence) {
         if (evidence != null && !flowStore.acceptEvidence(evidence)) {
@@ -1288,12 +1192,10 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Explain move: a pure teaching action that delivers one
-     * source-grounded teaching interaction with the guarded intent and
-     * sanitized Feedback Facts, or a recoverable unavailable boundary when no
-     * teaching content can be prepared. It never creates a Task Package,
-     * Attempt, Assessment, or Evidence. The delivered worked example becomes
-     * the most recently exposed eligible Teach-back anchor.
+     * Explain 动作：纯教学，交付一次来源支撑的教学交互，带 Guard 的意图和
+     * 清理过的 FeedbackFacts；无法准备时给出可恢复的 unavailable 边界。
+     * 它从不创建任务包、Attempt、评估或证据。交付的工作示例成为最近暴露的
+     * 合法 Teach-back anchor。
      */
     private LearningFlowResult deliverExplainMove(
             LearningState state,
@@ -1327,10 +1229,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Apply Practice move: delivers a fresh verified task over the frozen
-     * Practice Blueprint, or a recoverable unavailable boundary when no task can
-     * be prepared. An optional reveal hint (H5 continuation) is projected on
-     * the same boundary.
+     * 练习动作：交付一个全新已验证的练习任务（冻结的 Practice Blueprint），
+     * 无法准备时给出可恢复的 unavailable 边界。可选的揭示提示（H5 继续）
+     * 投影在同一个边界上。
      */
     private LearningFlowResult deliverApplyPracticeMove(
             LearningState state,
@@ -1360,10 +1261,8 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The Teach-back move: delivers one anchored verified short-text task, or
-     * a recoverable unavailable boundary when no anchored task can be prepared.
-     * An optional reveal hint (H5 continuation) is projected on the same
-     * boundary.
+     * Teach-back 动作：交付一个锚定的已验证短文本任务，无法准备时给出
+     * 可恢复的 unavailable 边界。可选的揭示提示投影在同一个边界上。
      */
     private LearningFlowResult deliverTeachBackMove(
             LearningState state,
@@ -1393,11 +1292,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The fresh Independent Test move: delivers a fresh verified Independent
-     * task — legal only once the qualifying Apply Practice pass prerequisite
-     * of the current remediation cycle is satisfied — or a recoverable
-     * unavailable boundary when no task can be prepared. An optional reveal
-     * hint (H5 continuation) is projected on the same boundary.
+     * 全新独立测试动作：交付一个全新已验证的独立任务——只在当前
+     * remediation cycle 的练习通过前提满足后合法——无法准备时给出可恢复的
+     * unavailable 边界。可选的揭示提示投影在同一个边界上。
      */
     private LearningFlowResult deliverIndependentMove(
             LearningState state,
@@ -1427,10 +1324,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The single legal move after a temporary Explain shown inside an open
-     * Apply Practice Attempt: re-projects the same open Practice interaction
-     * without generating anything. If the open Attempt is no longer present
-     * in committed state, the Continue is ignored without state change.
+     * 开放练习 Attempt 内展示临时讲解后的唯一合法动作：不生成任何东西，
+     * 重新投影同一个开放的练习交互。开放 Attempt 已不在已提交状态中时，
+     * Continue 被忽略，状态不变。
      */
     private LearningFlowResult resumeOpenPractice(
             LearningState state,
@@ -1449,9 +1345,8 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The current Flow's open Apply Practice Attempt, scoped through the
-     * Flow's exposure ledger so a Continue can never resume an Attempt from
-     * another Flow.
+     * 当前 Flow 的开放练习 Attempt，通过 Flow 的曝光账本限定范围，
+     * 所以 Continue 永远不会恢复另一个 Flow 的 Attempt。
      */
     private Optional<TaskAttempt> openPracticeAttempt(LearningState state) {
         return artifactStore.findOpenPracticeAttempt(
@@ -1459,9 +1354,8 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The committed-state facts of an Explain completion: no new assessment
-     * has run, so the sanitized criteria and error dimensions stay empty and
-     * only the readiness fact is carried.
+     * 讲解完成时的已提交状态事实：没有跑新评估，所以清理过的 criteria 和
+     * 错误维度为空，只带 readiness 事实。
      */
     private FeedbackFacts continueFacts(LearningState state) {
         return new FeedbackFacts(List.of(), List.of(), List.of(), 0, List.of(),
@@ -1469,9 +1363,8 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The committed-state facts of an H5 reveal: the closed Solution Revealed
-     * Attempt's assistance is carried (the highest exposed level and the
-     * exposed-only trace), with the readiness fact.
+     * H5 揭示时的已提交状态事实：携带已关闭的 Solution Revealed Attempt
+     * 的帮助信息（最高暴露级别和仅暴露过的轨迹），加上 readiness 事实。
      */
     private FeedbackFacts revealFacts(LearningState state, TaskAttempt closedAttempt) {
         return new FeedbackFacts(List.of(), List.of(), List.of(),
@@ -1481,12 +1374,10 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The readiness fact of the current remediation cycle, derived from the
-     * single shared rule: at least one conclusive Apply Practice pass accepted
-     * after the latest triggering failure of this Flow (Diagnostic Not Passed
-     * starts the first cycle; an accepted no-hint Independent failure
-     * starts a new cycle). A qualifying pass must follow the failure, so the
-     * learner cannot re-enter fresh Independent testing on an old pass.
+     * 当前 remediation cycle 的 readiness 事实，来自单一共享规则：Flow
+     * 最近一次触发失败（诊断未通过开始第一个 cycle；无提示独立失败开始
+     * 新 cycle）之后至少接受过一次结论性练习通过。合格通过必须跟在失败
+     * 之后，学习者不能用旧的通过重新进入独立测试。
      */
     private boolean readinessSatisfied(UUID flowId) {
         return flowStore.qualifyingPracticePassExists(flowId);
@@ -1497,9 +1388,8 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The deterministic neutral learner feedback of each guarded decision
-     * context, used when the plan is invalid after the one allowed repair or
-     * when a single legal move bypasses the model.
+     * 每个 Guard 决策上下文的确定性中性反馈：规划在允许的一次修复后仍非法、
+     * 或唯一合法动作绕过模型时使用。
      */
     private static String neutralMessage(WorkflowGuard.DecisionContext context) {
         return switch (context) {
@@ -1517,12 +1407,10 @@ public final class LearningStateGraph {
     }
 
     /**
-     * One guarded decision: the selected legal Teaching Action, the
-     * learner-visible message (the plan's feedback summary or the
-     * deterministic neutral feedback), the teaching intent, and the sanitized
-     * Feedback Facts supplied to the selected node. The invalid plan output —
-     * its feedback, action, reason, and tags — never reaches the learner or
-     * state.
+     * 一次受 Guard 约束的决策：选中的合法教学动作、学习者可见消息（规划的
+     * 反馈摘要或确定性中性反馈）、教学意图、以及提供给所选节点的清理过的
+     * FeedbackFacts。非法规划输出——它的反馈、动作、理由和标签——永远不会
+     * 到达学习者或状态。
      */
     private record Decision(
             TeachingAction action,
@@ -1563,9 +1451,8 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The teaching Learner Interaction Boundary of an Explain node: the flow
-     * pauses awaiting learner input with the learner-visible teaching
-     * projection, no Task Attempt, and the decision's learner message.
+     * Explain 节点的教学交互边界：流程暂停等待学习者输入，带学习者可见的
+     * 教学投影、无任务 Attempt、以及决策的学习者消息。
      */
     private LearningFlowResult.Boundary teachingBoundary(
             LearningState state,
@@ -1583,10 +1470,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The durable Unavailable Interaction of an existing Flow (ADR-0069):
-     * {@code AWAITING_LEARNER_INPUT} with a saved Pending Operation. A retry
-     * of an already-unavailable boundary increments the Retry Chain; the
-     * first unavailable boundary starts at count zero.
+     * 现有 Flow 的持久化 unavailable 交互（ADR-0069）：AWAITING_LEARNER_INPUT
+     * 并保存 Pending Operation。对已 unavailable 的边界重试会递增重试链；
+     * 第一个 unavailable 边界从 0 开始。
      */
     private LearningFlowResult.Boundary commitUnavailable(
             LearningState state,
@@ -1690,10 +1576,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * Rehydrates the saved formal submission for an evaluation retry. The
-     * pending operation carries no learner answer or evaluation payload; the
-     * closed Attempt is the sole source of both, and each submission flow
-     * skips any responsibility already present in {@code evaluation_results}.
+     * 为评估重试恢复已保存的正式提交。Pending Operation 不带学习者答案或
+     * 评估载荷；已关闭的 Attempt 是两者的唯一来源，各提交 Flow 会跳过
+     * evaluation_results 里已有的责任项。
      */
     private LearningFlowResult resumeSubmissionEvaluation(
             LearningState state,
@@ -1725,9 +1610,8 @@ public final class LearningStateGraph {
     }
 
     /**
-     * Resumes a Diagnostic pass whose Independent generation failed: the
-     * closed Diagnostic Attempt stays closed and a fresh Independent task is
-     * prepared from durable novelty exclusions.
+     * 恢复诊断通过但独立题生成失败的情况：诊断 Attempt 保持关闭，
+     * 用持久化的 novelty 排除准备一道全新独立题。
      */
     private LearningFlowResult deliverIndependentAfterDiagnostic(
             LearningState state,
@@ -1752,11 +1636,9 @@ public final class LearningStateGraph {
     }
 
     /**
-     * The single durable commit of one Learner Interaction Boundary: the
-     * learner-visible interaction, its checkpoint, and the processed command
-     * persist atomically, so a replay always returns the original result and a
-     * restart resumes exactly from this point. A null pending operation
-     * clears any saved Pending Operation.
+     * 一条学习者交互边界的唯一原子提交点：学习者可见交互、检查点和已处理
+     * 命令一起持久化，所以重放总是返回原始结果，重启正好从这里恢复。
+     * pending 为 null 时清除已保存的 Pending Operation。
      */
     private LearningFlowResult.Boundary commitBoundary(
             LearningFlowInteraction interaction,
