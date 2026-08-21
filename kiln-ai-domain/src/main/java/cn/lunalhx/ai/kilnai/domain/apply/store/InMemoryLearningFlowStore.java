@@ -186,6 +186,96 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     }
 
     @Override
+    public synchronized LearningFlowInteraction bindDiagnosticContinuation(DiagnosticContinuationBind bind) {
+        Objects.requireNonNull(bind, "bind must not be null");
+        ProcessedCommand existingCommand = commands.get(bind.idempotencyKey());
+        if (existingCommand != null) {
+            if (!existingCommand.requestHash().equals(bind.requestHash())) {
+                throw new ApplicationException(
+                        ErrorCode.CONFLICT,
+                        "Idempotency-Key was already used for another command");
+            }
+            return existingCommand.response();
+        }
+        if (artifactStore == null) {
+            throw new IllegalStateException(
+                    "bindDiagnosticContinuation requires the composite InMemoryLearningFlowStore(clock, artifactStore) form");
+        }
+        LearningFlowInteraction previous = latestInteraction(bind.flowId()).orElseThrow(
+                () -> new IllegalStateException("Diagnostic continuation requires a committed transition"));
+        if (previous.interactionVersion() != bind.expectedPreviousInteractionVersion()) {
+            throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+        }
+        TaskAttempt attempt = artifactStore.openAttempt(bind.taskPackage());
+        artifactStore.recordTaskVerification(bind.taskPackage().taskPackageId(), bind.verificationVerdict());
+        recordTaskExposure(bind.flowId(), bind.taskPackage());
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
+                InteractionKind.TASK,
+                bind.flowId(),
+                previous.interactionVersion() + 1,
+                FlowStatus.AWAITING_LEARNER_INPUT,
+                LearningStage.DIAGNOSTIC,
+                attempt.attemptId(),
+                AttemptPurpose.DIAGNOSTIC,
+                bind.taskPackage().learnerProjection(),
+                null,
+                null,
+                null,
+                null);
+        return commitBoundary(
+                interaction,
+                new LearningCheckpoint(UUID.randomUUID(), bind.flowId(),
+                        interaction.interactionVersion(), clock.instant()),
+                new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
+                        interaction, clock.instant()));
+    }
+
+    @Override
+    public synchronized LearningFlowInteraction bindIndependentContinuation(IndependentContinuationBind bind) {
+        Objects.requireNonNull(bind, "bind must not be null");
+        ProcessedCommand existingCommand = commands.get(bind.idempotencyKey());
+        if (existingCommand != null) {
+            if (!existingCommand.requestHash().equals(bind.requestHash())) {
+                throw new ApplicationException(
+                        ErrorCode.CONFLICT,
+                        "Idempotency-Key was already used for another command");
+            }
+            return existingCommand.response();
+        }
+        if (artifactStore == null) {
+            throw new IllegalStateException(
+                    "bindIndependentContinuation requires the composite InMemoryLearningFlowStore(clock, artifactStore) form");
+        }
+        LearningFlowInteraction previous = latestInteraction(bind.flowId()).orElseThrow(
+                () -> new IllegalStateException("Independent continuation requires a committed transition"));
+        if (previous.interactionVersion() != bind.expectedPreviousInteractionVersion()) {
+            throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+        }
+        TaskAttempt attempt = artifactStore.openAttempt(bind.taskPackage());
+        artifactStore.recordTaskVerification(bind.taskPackage().taskPackageId(), bind.verificationVerdict());
+        recordTaskExposure(bind.flowId(), bind.taskPackage());
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
+                InteractionKind.TASK,
+                bind.flowId(),
+                previous.interactionVersion() + 1,
+                FlowStatus.AWAITING_LEARNER_INPUT,
+                LearningStage.INDEPENDENT_TEST,
+                attempt.attemptId(),
+                AttemptPurpose.INDEPENDENT_TEST,
+                bind.taskPackage().learnerProjection(),
+                bind.learnerMessage(),
+                null,
+                null,
+                null);
+        return commitBoundary(
+                interaction,
+                new LearningCheckpoint(UUID.randomUUID(), bind.flowId(),
+                        interaction.interactionVersion(), clock.instant()),
+                new ProcessedCommand(bind.idempotencyKey(), bind.requestHash(), bind.flowId(),
+                        interaction, clock.instant()));
+    }
+
+    @Override
     public synchronized LearningFlowInteraction commitBoundary(
             LearningFlowInteraction interaction,
             LearningCheckpoint checkpoint,

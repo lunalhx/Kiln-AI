@@ -104,7 +104,7 @@ class ReviewStartFlowTest {
 
         LearningFlowInteraction interaction = boundary.interaction();
         assertEquals(flowId, interaction.flowId());
-        assertEquals(4, interaction.interactionVersion(), "the Review appends the next interaction of the same Flow");
+        assertEquals(5, interaction.interactionVersion(), "the Review appends the next interaction of the same Flow");
         assertEquals(FlowStatus.AWAITING_LEARNER_INPUT, interaction.status());
         assertEquals(LearningStage.DELAYED_REVIEW, interaction.stage());
         assertEquals(AttemptPurpose.REVIEW, interaction.attemptPurpose());
@@ -320,7 +320,7 @@ class ReviewStartFlowTest {
         assertEquals(2, harness.flowStore().exposedTaskFingerprints(flowId).size(),
                 "an unavailable start must never record Exposure");
         assertEquals(2, harness.flowStore().exposedSolutionFingerprints(flowId).size());
-        assertEquals(3, harness.flowStore().latestInteraction(flowId).orElseThrow().interactionVersion(),
+        assertEquals(4, harness.flowStore().latestInteraction(flowId).orElseThrow().interactionVersion(),
                 "an unavailable start must never advance the Flow interaction");
         assertTrue(harness.collection().unfinishedFor(LEARNER_ID).get(0).startable(),
                 "the Review must remain startable for a retry");
@@ -461,7 +461,9 @@ class ReviewStartFlowTest {
             LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                     flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                     ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-            useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+            LearningFlowResult.Boundary independent = (LearningFlowResult.Boundary) useCase.continueRequested(
+                    flowId, transitioned.interaction().interactionVersion(), UUID.randomUUID());
+            useCase.submitAnswer(flowId, 3, UUID.randomUUID(), independent.interaction().attemptId(),
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
             return flowId;

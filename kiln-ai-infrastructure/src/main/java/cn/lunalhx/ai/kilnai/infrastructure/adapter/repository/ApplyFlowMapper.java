@@ -98,6 +98,14 @@ public interface ApplyFlowMapper {
             """)
     Optional<ApplyFlowRow> findFlow(UUID flowId);
 
+    @Select("""
+            SELECT id
+            FROM flows
+            WHERE id = #{flowId}
+            FOR UPDATE
+            """)
+    Optional<UUID> lockFlowForUpdate(UUID flowId);
+
     @Insert("""
             INSERT INTO diagnostic_plans (flow_id, plan_json, completed_attempts, created_at)
             VALUES (#{flowId}, CAST(#{planJson} AS JSONB), #{completedAttempts}, #{createdAt})
@@ -177,6 +185,20 @@ public interface ApplyFlowMapper {
             LIMIT 1
             """)
     Optional<InteractionRow> latestInteraction(UUID flowId);
+
+    @Select("""
+            SELECT id, flow_id, interaction_version, kind, status, stage, attempt_id, attempt_purpose,
+                   learner_projection::text AS learner_projection_json, learner_message,
+                   teaching_projection::text AS teaching_projection_json,
+                   hint::text AS hint_json,
+                   assistance_consent::text AS assistance_consent_json, created_at
+            FROM interactions
+            WHERE flow_id = #{flowId}
+            ORDER BY interaction_version DESC
+            LIMIT 1
+            FOR UPDATE
+            """)
+    Optional<InteractionRow> latestInteractionForUpdate(UUID flowId);
 
     @Insert("""
             INSERT INTO checkpoints (id, flow_id, interaction_version, created_at)

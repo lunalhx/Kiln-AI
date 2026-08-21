@@ -214,7 +214,7 @@ public final class LearningStateGraph {
         Objects.requireNonNull(profile, "profile must not be null");
         Objects.requireNonNull(diagnosticPlan, "diagnosticPlan must not be null");
         Objects.requireNonNull(source, "source must not be null");
-        ApplyProfileExecutor.PreparedDelivery prepared = diagnosticFlow.prepareDiagnostic(profile);
+        ApplyProfileExecutor.PreparedDelivery prepared = diagnosticFlow.prepareDiagnostic(profile, diagnosticPlan);
         return switch (prepared) {
             case ApplyProfileExecutor.PreparedDelivery.Unavailable unavailable ->
                     throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, START_UNAVAILABLE_MESSAGE);
@@ -340,6 +340,11 @@ public final class LearningStateGraph {
         LearningState state = LearningState.rehydrate(flowStore, flowId);
         if (state.latestInteraction().interactionVersion() != interactionVersion) {
             throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+        }
+        if (state.latestInteraction().kind() == InteractionKind.TRANSITION
+                && state.latestInteraction().stage() == LearningStage.DIAGNOSTIC
+                && state.latestInteraction().status() == FlowStatus.AWAITING_LEARNER_INPUT) {
+            return continueDiagnosticRoute(state, idempotencyKey, requestHash);
         }
         if (state.latestInteraction().teachingProjection() == null) {
             return new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.CONTINUE_NOT_LEGAL);
@@ -862,15 +867,10 @@ public final class LearningStateGraph {
             UUID idempotencyKey,
             String requestHash
     ) {
-        DiagnosticSubmissionResult result = diagnosticFlow.submitDiagnostic(
+        DiagnosticSubmissionResult result = diagnosticFlow.submitDiagnosticAttempt(
                 state.flow().flowId(), state.flow().modelProfile(),
                 attemptId, rawDerivative, confirmedCanonical, rationale);
         return switch (result) {
-            case DiagnosticSubmissionResult.Passed passed -> boundary(
-                    state, LearningStage.INDEPENDENT_TEST, passed.independentAttempt().attemptId(),
-                    passed.independentAttempt().purpose(), passed.independentLearnerProjection(),
-                    passed.neutralTransitionMessage(), null, InteractionKind.TASK, idempotencyKey, requestHash,
-                    passed.finding());
             case DiagnosticSubmissionResult.PassedAttempt passed ->
                     routeRecordedDiagnosticFinding(state, passed.closedDiagnosticAttempt(), passed.facts(),
                             passed.finding(), evaluationRecovery, idempotencyKey, requestHash);
@@ -880,12 +880,6 @@ public final class LearningStateGraph {
             case DiagnosticSubmissionResult.Unconfirmed unconfirmed ->
                     routeRecordedDiagnosticFinding(state, unconfirmed.closedDiagnosticAttempt(), unconfirmed.facts(),
                             unconfirmed.finding(), evaluationRecovery, idempotencyKey, requestHash);
-            case DiagnosticSubmissionResult.IndependentUnavailable unavailable -> commitUnavailable(
-                    state, LearningStage.DIAGNOSTIC, unavailable.learnerMessage(), null,
-                    new PendingOperation(PendingOperation.Kind.DELIVER_INDEPENDENT, null, null, null,
-                            unavailable.learnerMessage(), null, null, null,
-                            null, null, null, 0),
-                    idempotencyKey, requestHash);
             case DiagnosticSubmissionResult.NotSubmittable notSubmittable ->
                     new LearningFlowResult.SubmissionRejected(notSubmittable.reason());
             case DiagnosticSubmissionResult.Ignored ignored ->
@@ -909,25 +903,10 @@ public final class LearningStateGraph {
             accumulated.add(finding);
         }
         return switch (DiagnosticRoutingDecision.decide(plan, accumulated)) {
-            case FRESH_INDEPENDENT_TEST -> {
-                DiagnosticSubmissionResult delivered = diagnosticFlow.deliverIndependent(
-                        state.flow().flowId(), state.flow().modelProfile(), closedAttempt);
-                yield switch (delivered) {
-                    case DiagnosticSubmissionResult.Passed passed -> boundary(
-                            state, LearningStage.INDEPENDENT_TEST, passed.independentAttempt().attemptId(),
-                            passed.independentAttempt().purpose(), passed.independentLearnerProjection(),
-                            passed.neutralTransitionMessage(), null, InteractionKind.TASK,
-                            idempotencyKey, requestHash, finding);
-                    case DiagnosticSubmissionResult.IndependentUnavailable unavailable -> commitUnavailable(
-                            state, LearningStage.DIAGNOSTIC, unavailable.learnerMessage(), null,
-                            new PendingOperation(PendingOperation.Kind.DELIVER_INDEPENDENT, null, null, null,
-                                    unavailable.learnerMessage(), null, null, null,
-                                    null, null, null, 0),
-                            idempotencyKey, requestHash);
-                    default -> throw new IllegalStateException(
-                            "Independent delivery must pass or become Unavailable: " + delivered);
-                };
-            }
+            case FRESH_INDEPENDENT_TEST -> diagnosticTransition(
+                    state, idempotencyKey, requestHash, finding);
+            case CONTINUE_DIAGNOSTIC -> diagnosticTransition(
+                    state, idempotencyKey, requestHash, finding);
             case TARGET_LEARNING_WITH_SUMMARY -> executeMove(state,
                     chooseDecision(state, WorkflowGuard.DecisionContext.TARGET_LEARNING_AND_PRACTICE,
                             facts, evaluationRecovery,
@@ -938,6 +917,119 @@ public final class LearningStateGraph {
                             facts, evaluationRecovery, null, finding),
                     null, idempotencyKey, requestHash);
         };
+    }
+
+    /**
+     * Delivers the next fresh Diagnostic only after the learner has received
+     * and acknowledged the committed neutral progress boundary. Preparation
+     * runs before the store binding, so an unavailable generation cannot leave
+     * a Package, Attempt, or Exposure behind.
+     */
+    private LearningFlowResult deliverDiagnosticContinuation(
+            LearningState state,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        DiagnosticPlan plan = flowStore.diagnosticPlan(state.flow().flowId()).orElseThrow(
+                () -> new IllegalStateException("Diagnostic continuation requires a frozen Plan"));
+        int completed = flowStore.diagnosticProgress(state.flow().flowId()).orElseThrow().completedAttempts();
+        if (completed >= plan.maximumAttempts()) {
+            return new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.CONTINUE_NOT_LEGAL);
+        }
+        ApplyProfileExecutor.PreparedDelivery prepared = diagnosticFlow.prepareDiagnostic(
+                state.flow().flowId(), state.flow().modelProfile());
+        return switch (prepared) {
+            case ApplyProfileExecutor.PreparedDelivery.TaskReady ready -> {
+                LearningFlowInteraction interaction = flowStore.bindDiagnosticContinuation(
+                        new LearningFlowStore.DiagnosticContinuationBind(
+                                state.flow().flowId(), state.latestInteraction().interactionVersion(),
+                                ready.taskPackage(), ready.verdict(),
+                                idempotencyKey, requestHash));
+                yield new LearningFlowResult.Boundary(interaction);
+            }
+            case ApplyProfileExecutor.PreparedDelivery.Unavailable unavailable -> commitUnavailable(
+                    state,
+                    LearningStage.DIAGNOSTIC,
+                    unavailable.learnerMessage(),
+                    null,
+                    new PendingOperation(
+                            PendingOperation.Kind.DELIVER_DIAGNOSTIC,
+                            null, null, null,
+                            unavailable.learnerMessage(), null, null, null,
+                            null, null, null, 0),
+                    idempotencyKey,
+                    requestHash);
+        };
+    }
+
+    private LearningFlowResult continueDiagnosticRoute(
+            LearningState state,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        DiagnosticPlan plan = flowStore.diagnosticPlan(state.flow().flowId()).orElseThrow(
+                () -> new IllegalStateException("Diagnostic continuation requires a frozen Plan"));
+        return switch (DiagnosticRoutingDecision.decide(
+                plan, flowStore.diagnosticFindings(state.flow().flowId()))) {
+            case CONTINUE_DIAGNOSTIC -> deliverDiagnosticContinuation(state, idempotencyKey, requestHash);
+            case FRESH_INDEPENDENT_TEST -> deliverIndependentContinuation(state, idempotencyKey, requestHash);
+            case TARGET_LEARNING_WITH_SUMMARY, TARGET_LEARNING_NEUTRAL ->
+                    new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.CONTINUE_NOT_LEGAL);
+        };
+    }
+
+    private LearningFlowResult deliverIndependentContinuation(
+            LearningState state,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+        ApplyProfileExecutor.PreparedDelivery prepared = diagnosticFlow.prepareIndependent(
+                state.flow().flowId(), state.flow().modelProfile());
+        return switch (prepared) {
+            case ApplyProfileExecutor.PreparedDelivery.TaskReady ready -> {
+                LearningFlowInteraction interaction = flowStore.bindIndependentContinuation(
+                        new LearningFlowStore.IndependentContinuationBind(
+                                state.flow().flowId(), state.latestInteraction().interactionVersion(),
+                                ready.taskPackage(), ready.verdict(),
+                                DiagnosticFlow.NEUTRAL_TRANSITION_MESSAGE,
+                                idempotencyKey, requestHash));
+                yield new LearningFlowResult.Boundary(interaction);
+            }
+            case ApplyProfileExecutor.PreparedDelivery.Unavailable unavailable -> commitUnavailable(
+                    state,
+                    LearningStage.DIAGNOSTIC,
+                    unavailable.learnerMessage(),
+                    null,
+                    new PendingOperation(
+                            PendingOperation.Kind.DELIVER_INDEPENDENT,
+                            null, null, null,
+                            unavailable.learnerMessage(), null, null, null,
+                            null, null, null, 0),
+                    idempotencyKey,
+                    requestHash);
+        };
+    }
+
+    private LearningFlowResult.Boundary diagnosticTransition(
+            LearningState state,
+            UUID idempotencyKey,
+            String requestHash,
+            DiagnosticFinding finding
+    ) {
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
+                InteractionKind.TRANSITION,
+                state.flow().flowId(),
+                state.latestInteraction().interactionVersion() + 1,
+                FlowStatus.AWAITING_LEARNER_INPUT,
+                LearningStage.DIAGNOSTIC,
+                null,
+                null,
+                null,
+                DiagnosticFlow.DIAGNOSTIC_CONTINUATION_MESSAGE,
+                null,
+                null,
+                null);
+        return commitBoundary(interaction, null, finding, idempotencyKey, requestHash);
     }
 
     /**
@@ -1292,7 +1384,7 @@ public final class LearningStateGraph {
             case ExplainDeliveryResult.Unavailable unavailable -> commitUnavailable(
                     state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), null,
                     executeMoveSeed(decision, evidence, null),
-                    idempotencyKey, requestHash);
+                    idempotencyKey, requestHash, decision.diagnosticFinding());
         };
     }
 
@@ -1325,7 +1417,7 @@ public final class LearningStateGraph {
             case ApplyDeliveryResult.Unavailable unavailable -> commitUnavailable(
                     state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), hint,
                     executeMoveSeed(decision, evidence, hint),
-                    idempotencyKey, requestHash);
+                    idempotencyKey, requestHash, decision.diagnosticFinding());
         };
     }
 
@@ -1357,7 +1449,7 @@ public final class LearningStateGraph {
             case TeachBackDeliveryResult.Unavailable unavailable -> commitUnavailable(
                     state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), hint,
                     executeMoveSeed(decision, evidence, hint),
-                    idempotencyKey, requestHash);
+                    idempotencyKey, requestHash, decision.diagnosticFinding());
         };
     }
 
@@ -1390,7 +1482,7 @@ public final class LearningStateGraph {
             case ApplyDeliveryResult.Unavailable unavailable -> commitUnavailable(
                     state, LearningStage.LEARNING_AND_PRACTICE, unavailable.learnerMessage(), hint,
                     executeMoveSeed(decision, evidence, hint),
-                    idempotencyKey, requestHash);
+                    idempotencyKey, requestHash, decision.diagnosticFinding());
         };
     }
 
@@ -1593,6 +1685,20 @@ public final class LearningStateGraph {
             UUID idempotencyKey,
             String requestHash
     ) {
+        return commitUnavailable(state, stage, learnerMessage, hint, seed,
+                idempotencyKey, requestHash, null);
+    }
+
+    private LearningFlowResult.Boundary commitUnavailable(
+            LearningState state,
+            LearningStage stage,
+            String learnerMessage,
+            HintView hint,
+            PendingOperation seed,
+            UUID idempotencyKey,
+            String requestHash,
+            DiagnosticFinding diagnosticFinding
+    ) {
         PendingOperation pending = seed;
         if (state.latestInteraction().kind() == InteractionKind.UNAVAILABLE) {
             PendingOperation previous = flowStore.pendingOperation(state.flow().flowId())
@@ -1607,7 +1713,7 @@ public final class LearningStateGraph {
                 state.latestInteraction().interactionVersion() + 1,
                 FlowStatus.AWAITING_LEARNER_INPUT, stage,
                 null, null, null, learnerMessage, null, hint, null);
-        return commitBoundary(interaction, pending, idempotencyKey, requestHash);
+        return commitBoundary(interaction, pending, diagnosticFinding, idempotencyKey, requestHash);
     }
 
     private static boolean samePendingOperation(PendingOperation left, PendingOperation right) {
@@ -1677,7 +1783,9 @@ public final class LearningStateGraph {
                     pending.evidence(),
                     idempotencyKey,
                     requestHash);
-            case DELIVER_INDEPENDENT -> deliverIndependentAfterDiagnostic(state, idempotencyKey, requestHash);
+            case DELIVER_DIAGNOSTIC -> deliverDiagnosticContinuation(
+                    state, idempotencyKey, requestHash);
+            case DELIVER_INDEPENDENT -> deliverIndependentContinuation(state, idempotencyKey, requestHash);
             case DELIVER_INDEPENDENT_REPLACEMENT ->
                     deliverIndependentReplacement(state, pending.learnerMessage(), idempotencyKey, requestHash);
             case RESUME_SUBMISSION_EVALUATION ->
@@ -1716,32 +1824,6 @@ public final class LearningStateGraph {
             case REVIEW -> submitReview(
                     state, attempt.attemptId(), raw, confirmed, rationale, idempotencyKey, requestHash);
             default -> new LearningFlowResult.SubmissionIgnored(SubmissionIgnoreReason.WRONG_ATTEMPT_PURPOSE);
-        };
-    }
-
-    /**
-     * 恢复诊断通过但独立题生成失败的情况：诊断 Attempt 保持关闭，
-     * 用持久化的 novelty 排除准备一道全新独立题。
-     */
-    private LearningFlowResult deliverIndependentAfterDiagnostic(
-            LearningState state,
-            UUID idempotencyKey,
-            String requestHash
-    ) {
-        ApplyDeliveryResult delivery = practiceFlow.deliverIndependent(
-                state.flow().flowId(), state.flow().modelProfile());
-        return switch (delivery) {
-            case ApplyDeliveryResult.Delivered delivered -> boundary(
-                    state, LearningStage.INDEPENDENT_TEST, delivered.attempt().attemptId(),
-                    delivered.attempt().purpose(), delivered.learnerProjection(),
-                    DiagnosticFlow.NEUTRAL_TRANSITION_MESSAGE, null, InteractionKind.TASK,
-                    idempotencyKey, requestHash);
-            case ApplyDeliveryResult.Unavailable unavailable -> commitUnavailable(
-                    state, LearningStage.DIAGNOSTIC, unavailable.learnerMessage(), null,
-                    new PendingOperation(PendingOperation.Kind.DELIVER_INDEPENDENT, null, null, null,
-                            unavailable.learnerMessage(), null, null, null,
-                            null, null, null, 0),
-                    idempotencyKey, requestHash);
         };
     }
 

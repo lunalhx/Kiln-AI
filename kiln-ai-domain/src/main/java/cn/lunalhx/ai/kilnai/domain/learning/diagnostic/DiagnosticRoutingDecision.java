@@ -12,6 +12,7 @@ import java.util.Set;
 public final class DiagnosticRoutingDecision {
 
     public enum Route {
+        CONTINUE_DIAGNOSTIC,
         FRESH_INDEPENDENT_TEST,
         TARGET_LEARNING_WITH_SUMMARY,
         TARGET_LEARNING_NEUTRAL
@@ -29,9 +30,6 @@ public final class DiagnosticRoutingDecision {
         if (findings.stream().anyMatch(finding -> finding.kind() == DiagnosticFinding.Kind.CONCLUSIVE_GAP)) {
             return Route.TARGET_LEARNING_WITH_SUMMARY;
         }
-        if (findings.stream().anyMatch(finding -> finding.kind() == DiagnosticFinding.Kind.UNCONFIRMED_PERFORMANCE)) {
-            return Route.TARGET_LEARNING_NEUTRAL;
-        }
         Set<String> confirmed = new HashSet<>();
         for (DiagnosticFinding finding : findings) {
             if (finding.kind() == DiagnosticFinding.Kind.PASSING_OBSERVATION) {
@@ -42,7 +40,9 @@ public final class DiagnosticRoutingDecision {
                 && !plan.targetReadinessCriterionIds().isEmpty()) {
             return Route.FRESH_INDEPENDENT_TEST;
         }
-        return Route.TARGET_LEARNING_NEUTRAL;
+        return findings.size() < plan.maximumAttempts()
+                ? Route.CONTINUE_DIAGNOSTIC
+                : Route.TARGET_LEARNING_NEUTRAL;
     }
 
     public static String learnerSafeSummary(List<DiagnosticFinding> findings) {

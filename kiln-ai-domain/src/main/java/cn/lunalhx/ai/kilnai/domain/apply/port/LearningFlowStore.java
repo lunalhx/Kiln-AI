@@ -87,6 +87,23 @@ public interface LearningFlowStore {
     LearningFlowInteraction bindStart(StartBind bind);
 
     /**
+     * Atomically binds the next fresh Diagnostic Task after an already
+     * committed neutral progress transition. Generation and verification must
+     * have completed before this method is called; this method persists the
+     * Package, Attempt, verification, exposure, task interaction, checkpoint,
+     * and command together.
+     */
+    LearningFlowInteraction bindDiagnosticContinuation(DiagnosticContinuationBind bind);
+
+    /**
+     * Atomically binds the fresh Independent successor selected by the
+     * committed Diagnostic route. The caller has already committed the
+     * learner-safe transition; this binding persists the verified Package,
+     * Attempt, exposure, task interaction, checkpoint, and command together.
+     */
+    LearningFlowInteraction bindIndependentContinuation(IndependentContinuationBind bind);
+
+    /**
      * Atomically persists one Learner Interaction Boundary: the learner-visible
      * interaction, its checkpoint, and the processed command that produced it.
      * Repeating a boundary for the same interaction version is a no-op, so a
@@ -311,6 +328,44 @@ public interface LearningFlowStore {
             Objects.requireNonNull(source, "source must not be null");
             Objects.requireNonNull(taskPackage, "taskPackage must not be null");
             Objects.requireNonNull(verificationVerdict, "verificationVerdict must not be null");
+            Objects.requireNonNull(idempotencyKey, "idempotencyKey must not be null");
+            Objects.requireNonNull(requestHash, "requestHash must not be null");
+        }
+    }
+
+    record DiagnosticContinuationBind(
+            UUID flowId,
+            int expectedPreviousInteractionVersion,
+            TaskPackage taskPackage,
+            TaskVerificationVerdict verificationVerdict,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+
+        public DiagnosticContinuationBind {
+            Objects.requireNonNull(flowId, "flowId must not be null");
+            Objects.requireNonNull(taskPackage, "taskPackage must not be null");
+            Objects.requireNonNull(verificationVerdict, "verificationVerdict must not be null");
+            Objects.requireNonNull(idempotencyKey, "idempotencyKey must not be null");
+            Objects.requireNonNull(requestHash, "requestHash must not be null");
+        }
+    }
+
+    record IndependentContinuationBind(
+            UUID flowId,
+            int expectedPreviousInteractionVersion,
+            TaskPackage taskPackage,
+            TaskVerificationVerdict verificationVerdict,
+            String learnerMessage,
+            UUID idempotencyKey,
+            String requestHash
+    ) {
+
+        public IndependentContinuationBind {
+            Objects.requireNonNull(flowId, "flowId must not be null");
+            Objects.requireNonNull(taskPackage, "taskPackage must not be null");
+            Objects.requireNonNull(verificationVerdict, "verificationVerdict must not be null");
+            Objects.requireNonNull(learnerMessage, "learnerMessage must not be null");
             Objects.requireNonNull(idempotencyKey, "idempotencyKey must not be null");
             Objects.requireNonNull(requestHash, "requestHash must not be null");
         }

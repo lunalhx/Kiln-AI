@@ -174,6 +174,100 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
 
     @Override
     @Transactional
+    public LearningFlowInteraction bindDiagnosticContinuation(DiagnosticContinuationBind bind) {
+        Objects.requireNonNull(bind, "bind must not be null");
+        Optional<LearningFlowInteraction> replay = replayedCommand(bind.idempotencyKey(), bind.requestHash());
+        if (replay.isPresent()) {
+            return replay.get();
+        }
+        mapper.lockFlowForUpdate(bind.flowId()).orElseThrow(
+                () -> new IllegalStateException("Diagnostic continuation requires an existing Flow"));
+        ApplyFlowMapper.InteractionRow previous = mapper.latestInteractionForUpdate(bind.flowId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Diagnostic continuation requires a committed transition"));
+        replay = replayedCommand(bind.idempotencyKey(), bind.requestHash());
+        if (replay.isPresent()) {
+            return replay.get();
+        }
+        if (previous.interactionVersion() != bind.expectedPreviousInteractionVersion()) {
+            throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+        }
+        Instant committedAt = clock.instant();
+        TaskAttempt attempt = openAttempt(bind.taskPackage());
+        mapper.insertVerification(UUID.randomUUID(), bind.taskPackage().taskPackageId(),
+                writeJson(bind.verificationVerdict()), committedAt);
+        mapper.recordExposure(
+                bind.flowId(),
+                bind.taskPackage().taskPackageId(),
+                bind.taskPackage().privateAssessorProjection().taskFingerprint().value(),
+                bind.taskPackage().privateAssessorProjection().solutionFingerprint().value(),
+                committedAt);
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
+                InteractionKind.TASK,
+                bind.flowId(),
+                previous.interactionVersion() + 1,
+                FlowStatus.AWAITING_LEARNER_INPUT,
+                LearningStage.DIAGNOSTIC,
+                attempt.attemptId(),
+                AttemptPurpose.DIAGNOSTIC,
+                bind.taskPackage().learnerProjection(),
+                null,
+                null,
+                null,
+                null);
+        return insertBoundary(bind.flowId(), interaction.interactionVersion(), interaction,
+                bind.idempotencyKey(), bind.requestHash(), committedAt);
+    }
+
+    @Override
+    @Transactional
+    public LearningFlowInteraction bindIndependentContinuation(IndependentContinuationBind bind) {
+        Objects.requireNonNull(bind, "bind must not be null");
+        Optional<LearningFlowInteraction> replay = replayedCommand(bind.idempotencyKey(), bind.requestHash());
+        if (replay.isPresent()) {
+            return replay.get();
+        }
+        mapper.lockFlowForUpdate(bind.flowId()).orElseThrow(
+                () -> new IllegalStateException("Independent continuation requires an existing Flow"));
+        ApplyFlowMapper.InteractionRow previous = mapper.latestInteractionForUpdate(bind.flowId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Independent continuation requires a committed transition"));
+        replay = replayedCommand(bind.idempotencyKey(), bind.requestHash());
+        if (replay.isPresent()) {
+            return replay.get();
+        }
+        if (previous.interactionVersion() != bind.expectedPreviousInteractionVersion()) {
+            throw new ApplicationException(ErrorCode.CONFLICT, "stale interactionVersion");
+        }
+        Instant committedAt = clock.instant();
+        TaskAttempt attempt = openAttempt(bind.taskPackage());
+        mapper.insertVerification(UUID.randomUUID(), bind.taskPackage().taskPackageId(),
+                writeJson(bind.verificationVerdict()), committedAt);
+        mapper.recordExposure(
+                bind.flowId(),
+                bind.taskPackage().taskPackageId(),
+                bind.taskPackage().privateAssessorProjection().taskFingerprint().value(),
+                bind.taskPackage().privateAssessorProjection().solutionFingerprint().value(),
+                committedAt);
+        LearningFlowInteraction interaction = new LearningFlowInteraction(
+                InteractionKind.TASK,
+                bind.flowId(),
+                previous.interactionVersion() + 1,
+                FlowStatus.AWAITING_LEARNER_INPUT,
+                LearningStage.INDEPENDENT_TEST,
+                attempt.attemptId(),
+                AttemptPurpose.INDEPENDENT_TEST,
+                bind.taskPackage().learnerProjection(),
+                bind.learnerMessage(),
+                null,
+                null,
+                null);
+        return insertBoundary(bind.flowId(), interaction.interactionVersion(), interaction,
+                bind.idempotencyKey(), bind.requestHash(), committedAt);
+    }
+
+    @Override
+    @Transactional
     public LearningFlowInteraction commitBoundary(
             LearningFlowInteraction interaction,
             LearningCheckpoint checkpoint,
@@ -743,7 +837,19 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         }
         mapper.updateFlowState(interaction.flowId(), interaction.status().name(), interaction.stage().name());
         mapper.releaseActiveWorkIfUnused(interaction.flowId());
+        mapper.deletePendingOperation(flowId);
         return interaction;
+    }
+
+    private Optional<LearningFlowInteraction> replayedCommand(UUID idempotencyKey, String requestHash) {
+        return mapper.findCommand(idempotencyKey).map(command -> {
+            if (!command.requestHash().equals(requestHash)) {
+                throw new ApplicationException(
+                        ErrorCode.CONFLICT,
+                        "Idempotency-Key was already used for another command");
+            }
+            return readJson(command.responseJson(), LearningFlowInteraction.class);
+        });
     }
 
     private ReviewTask toReviewTask(ApplyFlowMapper.ReviewTaskRow row) {

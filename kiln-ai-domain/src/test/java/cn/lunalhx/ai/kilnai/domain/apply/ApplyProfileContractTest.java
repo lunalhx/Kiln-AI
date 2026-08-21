@@ -292,23 +292,20 @@ class ApplyProfileContractTest {
     @Test
     void oneFormalSubmissionClosesTheAttemptRetainingRawAndConfirmedCanonical() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
-                ApplyScriptData.taskReadyJson(),
-                ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
-                        ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
-        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
-                ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
+                ApplyScriptData.taskReadyJson()));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 diagnostic.attempt().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL,
                 "这段可选理由不参与正确主答案分流");
 
-        assertInstanceOf(DiagnosticSubmissionResult.Passed.class, result);
-        DiagnosticSubmissionResult.Passed passed = (DiagnosticSubmissionResult.Passed) result;
+        DiagnosticSubmissionResult.PassedAttempt passed = assertInstanceOf(
+                DiagnosticSubmissionResult.PassedAttempt.class, result);
 
         TaskAttempt closedAttempt = passed.closedDiagnosticAttempt();
         assertEquals(AttemptStatus.SUBMITTED, closedAttempt.status());
@@ -322,39 +319,28 @@ class ApplyProfileContractTest {
                 "the learner-confirmed canonical expression must be retained with the submission");
         assertEquals(AnswerInputFamily.UNICODE_MATH,
                 closedAttempt.submission().finalDerivative().inputFamily());
-        assertEquals(AttemptPurpose.INDEPENDENT_TEST, passed.independentAttempt().purpose());
-        assertEquals(AttemptStatus.OPEN, passed.independentAttempt().status());
+        assertEquals(AttemptPurpose.DIAGNOSTIC, passed.closedDiagnosticAttempt().purpose());
     }
 
     @Test
     void aPassingDiagnosticMovesThroughANeutralTransitionWithoutFeedback() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
-                ApplyScriptData.taskReadyJson(),
-                ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
-                        ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
-        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
-                ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
+                ApplyScriptData.taskReadyJson()));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 diagnostic.attempt().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL,
                 null);
 
-        assertInstanceOf(DiagnosticSubmissionResult.Passed.class, result);
-        DiagnosticSubmissionResult.Passed passed = (DiagnosticSubmissionResult.Passed) result;
-        assertEquals(DiagnosticFlow.NEUTRAL_TRANSITION_MESSAGE, passed.neutralTransitionMessage());
-        assertFalse(passed.neutralTransitionMessage().contains("正确"), "no correctness feedback");
-        assertFalse(passed.neutralTransitionMessage().contains("错误"), "no failure feedback");
-        assertFalse(passed.neutralTransitionMessage().contains("答案"), "no answer feedback");
+        DiagnosticSubmissionResult.PassedAttempt passed = assertInstanceOf(
+                DiagnosticSubmissionResult.PassedAttempt.class, result);
         assertTrue(assessment.contexts().isEmpty(), "a proven derivative must not need a rationale judgment");
-        assertEquals(ApplyScriptData.INDEPENDENT_TASK_TEXT,
-                passed.independentLearnerProjection().taskText());
-        assertFalse(passed.independentLearnerProjection().taskText()
-                .contains(ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION), "the expected answer must stay private");
+        assertEquals(List.of("differentiate-polynomial"), passed.facts().satisfiedCriteria());
     }
 
     @Test
@@ -364,8 +350,8 @@ class ApplyProfileContractTest {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE,
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 diagnostic.attempt().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, null);
 
@@ -384,8 +370,8 @@ class ApplyProfileContractTest {
             Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
             ApplyDeliveryResult.Delivered diagnostic =
-                    (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-            DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE,
+                    (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+            DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                     diagnostic.attempt().attemptId(),
                     ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.WRONG_DERIVATIVE, rationale);
 
@@ -407,8 +393,8 @@ class ApplyProfileContractTest {
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.APPLICABLE)));
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 diagnostic.attempt().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE,
                 ApplyScriptData.WRONG_DERIVATIVE,
@@ -433,8 +419,8 @@ class ApplyProfileContractTest {
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.NOT_APPLICABLE)));
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 diagnostic.attempt().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE,
                 ApplyScriptData.WRONG_DERIVATIVE,
@@ -451,42 +437,13 @@ class ApplyProfileContractTest {
     }
 
     @Test
-    void aReplayedOrDuplicateSubmissionCannotProduceASecondEvaluationOrResult() {
-        ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
-                ApplyScriptData.taskReadyJson(),
-                ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
-                        ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
-        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
-                ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
-        ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
-        Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
-
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        UUID attemptId = diagnostic.attempt().attemptId();
-        harness.flow().submitDiagnostic(FLOW_ID, PROFILE, attemptId, ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
-                ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-
-        DiagnosticSubmissionResult replayed = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
-                attemptId, ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
-                ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-
-        assertInstanceOf(DiagnosticSubmissionResult.Ignored.class, replayed);
-        assertEquals(SubmissionIgnoreReason.ALREADY_SUBMITTED,
-                ((DiagnosticSubmissionResult.Ignored) replayed).reason());
-        assertEquals(0, assessment.contexts().size(), "a replay must never trigger a second evaluation");
-        assertEquals(2, generation.calls().size(), "a replay must never deliver a second Independent task");
-        assertEquals(1, harness.artifacts().allPackages().stream()
-                .filter(package_ -> package_.attemptPurpose() == AttemptPurpose.DIAGNOSTIC).count());
-    }
-
-    @Test
     void aStaleSubmissionForAnUnknownAttemptIsIgnoredWithoutEvaluation() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(ApplyScriptData.taskReadyJson()));
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 UUID.randomUUID(), ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
 
@@ -508,17 +465,17 @@ class ApplyProfileContractTest {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
         UUID attemptId = diagnostic.attempt().attemptId();
 
-        DiagnosticSubmissionResult mismatched = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        DiagnosticSubmissionResult mismatched = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 attemptId, ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL + " + 1", null);
         assertInstanceOf(DiagnosticSubmissionResult.NotSubmittable.class, mismatched);
         assertEquals(SubmissionRejectionReason.CONFIRMATION_MISMATCH,
                 ((DiagnosticSubmissionResult.NotSubmittable) mismatched).reason());
 
-        DiagnosticSubmissionResult unparseable = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        DiagnosticSubmissionResult unparseable = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 attemptId, "12*y^2 + 1", "12*y^2 + 1", null);
         assertInstanceOf(DiagnosticSubmissionResult.NotSubmittable.class, unparseable);
         assertEquals(SubmissionRejectionReason.UNPARSEABLE_RAW,
@@ -529,10 +486,10 @@ class ApplyProfileContractTest {
                 harness.artifacts().findAttempt(attemptId).orElseThrow().status(),
                 "the attempt must remain open for correction");
 
-        DiagnosticSubmissionResult corrected = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        DiagnosticSubmissionResult corrected = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 attemptId, ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        assertInstanceOf(DiagnosticSubmissionResult.Passed.class, corrected,
+        assertInstanceOf(DiagnosticSubmissionResult.PassedAttempt.class, corrected,
                 "a corrected confirmed submission must still close and pass the attempt");
     }
 
@@ -547,10 +504,10 @@ class ApplyProfileContractTest {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        harness.flow().submitDiagnostic(FLOW_ID, PROFILE, diagnostic.attempt().attemptId(),
-                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
-                ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        ApplyProfileExecutor.PreparedDelivery.TaskReady independent = assertInstanceOf(
+                ApplyProfileExecutor.PreparedDelivery.TaskReady.class,
+                harness.flow().prepareIndependent(FLOW_ID, PROFILE));
 
         String independentContextJson = generation.calls().get(1).contextJson();
         String diagnosticFingerprint = harness.artifacts().findPackage(diagnostic.attempt().taskPackageId())
@@ -575,41 +532,22 @@ class ApplyProfileContractTest {
     }
 
     @Test
-    void everyDisplayedTaskRecordsTaskAndSolutionFingerprintsForFreshnessExclusion() {
+    void aDiagnosticTaskRecordsTaskAndSolutionFingerprintsForFreshnessExclusion() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
-                ApplyScriptData.taskReadyJson(),
-                ApplyScriptData.taskReadyJson(ApplyScriptData.INDEPENDENT_TASK_TEXT,
-                        ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION)));
-        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
-                ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
+                ApplyScriptData.taskReadyJson()));
+        ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(ApplyScriptData.passVerdict()));
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult passed = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
-                diagnostic.attempt().attemptId(),
-                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
-                ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        UUID independentTaskPackageId = harness.artifacts().findAttempt(
-                        ((DiagnosticSubmissionResult.Passed) passed).independentAttempt().attemptId())
-                .orElseThrow().taskPackageId();
-
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
         TaskPackage diagnosticPackage = harness.artifacts().findPackage(diagnostic.attempt().taskPackageId()).orElseThrow();
-        TaskPackage independentPackage = harness.artifacts().findPackage(independentTaskPackageId).orElseThrow();
 
         List<String> exposedTasks = harness.flowStore().exposedTaskFingerprints(FLOW_ID);
         List<String> exposedSolutions = harness.flowStore().exposedSolutionFingerprints(FLOW_ID);
-        assertEquals(2, exposedTasks.size(), "every displayed task must record its task fingerprint");
-        assertEquals(2, exposedSolutions.size(), "every displayed task must record its solution fingerprint");
+        assertEquals(1, exposedTasks.size(), "every displayed task must record its task fingerprint");
+        assertEquals(1, exposedSolutions.size(), "every displayed task must record its solution fingerprint");
         assertTrue(exposedTasks.contains(diagnosticPackage.privateAssessorProjection().taskFingerprint().value()));
-        assertTrue(exposedTasks.contains(independentPackage.privateAssessorProjection().taskFingerprint().value()));
         assertTrue(exposedSolutions.contains(diagnosticPackage.privateAssessorProjection().solutionFingerprint().value()));
-        assertTrue(exposedSolutions.contains(independentPackage.privateAssessorProjection().solutionFingerprint().value()));
-
-        String independentContextJson = generation.calls().get(1).contextJson();
-        assertTrue(independentContextJson.contains("\"exposed_solution_fingerprints\":[\""
-                        + diagnosticPackage.privateAssessorProjection().solutionFingerprint().value() + "\"]"),
-                "the Independent generation must continue to apply solution-fingerprint freshness exclusion");
     }
 
     @Test
@@ -624,18 +562,14 @@ class ApplyProfileContractTest {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
         String diagnosticFingerprint = harness.artifacts().findPackage(diagnostic.attempt().taskPackageId())
                 .orElseThrow().privateAssessorProjection().taskFingerprint().value();
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
-                diagnostic.attempt().attemptId(),
-                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
-                ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-
-        assertInstanceOf(DiagnosticSubmissionResult.Passed.class, result);
-        DiagnosticSubmissionResult.Passed passed = (DiagnosticSubmissionResult.Passed) result;
-        String independentFingerprint = harness.artifacts().findPackage(passed.independentAttempt().taskPackageId())
-                .orElseThrow().privateAssessorProjection().taskFingerprint().value();
+        ApplyProfileExecutor.PreparedDelivery.TaskReady prepared = assertInstanceOf(
+                ApplyProfileExecutor.PreparedDelivery.TaskReady.class,
+                harness.flow().prepareIndependent(FLOW_ID, PROFILE));
+        String independentFingerprint = prepared.taskPackage().privateAssessorProjection()
+                .taskFingerprint().value();
         assertEquals(3, generation.calls().size(),
                 "a fingerprint collision must consume one fresh generation cycle");
         assertEquals(2, verifier.verified().size(),
@@ -655,14 +589,13 @@ class ApplyProfileContractTest {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult passed = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
-                diagnostic.attempt().attemptId(),
-                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
-                ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        UUID independentAttemptId = ((DiagnosticSubmissionResult.Passed) passed).independentAttempt().attemptId();
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        ApplyProfileExecutor.PreparedDelivery.TaskReady independent = assertInstanceOf(
+                ApplyProfileExecutor.PreparedDelivery.TaskReady.class,
+                harness.flow().prepareIndependent(FLOW_ID, PROFILE));
+        UUID independentAttemptId = harness.artifacts().openAttempt(independent.taskPackage()).attemptId();
 
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 independentAttemptId, ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
 
@@ -675,7 +608,7 @@ class ApplyProfileContractTest {
     }
 
     @Test
-    void aPassingDiagnosticWhoseIndependentTaskCannotBePreparedSurfacesTheNeutralUnavailableMessage() {
+    void anIndependentTaskUnavailableBeforeBindingLeavesNoIndependentAttempt() {
         ScriptedApplyGenerationModel generation = new ScriptedApplyGenerationModel(List.of(
                 ApplyScriptData.taskReadyJson(),
                 ApplyScriptData.sourceGapJson()));
@@ -683,17 +616,15 @@ class ApplyProfileContractTest {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
-                diagnostic.attempt().attemptId(),
-                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
-                ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        ApplyProfileExecutor.PreparedDelivery result = harness.flow().prepareIndependent(FLOW_ID, PROFILE);
 
-        assertInstanceOf(DiagnosticSubmissionResult.IndependentUnavailable.class, result);
-        DiagnosticSubmissionResult.IndependentUnavailable unavailable =
-                (DiagnosticSubmissionResult.IndependentUnavailable) result;
+        ApplyProfileExecutor.PreparedDelivery.Unavailable unavailable = assertInstanceOf(
+                ApplyProfileExecutor.PreparedDelivery.Unavailable.class, result);
         assertEquals(TaskUnavailableReason.SOURCE_GAP, unavailable.reason());
         assertEquals(ApplyDeliveryResult.UNAVAILABLE_LEARNER_MESSAGE, unavailable.learnerMessage());
+        assertEquals(1, harness.artifacts().allPackages().size());
+        assertEquals(2, generation.calls().size(), "the unavailable preparation consumed one generation call");
     }
 
     @Test
@@ -710,19 +641,17 @@ class ApplyProfileContractTest {
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
         Harness harness = flow(generation, verifier, assessment, verification);
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 diagnostic.attempt().attemptId(),
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE,
                 null);
 
-        assertInstanceOf(DiagnosticSubmissionResult.Passed.class, result);
+        assertInstanceOf(DiagnosticSubmissionResult.PassedAttempt.class, result);
         assertEquals(1, assessment.contexts().size(), "the isolated Assessment must judge the Cannot Decide input");
         assertEquals(1, verification.contexts().size(),
                 "independent Response Verification must judge the same Cannot Decide input");
-        assertEquals(ApplyScriptData.INDEPENDENT_TASK_TEXT,
-                ((DiagnosticSubmissionResult.Passed) result).independentLearnerProjection().taskText());
     }
 
     @Test
@@ -739,8 +668,8 @@ class ApplyProfileContractTest {
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
         Harness harness = flow(generation, verifier, assessment, verification);
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 diagnostic.attempt().attemptId(),
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE,
@@ -774,8 +703,8 @@ class ApplyProfileContractTest {
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
         Harness harness = flow(generation, verifier, assessment, verification);
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 diagnostic.attempt().attemptId(),
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE,
@@ -804,8 +733,8 @@ class ApplyProfileContractTest {
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_EQUIVALENT, RationaleJudgment.NOT_APPLICABLE)));
         Harness harness = flow(generation, verifier, assessment, verification);
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 diagnostic.attempt().attemptId(),
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE,
@@ -832,7 +761,7 @@ class ApplyProfileContractTest {
         IndependentSubmissionResult result = flow.submitIndependent(new cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.FlowRecord(
                 FLOW_ID, LEARNER_ID, CONCEPT_ID, cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.AWAITING_LEARNER_INPUT,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.INDEPENDENT_TEST, PROFILE, CLOCK.instant()),
-                
+
                 passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
 
@@ -869,7 +798,7 @@ class ApplyProfileContractTest {
         IndependentSubmissionResult result = flow.submitIndependent(new cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.FlowRecord(
                 FLOW_ID, LEARNER_ID, CONCEPT_ID, cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.AWAITING_LEARNER_INPUT,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.INDEPENDENT_TEST, PROFILE, CLOCK.instant()),
-                
+
                 passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.NON_SUBSTANTIVE_RATIONALE);
 
@@ -889,7 +818,7 @@ class ApplyProfileContractTest {
         IndependentSubmissionResult result = flow.submitIndependent(new cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.FlowRecord(
                 FLOW_ID, LEARNER_ID, CONCEPT_ID, cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.AWAITING_LEARNER_INPUT,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.INDEPENDENT_TEST, PROFILE, CLOCK.instant()),
-                
+
                 passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, ApplyScriptData.CONTRADICTORY_RATIONALE);
 
@@ -912,7 +841,7 @@ class ApplyProfileContractTest {
         IndependentSubmissionResult result = flow.submitIndependent(new cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.FlowRecord(
                 FLOW_ID, LEARNER_ID, CONCEPT_ID, cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.AWAITING_LEARNER_INPUT,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.INDEPENDENT_TEST, PROFILE, CLOCK.instant()),
-                
+
                 passed.independentAttemptId(), ApplyScriptData.WRONG_DERIVATIVE,
                 ApplyScriptData.WRONG_DERIVATIVE, null);
 
@@ -941,14 +870,14 @@ class ApplyProfileContractTest {
         IndependentSubmissionResult first = flow.submitIndependent(new cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.FlowRecord(
                 FLOW_ID, LEARNER_ID, CONCEPT_ID, cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.AWAITING_LEARNER_INPUT,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.INDEPENDENT_TEST, PROFILE, CLOCK.instant()),
-                
+
                 passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
         assertInstanceOf(IndependentSubmissionResult.EvidenceAccepted.class, first);
         IndependentSubmissionResult replayed = flow.submitIndependent(new cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.FlowRecord(
                 FLOW_ID, LEARNER_ID, CONCEPT_ID, cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.AWAITING_LEARNER_INPUT,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.INDEPENDENT_TEST, PROFILE, CLOCK.instant()),
-                
+
                 passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
 
@@ -971,7 +900,7 @@ class ApplyProfileContractTest {
         IndependentSubmissionResult mismatched = flow.submitIndependent(new cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.FlowRecord(
                 FLOW_ID, LEARNER_ID, CONCEPT_ID, cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.AWAITING_LEARNER_INPUT,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.INDEPENDENT_TEST, PROFILE, CLOCK.instant()),
-                
+
                 passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION + " + 1", null);
         assertInstanceOf(IndependentSubmissionResult.NotSubmittable.class, mismatched);
@@ -987,7 +916,7 @@ class ApplyProfileContractTest {
         IndependentSubmissionResult corrected = flow.submitIndependent(new cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.FlowRecord(
                 FLOW_ID, LEARNER_ID, CONCEPT_ID, cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.AWAITING_LEARNER_INPUT,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.INDEPENDENT_TEST, PROFILE, CLOCK.instant()),
-                
+
                 passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
         assertInstanceOf(IndependentSubmissionResult.EvidenceAccepted.class, corrected,
@@ -1006,7 +935,7 @@ class ApplyProfileContractTest {
         IndependentSubmissionResult result = flow.submitIndependent(new cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.FlowRecord(
                 FLOW_ID, LEARNER_ID, CONCEPT_ID, cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.AWAITING_LEARNER_INPUT,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.INDEPENDENT_TEST, PROFILE, CLOCK.instant()),
-                
+
                 passed.independentAttemptId(), ApplyScriptData.UNDECIDABLE_DERIVATIVE,
                 ApplyScriptData.UNDECIDABLE_DERIVATIVE, null);
 
@@ -1033,8 +962,8 @@ class ApplyProfileContractTest {
         ScriptedAssessmentModel assessment = new ScriptedAssessmentModel(List.of());
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        harness.flow().submitDiagnostic(FLOW_ID, PROFILE, diagnostic.attempt().attemptId(),
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE, diagnostic.attempt().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
                 ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
 
@@ -1054,8 +983,8 @@ class ApplyProfileContractTest {
                 ApplyScriptData.responseAssessment(FinalExpressionJudgment.NOT_REQUESTED, RationaleJudgment.APPLICABLE)));
         Harness harness = flow(generation, verifier, assessment, new ScriptedResponseVerificationModel(List.of()));
 
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult result = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
+        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        DiagnosticSubmissionResult result = harness.flow().submitDiagnosticAttempt(FLOW_ID, PROFILE,
                 diagnostic.attempt().attemptId(),
                 ApplyScriptData.WRONG_DERIVATIVE,
                 ApplyScriptData.WRONG_DERIVATIVE,
@@ -1077,7 +1006,7 @@ class ApplyProfileContractTest {
         IndependentSubmissionResult result = flow.submitIndependent(new cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore.FlowRecord(
                 FLOW_ID, LEARNER_ID, CONCEPT_ID, cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.AWAITING_LEARNER_INPUT,
                 cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.INDEPENDENT_TEST, PROFILE, CLOCK.instant()),
-                
+
                 passed.independentAttemptId(), ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
 
@@ -1107,15 +1036,14 @@ class ApplyProfileContractTest {
         ScriptedTaskVerifier verifier = new ScriptedTaskVerifier(List.of(
                 ApplyScriptData.passVerdict(), ApplyScriptData.passVerdict()));
         Harness harness = flow(generation, verifier, assessment, verification);
-        ApplyDeliveryResult.Delivered diagnostic = (ApplyDeliveryResult.Delivered) harness.flow().startDiagnostic(FLOW_ID, PROFILE);
-        DiagnosticSubmissionResult passed = harness.flow().submitDiagnostic(FLOW_ID, PROFILE, 
-                diagnostic.attempt().attemptId(),
-                ApplyScriptData.UNICODE_CORRECT_DERIVATIVE,
-                ApplyScriptData.UNICODE_CORRECT_CANONICAL,
-                null);
+        harness.flow().startDiagnostic(FLOW_ID, PROFILE, DiagnosticPlanFixture.acceptedPlan());
+        ApplyProfileExecutor.PreparedDelivery.TaskReady independent = assertInstanceOf(
+                ApplyProfileExecutor.PreparedDelivery.TaskReady.class,
+                harness.flow().prepareIndependent(FLOW_ID, PROFILE));
+        TaskAttempt independentAttempt = harness.artifacts().openAttempt(independent.taskPackage());
         return new PassedIndependent(
                 harness,
-                ((DiagnosticSubmissionResult.Passed) passed).independentAttempt().attemptId());
+                independentAttempt.attemptId());
     }
 
     private record PassedIndependent(Harness harness, UUID independentAttemptId) {

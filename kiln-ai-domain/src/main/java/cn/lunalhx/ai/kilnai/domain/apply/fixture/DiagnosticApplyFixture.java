@@ -84,4 +84,20 @@ public final class DiagnosticApplyFixture {
                         List.of("plain_text", "unicode_math", "latex_like")),
                 "zh-CN");
     }
+
+    public static ApplyExecutionContext diagnosticContextWithCriteria(
+            List<ApplyExecutionContext.RubricCriterion> criteria
+    ) {
+        ApplyExecutionContext base = diagnosticContext();
+        return new ApplyExecutionContext(
+                base.schema(),
+                base.conceptContract(),
+                new ApplyExecutionContext.MasteryRubric(
+                        base.masteryRubric().id(), base.masteryRubric().version(), criteria),
+                base.taskBlueprint(),
+                base.conceptSourcePack(),
+                base.noveltyExclusions(),
+                base.answerRepresentationContract(),
+                base.learnerLocale());
+    }
 }

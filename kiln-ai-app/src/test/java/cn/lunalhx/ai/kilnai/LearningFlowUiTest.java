@@ -61,6 +61,8 @@ class LearningFlowUiTest {
             assertTrue(page.inputValue("#canonical").equals("12*x^2-6*x+7"),
                     "the UI must submit the learner-confirmed canonical expression");
             page.click("#submit");
+            page.waitForFunction("() => document.getElementById('continue').disabled === false");
+            page.click("#continue");
             page.waitForFunction("() => document.getElementById('task').textContent.includes('设 g(x)')");
             String independent = page.innerText("#view");
             assertTrue(independent.contains("当前阶段：独立测试"));
@@ -204,6 +206,8 @@ class LearningFlowUiTest {
                     () -> page.click("#submit"));
             assertEquals(200, response.status(),
                     "a supported LaTeX-like expression must not be rejected as an invalid submission");
+            page.waitForFunction("() => document.getElementById('continue').disabled === false");
+            page.click("#continue");
             page.waitForFunction("() => document.getElementById('task').textContent.includes('设 g(x)')");
         }
     }

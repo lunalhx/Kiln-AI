@@ -60,6 +60,14 @@ public final class ApplyScriptData {
     }
 
     public static String taskReadyJson(String taskText, String expression) {
+        return taskReadyJson(taskText, expression, "differentiate-polynomial");
+    }
+
+    public static String taskReadyJson(String taskText, String expression, String... criterionIds) {
+        String rubricMapping = java.util.Arrays.stream(criterionIds)
+                .map(criterionId -> "{ \"mastery_criterion_id\": \"" + criterionId
+                        + "\", \"evidence_channels\": [\"final_derivative\", \"optional_rule_rationale\"] }")
+                .collect(java.util.stream.Collectors.joining(",\n                      "));
         return """
                 {
                   "schema": "apply_generation/v1",
@@ -68,7 +76,7 @@ public final class ApplyScriptData {
                   "private_assessor_facts": {
                     "proposed_expected_answer": { "expression": "%s" },
                     "rubric_mapping": [
-                      { "mastery_criterion_id": "differentiate-polynomial", "evidence_channels": ["final_derivative", "optional_rule_rationale"] }
+                      %s
                     ],
                     "source_trace": [
                       { "source_document_id": "openstax-calculus-v1", "passage_id": "sec-3.3-differentiation-rules" }
@@ -76,7 +84,7 @@ public final class ApplyScriptData {
                     "equivalence_declaration": { "kind": "symbolic_expression", "variables": ["x"], "domain": "real" }
                   }
                 }
-                """.formatted(taskText, expression);
+                """.formatted(taskText, expression, rubricMapping);
     }
 
     public static String sourceGapJson() {

@@ -12,22 +12,11 @@ import java.util.Objects;
  * that Decision authorizes it.
  */
 public sealed interface DiagnosticSubmissionResult
-        permits DiagnosticSubmissionResult.Passed,
-        DiagnosticSubmissionResult.PassedAttempt,
+        permits DiagnosticSubmissionResult.PassedAttempt,
         DiagnosticSubmissionResult.Failed,
         DiagnosticSubmissionResult.Unconfirmed,
         DiagnosticSubmissionResult.NotSubmittable,
-        DiagnosticSubmissionResult.Ignored,
-        DiagnosticSubmissionResult.IndependentUnavailable {
-
-    record Passed(
-            TaskAttempt closedDiagnosticAttempt,
-            String neutralTransitionMessage,
-            TaskAttempt independentAttempt,
-            LearnerProjection independentLearnerProjection,
-            DiagnosticFinding finding
-    ) implements DiagnosticSubmissionResult {
-    }
+        DiagnosticSubmissionResult.Ignored {
 
     record PassedAttempt(TaskAttempt closedDiagnosticAttempt, FeedbackFacts facts, DiagnosticFinding finding)
             implements DiagnosticSubmissionResult {
@@ -67,7 +56,4 @@ public sealed interface DiagnosticSubmissionResult
     record Ignored(SubmissionIgnoreReason reason) implements DiagnosticSubmissionResult {
     }
 
-    record IndependentUnavailable(TaskUnavailableReason reason, String learnerMessage)
-            implements DiagnosticSubmissionResult {
-    }
 }

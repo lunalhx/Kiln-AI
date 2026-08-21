@@ -71,6 +71,7 @@ public class ScriptedLearningGraphPortsConfiguration {
     private volatile boolean responseVerificationEnabled = false;
     private final Deque<ClarificationClassification> scriptedClarifications = new ArrayDeque<>();
     private final Deque<RationaleEvaluationResult> scriptedRationaleEvaluations = new ArrayDeque<>();
+    private final Deque<DiagnosticTaskScript> scriptedDiagnosticTasks = new ArrayDeque<>();
 
     public void failNextApplyGeneration() {
         this.failNextApplyGeneration = true;
@@ -104,6 +105,10 @@ public class ScriptedLearningGraphPortsConfiguration {
         this.scriptedRationaleEvaluations.addLast(result);
     }
 
+    public synchronized void scriptDiagnosticTask(String taskText, String expectedExpression, String criterionId) {
+        scriptedDiagnosticTasks.addLast(new DiagnosticTaskScript(taskText, expectedExpression, criterionId));
+    }
+
     public void failNextResponseVerificationProviderCalls(int count) {
         this.responseVerificationEnabled = true;
         this.remainingResponseVerificationProviderFailures.set(count);
@@ -126,6 +131,7 @@ public class ScriptedLearningGraphPortsConfiguration {
         responseVerificationEnabled = false;
         synchronized (this) {
             scriptedRationaleEvaluations.clear();
+            scriptedDiagnosticTasks.clear();
         }
     }
 
@@ -174,6 +180,16 @@ public class ScriptedLearningGraphPortsConfiguration {
             if (executionContextJson.contains("\"attempt_purpose\":\"practice\"")) {
                 return ScriptedApplyPortsConfiguration.taskReadyJson(
                         exposedPracticeTask(executionContextJson), exposedPracticeExpected(executionContextJson));
+            }
+            if (executionContextJson.contains("\"attempt_purpose\":\"diagnostic\"")) {
+                DiagnosticTaskScript scripted;
+                synchronized (this) {
+                    scripted = scriptedDiagnosticTasks.pollFirst();
+                }
+                if (scripted != null) {
+                    return ScriptedApplyPortsConfiguration.taskReadyJson(
+                            scripted.taskText(), scripted.expectedExpression(), scripted.criterionId());
+                }
             }
             return executionContextJson.contains("\"attempt_purpose\":\"independent_test\"")
                     ? ScriptedApplyPortsConfiguration.taskReadyJson(
@@ -440,5 +456,8 @@ public class ScriptedLearningGraphPortsConfiguration {
                   }
                 }
                 """.formatted(anchor.group(1), anchor.group(2));
+    }
+
+    private record DiagnosticTaskScript(String taskText, String expectedExpression, String criterionId) {
     }
 }

@@ -92,6 +92,7 @@ public record PendingOperation(
 
     public enum Kind {
         EXECUTE_MOVE,
+        DELIVER_DIAGNOSTIC,
         DELIVER_INDEPENDENT,
         DELIVER_INDEPENDENT_REPLACEMENT,
         RESUME_SUBMISSION_EVALUATION

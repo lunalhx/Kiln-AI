@@ -216,10 +216,12 @@ class ApplyPostgresReviewReplacementTest {
     private UUID completeIndependentPass(UUID learnerId) {
         LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
         UUID flowId = started.interaction().flowId();
-        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary diagnosticTransition = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
-        useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.continueRequested(
+                flowId, diagnosticTransition.interaction().interactionVersion(), UUID.randomUUID());
+        useCase.submitAnswer(flowId, 3, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         return flowId;

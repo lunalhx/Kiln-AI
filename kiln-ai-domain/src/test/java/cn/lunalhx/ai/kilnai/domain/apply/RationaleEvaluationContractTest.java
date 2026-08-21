@@ -103,7 +103,7 @@ class RationaleEvaluationContractTest {
     }
 
     @Test
-    void corroboratingProfileIsDistinctAndTwoApplicableJudgmentsOpenFreshIndependentTask() {
+    void corroboratingProfileIsDistinctAndTwoApplicableJudgmentsPassTheDiagnosticAttempt() {
         EvaluationBundleStack stack = ReferenceBundles.counterexampleReviewStack();
         assertEquals(CounterexampleReviewProfile.FIXED_STACK, stack.pinnedIds());
         String prompt = new RationaleEvaluationPromptCompiler().compile(
@@ -133,10 +133,11 @@ class RationaleEvaluationContractTest {
                 rationalePort);
 
         ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
-                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
-        DiagnosticSubmissionResult.Passed passed = assertInstanceOf(
-                DiagnosticSubmissionResult.Passed.class,
-                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(
+                        FLOW_ID, ScriptedModelProfile.PROFILE, DiagnosticPlanFixture.acceptedPlan()));
+        DiagnosticSubmissionResult.PassedAttempt passed = assertInstanceOf(
+                DiagnosticSubmissionResult.PassedAttempt.class,
+                flow.submitDiagnosticAttempt(FLOW_ID, ScriptedModelProfile.PROFILE,
                         diagnostic.attempt().attemptId(), ApplyScriptData.WRONG_DERIVATIVE,
                         ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.APPLICABLE_RATIONALE));
 
@@ -148,7 +149,6 @@ class RationaleEvaluationContractTest {
         assertEquals(ApplyScriptData.APPLICABLE_RATIONALE, context.rationale());
         assertFalse(contexts.getFirst().contains("primary_answer"));
         assertFalse(contexts.getFirst().contains("feedback"));
-        assertEquals(ApplyScriptData.INDEPENDENT_TASK_TEXT, passed.independentLearnerProjection().taskText());
         assertTrue(flowStore.allEvidence().isEmpty());
         assertTrue(artifacts.findCommittedEvaluationResult(
                 diagnostic.attempt().attemptId(), CommittedEvaluationResult.RATIONALE_ASSESSMENT,
@@ -212,10 +212,11 @@ class RationaleEvaluationContractTest {
                 CLOCK);
 
         ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
-                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(
+                        FLOW_ID, ScriptedModelProfile.PROFILE, DiagnosticPlanFixture.acceptedPlan()));
         DiagnosticSubmissionResult.Failed failed = assertInstanceOf(
                 DiagnosticSubmissionResult.Failed.class,
-                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                flow.submitDiagnosticAttempt(FLOW_ID, ScriptedModelProfile.PROFILE,
                         diagnostic.attempt().attemptId(),
                         ApplyScriptData.WRONG_DERIVATIVE,
                         ApplyScriptData.WRONG_DERIVATIVE,
@@ -267,10 +268,11 @@ class RationaleEvaluationContractTest {
                 CLOCK);
 
         ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
-                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(
+                        FLOW_ID, ScriptedModelProfile.PROFILE, DiagnosticPlanFixture.acceptedPlan()));
         DiagnosticSubmissionResult.Unconfirmed unconfirmed = assertInstanceOf(
                 DiagnosticSubmissionResult.Unconfirmed.class,
-                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                flow.submitDiagnosticAttempt(FLOW_ID, ScriptedModelProfile.PROFILE,
                         diagnostic.attempt().attemptId(),
                         ApplyScriptData.WRONG_DERIVATIVE,
                         ApplyScriptData.WRONG_DERIVATIVE,
@@ -298,10 +300,11 @@ class RationaleEvaluationContractTest {
                 });
 
         ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
-                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(
+                        FLOW_ID, ScriptedModelProfile.PROFILE, DiagnosticPlanFixture.acceptedPlan()));
         DiagnosticSubmissionResult.Unconfirmed unconfirmed = assertInstanceOf(
                 DiagnosticSubmissionResult.Unconfirmed.class,
-                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                flow.submitDiagnosticAttempt(FLOW_ID, ScriptedModelProfile.PROFILE,
                         diagnostic.attempt().attemptId(), ApplyScriptData.WRONG_DERIVATIVE,
                         ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.APPLICABLE_RATIONALE));
 
@@ -330,10 +333,11 @@ class RationaleEvaluationContractTest {
                 });
 
         ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
-                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(
+                        FLOW_ID, ScriptedModelProfile.PROFILE, DiagnosticPlanFixture.acceptedPlan()));
         DiagnosticSubmissionResult.Unconfirmed unconfirmed = assertInstanceOf(
                 DiagnosticSubmissionResult.Unconfirmed.class,
-                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                flow.submitDiagnosticAttempt(FLOW_ID, ScriptedModelProfile.PROFILE,
                         diagnostic.attempt().attemptId(), ApplyScriptData.WRONG_DERIVATIVE,
                         ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.APPLICABLE_RATIONALE));
 
@@ -370,15 +374,15 @@ class RationaleEvaluationContractTest {
         DiagnosticFlow flow = newDiagnosticFlow(artifacts, flowStore, generation, verifier, rationalePort);
 
         ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
-                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
-        DiagnosticSubmissionResult.Passed passed = assertInstanceOf(
-                DiagnosticSubmissionResult.Passed.class,
-                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(
+                        FLOW_ID, ScriptedModelProfile.PROFILE, DiagnosticPlanFixture.acceptedPlan()));
+        DiagnosticSubmissionResult.PassedAttempt passed = assertInstanceOf(
+                DiagnosticSubmissionResult.PassedAttempt.class,
+                flow.submitDiagnosticAttempt(FLOW_ID, ScriptedModelProfile.PROFILE,
                         diagnostic.attempt().attemptId(), ApplyScriptData.WRONG_DERIVATIVE,
                         ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.APPLICABLE_RATIONALE));
 
         assertEquals(4, totalCalls.get());
-        assertEquals(ApplyScriptData.INDEPENDENT_TASK_TEXT, passed.independentLearnerProjection().taskText());
         assertTrue(artifacts.findCommittedEvaluationResult(
                 diagnostic.attempt().attemptId(), CommittedEvaluationResult.RATIONALE_ASSESSMENT,
                 CommittedEvaluationResult.EVALUATION_VERSION).isPresent());
@@ -409,10 +413,11 @@ class RationaleEvaluationContractTest {
                 artifacts, flowStore, generation, verifier, rationalePort);
 
         ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
-                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(
+                        FLOW_ID, ScriptedModelProfile.PROFILE, DiagnosticPlanFixture.acceptedPlan()));
         DiagnosticSubmissionResult.Failed failed = assertInstanceOf(
                 DiagnosticSubmissionResult.Failed.class,
-                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                flow.submitDiagnosticAttempt(FLOW_ID, ScriptedModelProfile.PROFILE,
                         diagnostic.attempt().attemptId(), ApplyScriptData.WRONG_DERIVATIVE,
                         ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.APPLICABLE_RATIONALE));
 
@@ -442,9 +447,10 @@ class RationaleEvaluationContractTest {
                 artifacts, flowStore, generation, verifier, rationalePort);
 
         ApplyDeliveryResult.Delivered diagnostic = assertInstanceOf(
-                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE));
+                ApplyDeliveryResult.Delivered.class, flow.startDiagnostic(
+                        FLOW_ID, ScriptedModelProfile.PROFILE, DiagnosticPlanFixture.acceptedPlan()));
         assertThrows(PostSubmissionEvaluationUnavailableException.class, () ->
-                flow.submitDiagnostic(FLOW_ID, ScriptedModelProfile.PROFILE,
+                flow.submitDiagnosticAttempt(FLOW_ID, ScriptedModelProfile.PROFILE,
                         diagnostic.attempt().attemptId(), ApplyScriptData.WRONG_DERIVATIVE,
                         ApplyScriptData.WRONG_DERIVATIVE, ApplyScriptData.APPLICABLE_RATIONALE));
 

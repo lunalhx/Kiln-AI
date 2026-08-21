@@ -35,9 +35,16 @@ public final class ApplyGenerationDraftGatePolicy implements GatePolicy<ApplyGen
         Set<String> mappedCriterionIds = facts.rubricMapping().stream()
                 .map(PrivateAssessorFacts.RubricMapping::masteryCriterionId)
                 .collect(java.util.stream.Collectors.toSet());
-        if (!mappedCriterionIds.containsAll(requiredCriterionIds)) {
+        boolean diagnosticCoverage = context.taskBlueprint().attemptPurpose()
+                == cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose.DIAGNOSTIC;
+        boolean mappingValid = diagnosticCoverage
+                ? !mappedCriterionIds.isEmpty() && requiredCriterionIds.containsAll(mappedCriterionIds)
+                : mappedCriterionIds.containsAll(requiredCriterionIds);
+        if (!mappingValid) {
             violations.add(new GateViolation("rubric.unmapped",
-                    "rubric mapping must cover every required mastery criterion"));
+                    diagnosticCoverage
+                            ? "Diagnostic rubric mapping must cover one or more declared mastery criteria"
+                            : "rubric mapping must cover every required mastery criterion"));
         }
 
         Set<String> approvedPassageIds = context.conceptSourcePack().passages().stream()

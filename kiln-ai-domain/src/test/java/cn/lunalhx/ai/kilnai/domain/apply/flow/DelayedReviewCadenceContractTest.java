@@ -530,7 +530,9 @@ class DelayedReviewCadenceContractTest {
         LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-        UUID attemptId = transitioned.interaction().attemptId();
+        LearningFlowResult.Boundary independent = (LearningFlowResult.Boundary) harness.useCase().continueRequested(
+                flowId, transitioned.interaction().interactionVersion(), UUID.randomUUID());
+        UUID attemptId = independent.interaction().attemptId();
         UUID submitKey = UUID.randomUUID();
         // crash after the close: the Attempt is closed durably, the outcome
         // boundary is not committed yet.
@@ -540,7 +542,7 @@ class DelayedReviewCadenceContractTest {
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
 
         LearningFlowResult.Boundary recovered = (LearningFlowResult.Boundary) harness.useCase().submitAnswer(
-                flowId, 2, submitKey, attemptId,
+                flowId, 3, submitKey, attemptId,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                 ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
 
@@ -751,7 +753,9 @@ class DelayedReviewCadenceContractTest {
             LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                     flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                     ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-            useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+            LearningFlowResult.Boundary independent = (LearningFlowResult.Boundary) useCase.continueRequested(
+                    flowId, transitioned.interaction().interactionVersion(), UUID.randomUUID());
+            useCase.submitAnswer(flowId, 3, UUID.randomUUID(), independent.interaction().attemptId(),
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
             return flowId;

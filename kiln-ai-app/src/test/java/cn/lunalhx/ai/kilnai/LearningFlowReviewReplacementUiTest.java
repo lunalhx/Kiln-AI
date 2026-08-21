@@ -114,6 +114,8 @@ class LearningFlowReviewReplacementUiTest {
         page.waitForFunction("() => document.getElementById('task').textContent.includes('设 f(x)')");
         page.fill("#derivative", "12*x^2-6*x+7");
         page.click("#submit");
+        page.waitForFunction("() => document.getElementById('continue').disabled === false");
+        page.click("#continue");
         page.waitForFunction("() => document.getElementById('task').textContent.includes('设 g(x)')");
         page.fill("#derivative", "15*x^2 - 2");
         page.click("#submit");

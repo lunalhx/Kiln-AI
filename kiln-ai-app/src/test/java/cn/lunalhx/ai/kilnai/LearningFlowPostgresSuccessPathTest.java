@@ -254,16 +254,18 @@ class LearningFlowPostgresSuccessPathTest {
         assertEquals(DiagnosticPlanFixture.acceptedPlan(), flowStore.diagnosticPlan(flowId).orElseThrow());
         assertEquals(new DiagnosticProgress(0, 3), flowStore.diagnosticProgress(flowId).orElseThrow());
         UUID diagnosticKey = UUID.randomUUID();
-        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary diagnosticTransition = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, diagnosticKey, started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.continueRequested(
+                flowId, diagnosticTransition.interaction().interactionVersion(), UUID.randomUUID());
         assertEquals(new DiagnosticProgress(1, 3), flowStore.diagnosticProgress(flowId).orElseThrow());
         assertEquals(1, flowStore.diagnosticFindings(flowId).size());
         assertEquals(cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding.Kind.PASSING_OBSERVATION,
                 flowStore.diagnosticFindings(flowId).get(0).kind());
         UUID independentKey = UUID.randomUUID();
         LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) useCase.submitAnswer(
-                flowId, 2, independentKey, transitioned.interaction().attemptId(),
+                flowId, 3, independentKey, transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         assertEquals(FlowStatus.TERMINAL, completed.interaction().status());
@@ -278,7 +280,7 @@ class LearningFlowPostgresSuccessPathTest {
         assertEquals(DiagnosticApplyFixture.CONCEPT_ID, flow.conceptId());
 
         LearningCheckpoint checkpoint = restarted.store.latestCheckpoint(flowId).orElseThrow();
-        assertEquals(3, checkpoint.interactionVersion(),
+        assertEquals(4, checkpoint.interactionVersion(),
                 "the checkpoint must recover the committed boundary");
 
         TaskAttempt independentAttempt = restarted.store.findAttempt(
@@ -290,12 +292,12 @@ class LearningFlowPostgresSuccessPathTest {
                 "the committed Task Package must round-trip through the restarted store");
 
         LearningFlowResult.Boundary replayed = (LearningFlowResult.Boundary) restarted.useCase.submitAnswer(
-                flowId, 2, independentKey, transitioned.interaction().attemptId(),
+                flowId, 3, independentKey, transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         assertEquals(completed.interaction(), replayed.interaction(),
                 "a replayed Idempotency-Key after the restart must return the original committed interaction");
-        assertEquals(transitioned.interaction(),
+        assertEquals(diagnosticTransition.interaction(),
                 restarted.store.findCommand(diagnosticKey).orElseThrow().response(),
                 "the committed Diagnostic command must survive the restart");
 
@@ -341,13 +343,15 @@ class LearningFlowPostgresSuccessPathTest {
         UUID learnerId = UUID.randomUUID();
         LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
         UUID flowId = started.interaction().flowId();
-        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary diagnosticTransition = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.continueRequested(
+                flowId, diagnosticTransition.interaction().interactionVersion(), UUID.randomUUID());
         UUID attemptId = transitioned.interaction().attemptId();
         UUID key = UUID.randomUUID();
 
-        race(() -> useCase.submitAnswer(flowId, 2, key, attemptId,
+        race(() -> useCase.submitAnswer(flowId, 3, key, attemptId,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null));
 
@@ -364,7 +368,7 @@ class LearningFlowPostgresSuccessPathTest {
         assertEquals(AttemptStatus.SUBMITTED,
                 artifacts.findAttempt(attemptId).orElseThrow().status(),
                 "the single Attempt must be closed exactly once");
-        assertEquals(3, flowStore.latestInteraction(flowId).orElseThrow().interactionVersion(),
+        assertEquals(4, flowStore.latestInteraction(flowId).orElseThrow().interactionVersion(),
                 "the flow must advance to exactly one committed terminal interaction");
     }
 
@@ -373,10 +377,12 @@ class LearningFlowPostgresSuccessPathTest {
         UUID learnerId = UUID.randomUUID();
         LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
         UUID flowId = started.interaction().flowId();
-        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary diagnosticTransition = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
-        useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.continueRequested(
+                flowId, diagnosticTransition.interaction().interactionVersion(), UUID.randomUUID());
+        useCase.submitAnswer(flowId, 3, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         Instant acceptedAt = flowStore.allEvidence().stream()
@@ -401,10 +407,10 @@ class LearningFlowPostgresSuccessPathTest {
         assertEquals(1,
                 Integer.valueOf(jdbc.queryForObject("""
                                 SELECT count(*) FROM interactions
-                                WHERE flow_id = ? AND interaction_version = 4
+                                WHERE flow_id = ? AND interaction_version = 5
                                 """, Integer.class, flowId)),
                 "racing starts must commit exactly one Delayed Review interaction");
-        assertEquals(4, flowStore.latestInteraction(flowId).orElseThrow().interactionVersion());
+        assertEquals(5, flowStore.latestInteraction(flowId).orElseThrow().interactionVersion());
     }
 
     /**

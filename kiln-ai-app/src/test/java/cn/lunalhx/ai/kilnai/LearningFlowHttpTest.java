@@ -109,16 +109,16 @@ class LearningFlowHttpTest {
         LearningFlowResponse transitioned = submit(
                 started.flowId(), submitKey, started.interactionVersion(), started.attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
-        assertEquals("task", transitioned.kind());
+        assertEquals("transition", transitioned.kind());
         assertEquals("AWAITING_LEARNER_INPUT", transitioned.status());
-        assertEquals("INDEPENDENT_TEST", transitioned.stage());
+        assertEquals("DIAGNOSTIC", transitioned.stage());
         assertEquals(2, transitioned.interactionVersion());
+        assertNull(transitioned.attemptId());
+        assertNull(transitioned.task());
         assertEquals(1, transitioned.diagnosticProgress().completedAttempts());
         assertEquals(3, transitioned.diagnosticProgress().maximumAttempts());
-        assertNotNull(transitioned.task());
-        assertEquals(ScriptedApplyPortsConfiguration.INDEPENDENT_TASK, transitioned.task().taskText());
-        assertTrue(transitioned.learnerMessage().contains("独立练习"),
-                "the neutral transition message states only the next interaction");
+        assertEquals(List.of("continue_requested", "flow_control_requested"), transitioned.allowedEvents());
+        assertTrue(transitioned.learnerMessage().contains("进度已保存"));
         assertFalse(serialize(transitioned).contains(ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED));
 
         LearningFlowResponse replayedSubmit = submit(
@@ -134,15 +134,29 @@ class LearningFlowHttpTest {
         assertEquals(HttpStatus.CONFLICT, duplicate.getStatusCode(),
                 "a duplicate submission for the already closed Diagnostic attempt must conflict");
 
+        LearningFlowResponse independent = command(transitioned.flowId(), UUID.randomUUID(), Map.of(
+                "command", "continue_requested",
+                "interactionVersion", transitioned.interactionVersion()));
+        assertEquals("task", independent.kind());
+        assertEquals("AWAITING_LEARNER_INPUT", independent.status());
+        assertEquals("INDEPENDENT_TEST", independent.stage());
+        assertEquals(3, independent.interactionVersion());
+        assertEquals("INDEPENDENT_TEST", independent.attemptPurpose());
+        assertNotNull(independent.attemptId());
+        assertNotNull(independent.task());
+        assertEquals(ScriptedApplyPortsConfiguration.INDEPENDENT_TASK, independent.task().taskText());
+        assertTrue(independent.learnerMessage().contains("独立练习"));
+        assertFalse(serialize(independent).contains(ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED));
+
         LearningFlowResponse completed = submit(
-                started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
-                transitioned.attemptId(),
+                started.flowId(), UUID.randomUUID(), independent.interactionVersion(),
+                independent.attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         assertEquals("transition", completed.kind(),
                 "the terminal completion is the message-only transition union member");
         assertEquals("TERMINAL", completed.status());
-        assertEquals(3, completed.interactionVersion());
+        assertEquals(4, completed.interactionVersion());
         assertNull(completed.task());
         assertNull(completed.attemptId());
         assertTrue(completed.learnerMessage().contains("已完成"));
@@ -225,9 +239,12 @@ class LearningFlowHttpTest {
     void aSubstantiveClarificationOnAnOpenIndependentAttemptProjectsTheConsentUnionMember() {
         UUID learnerId = UUID.randomUUID();
         LearningFlowResponse started = start(learnerId, UUID.randomUUID());
-        LearningFlowResponse transitioned = submit(
+        LearningFlowResponse diagnosticTransition = submit(
                 started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
+        LearningFlowResponse transitioned = command(diagnosticTransition.flowId(), UUID.randomUUID(), Map.of(
+                "command", "continue_requested",
+                "interactionVersion", diagnosticTransition.interactionVersion()));
 
         LearningFlowResponse consented = command(transitioned.flowId(), UUID.randomUUID(), Map.of(
                 "command", "clarification_asked",
@@ -647,9 +664,12 @@ class LearningFlowHttpTest {
 
     private UUID completeIndependentPass(UUID learnerId) {
         LearningFlowResponse started = start(learnerId, UUID.randomUUID());
-        LearningFlowResponse transitioned = submit(
+        LearningFlowResponse diagnosticTransition = submit(
                 started.flowId(), UUID.randomUUID(), started.interactionVersion(), started.attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
+        LearningFlowResponse transitioned = command(diagnosticTransition.flowId(), UUID.randomUUID(), Map.of(
+                "command", "continue_requested",
+                "interactionVersion", diagnosticTransition.interactionVersion()));
         submit(
                 started.flowId(), UUID.randomUUID(), transitioned.interactionVersion(),
                 transitioned.attemptId(),

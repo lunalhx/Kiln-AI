@@ -591,7 +591,9 @@ class InconclusiveReviewReplacementContractTest {
             LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                     flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                     ApplyScriptData.UNICODE_CORRECT_DERIVATIVE, ApplyScriptData.UNICODE_CORRECT_CANONICAL, null);
-            useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+            LearningFlowResult.Boundary independent = (LearningFlowResult.Boundary) useCase.continueRequested(
+                    flowId, transitioned.interaction().interactionVersion(), UUID.randomUUID());
+            useCase.submitAnswer(flowId, 3, UUID.randomUUID(), independent.interaction().attemptId(),
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION,
                     ApplyScriptData.INDEPENDENT_EXPECTED_EXPRESSION, null);
             return flowId;

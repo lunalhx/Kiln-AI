@@ -64,6 +64,45 @@ public final class DiagnosticPlanFixture {
         return result.artifact();
     }
 
+    public static DiagnosticPlan acceptedPlanWithTargetCriteria(List<String> criterionIds) {
+        List<String> targetCriteria = List.copyOf(criterionIds);
+        DiagnosticPlan source = acceptedPlan();
+        DiagnosticPlan candidate = new DiagnosticPlan(
+                source.schema(),
+                source.id(),
+                source.version(),
+                source.targetConceptId(),
+                source.conceptContractId(),
+                source.conceptContractVersion(),
+                source.masteryRubricId(),
+                source.masteryRubricVersion(),
+                targetCriteria,
+                source.supportingConcepts(),
+                source.dependencyOrder(),
+                source.sourceBasis(),
+                source.coverageRule(),
+                source.terminationRule(),
+                new DiagnosticPlan.RationalePolicy(source.rationalePolicy().mode(), targetCriteria),
+                source.maximumAttempts());
+        DiagnosticPlanGateContext context = new DiagnosticPlanGateContext(
+                source.targetConceptId(),
+                source.conceptContractId(),
+                source.conceptContractVersion(),
+                source.masteryRubricId(),
+                source.masteryRubricVersion(),
+                Set.copyOf(targetCriteria),
+                Set.copyOf(targetCriteria),
+                Set.copyOf(targetCriteria),
+                Set.of(sourceBasis()),
+                Map.of());
+        GateResult<DiagnosticPlan> result = new TypedArtifactGatePipeline().validate(
+                candidate, new DiagnosticPlanGatePolicy(context), GateContext.empty());
+        if (result.outcome() != GateOutcome.PASSED) {
+            throw new IllegalStateException("Diagnostic Plan fixture is not Gate-accepted: " + result.violations());
+        }
+        return result.artifact();
+    }
+
     private static DiagnosticPlan candidate() {
         return new DiagnosticPlan(
                 DiagnosticPlan.SCHEMA,

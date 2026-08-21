@@ -110,7 +110,10 @@ public class LearningFlowResponseMapper {
                     .toList();
             case ASSISTANCE_CONSENT -> List.of("assistance_decided", "flow_control_requested");
             case UNAVAILABLE -> retryEvents(interaction);
-            case TRANSITION -> List.of();
+            case TRANSITION -> interaction.stage() == cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage.DIAGNOSTIC
+                    && interaction.status() == cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus.AWAITING_LEARNER_INPUT
+                    ? List.of("continue_requested", "flow_control_requested")
+                    : List.of();
         };
     }
 

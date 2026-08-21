@@ -99,11 +99,12 @@ class ApplyPostgresRecoveryTest {
         UUID startKey = UUID.randomUUID();
 
         LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, startKey);
-        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary diagnosticTransition = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 started.interaction().flowId(), 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
+        LearningFlowResult.Boundary transitioned = continueAfterDiagnostic(diagnosticTransition);
         LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) useCase.submitAnswer(
-                started.interaction().flowId(), 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+                started.interaction().flowId(), 3, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
 
@@ -201,10 +202,11 @@ class ApplyPostgresRecoveryTest {
 
         LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, startKey);
         UUID flowId = started.interaction().flowId();
-        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary diagnosticTransition = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
-        useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+        LearningFlowResult.Boundary transitioned = continueAfterDiagnostic(diagnosticTransition);
+        useCase.submitAnswer(flowId, 3, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         ReviewTask due = reviewStore.unfinishedReviewsFor(learnerId).get(0);
@@ -216,7 +218,7 @@ class ApplyPostgresRecoveryTest {
         LearningFlowInteraction reviewInteraction = reviewBoundary.interaction();
         assertEquals(LearningStage.DELAYED_REVIEW, reviewInteraction.stage());
         assertEquals(AttemptPurpose.REVIEW, reviewInteraction.attemptPurpose());
-        assertEquals(4, reviewInteraction.interactionVersion());
+        assertEquals(5, reviewInteraction.interactionVersion());
 
         ReviewTask startedReview = reviewStore.findReview(due.reviewId()).orElseThrow();
         assertEquals(ReviewTaskStatus.STARTED, startedReview.status());
@@ -255,10 +257,11 @@ class ApplyPostgresRecoveryTest {
 
         LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, startKey);
         UUID flowId = started.interaction().flowId();
-        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary diagnosticTransition = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
-        useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+        LearningFlowResult.Boundary transitioned = continueAfterDiagnostic(diagnosticTransition);
+        useCase.submitAnswer(flowId, 3, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
@@ -327,10 +330,11 @@ class ApplyPostgresRecoveryTest {
 
         LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, startKey);
         UUID flowId = started.interaction().flowId();
-        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary diagnosticTransition = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, UUID.randomUUID(), started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
-        useCase.submitAnswer(flowId, 2, UUID.randomUUID(), transitioned.interaction().attemptId(),
+        LearningFlowResult.Boundary transitioned = continueAfterDiagnostic(diagnosticTransition);
+        useCase.submitAnswer(flowId, 3, UUID.randomUUID(), transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         reviewStore.markDueReviewsDue(Instant.now().plus(Duration.ofHours(25)));
@@ -423,6 +427,11 @@ class ApplyPostgresRecoveryTest {
                 LearningResult.PASS, AttemptPurpose.INDEPENDENT_TEST, 0, List.of(), acceptedAt);
     }
 
+    private LearningFlowResult.Boundary continueAfterDiagnostic(LearningFlowResult.Boundary transition) {
+        return (LearningFlowResult.Boundary) useCase.continueRequested(
+                transition.interaction().flowId(), transition.interaction().interactionVersion(), UUID.randomUUID());
+    }
+
     @Test
     void aRestartedFlowResumesAnOpenAttemptAndAReplayedKeyReturnsTheOriginalResult() {
         UUID learnerId = UUID.randomUUID();
@@ -434,21 +443,25 @@ class ApplyPostgresRecoveryTest {
                 artifacts.findAttempt(started.interaction().attemptId()).orElseThrow().status());
 
         UUID submitKey = UUID.randomUUID();
-        LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
+        LearningFlowResult.Boundary diagnosticTransition = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 started.interaction().flowId(), 1, submitKey, started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
-        assertEquals(2, transitioned.interaction().interactionVersion());
-        assertEquals(2, artifacts.allPackages().size());
+        assertEquals(2, diagnosticTransition.interaction().interactionVersion());
+        assertEquals(1, artifacts.allPackages().size());
 
         LearningFlowResult.Boundary replayed = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 started.interaction().flowId(), 1, submitKey, started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
-        assertEquals(transitioned.interaction(), replayed.interaction(),
+        assertEquals(diagnosticTransition.interaction(), replayed.interaction(),
                 "a replayed key must return the original result");
+
+        LearningFlowResult.Boundary transitioned = continueAfterDiagnostic(diagnosticTransition);
+        assertEquals(3, transitioned.interaction().interactionVersion());
+        assertEquals(2, artifacts.allPackages().size());
 
         UUID independentKey = UUID.randomUUID();
         LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) useCase.submitAnswer(
-                started.interaction().flowId(), 2, independentKey, transitioned.interaction().attemptId(),
+                started.interaction().flowId(), 3, independentKey, transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         assertEquals(FlowStatus.TERMINAL, completed.interaction().status());
@@ -465,7 +478,7 @@ class ApplyPostgresRecoveryTest {
                 "query must recover the exact terminal interaction after commit");
 
         LearningFlowResult.Boundary replayedIndependent = (LearningFlowResult.Boundary) useCase.submitAnswer(
-                started.interaction().flowId(), 2, independentKey, transitioned.interaction().attemptId(),
+                started.interaction().flowId(), 3, independentKey, transitioned.interaction().attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
         assertEquals(completed.interaction(), replayedIndependent.interaction());

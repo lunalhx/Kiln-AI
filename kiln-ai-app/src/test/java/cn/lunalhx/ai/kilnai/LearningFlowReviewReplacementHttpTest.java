@@ -209,8 +209,11 @@ class LearningFlowReviewReplacementHttpTest {
     private UUID completeIndependentPass(UUID learnerId) {
         LearningFlowResponse started = start(learnerId, UUID.randomUUID());
         UUID flowId = started.flowId();
-        LearningFlowResponse transitioned = submit(flowId, UUID.randomUUID(), started.interactionVersion(),
+        LearningFlowResponse diagnosticTransition = submit(flowId, UUID.randomUUID(), started.interactionVersion(),
                 started.attemptId(), "12x²−6x+7", "12*x^2-6*x+7", null);
+        LearningFlowResponse transitioned = command(flowId, UUID.randomUUID(), Map.of(
+                "command", "continue_requested",
+                "interactionVersion", diagnosticTransition.interactionVersion()));
         submit(flowId, UUID.randomUUID(), transitioned.interactionVersion(), transitioned.attemptId(),
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED,
                 ScriptedApplyPortsConfiguration.INDEPENDENT_EXPECTED, null);
@@ -268,6 +271,18 @@ class LearningFlowReviewReplacementHttpTest {
         if (rationale != null) {
             body.put("rationale", rationale);
         }
+        ResponseEntity<LearningFlowResponse> response = http.exchange(
+                "/api/learning/flows/" + flowId + "/commands",
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                LearningFlowResponse.class);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        return response.getBody();
+    }
+
+    private LearningFlowResponse command(UUID flowId, UUID idempotencyKey, Map<String, Object> body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Idempotency-Key", idempotencyKey.toString());
         ResponseEntity<LearningFlowResponse> response = http.exchange(
                 "/api/learning/flows/" + flowId + "/commands",
                 HttpMethod.POST,

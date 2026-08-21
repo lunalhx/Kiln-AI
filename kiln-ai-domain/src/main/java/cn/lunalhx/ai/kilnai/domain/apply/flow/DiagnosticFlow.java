@@ -16,27 +16,24 @@ import cn.lunalhx.ai.kilnai.domain.apply.profile.ApplyProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticFinding;
 import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticPlan;
-import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticRoutingDecision;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.FeedbackFacts;
 
 import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
  * The Diagnostic submission flow: one formal submission atomically closes the
- * Diagnostic Attempt and records a Flow-scoped Finding. The Diagnostic Routing
- * Decision — not the last Attempt alone — then authorizes a Neutral Transition
- * to a fresh Independent task, Target Learning with a learner-safe Summary, or
- * a neutral Target Learning entry. It never creates Evidence.
+ * Diagnostic Attempt and records a Flow-scoped Finding. The StateGraph applies
+ * the Diagnostic Routing Decision to choose the next committed interaction.
+ * This flow never creates Evidence.
  */
 public final class DiagnosticFlow {
 
     public static final String NEUTRAL_TRANSITION_MESSAGE = "接下来是一道新的独立练习题，请独立完成。";
-    public static final String SAFE_END_MESSAGE = "本次诊断已结束，请继续下一步学习。";
+    public static final String DIAGNOSTIC_CONTINUATION_MESSAGE = "诊断进度已保存，请继续。";
 
     private final ApplyProfileExecutor executor;
     private final LearningFlowStore flowStore;
@@ -79,10 +76,12 @@ public final class DiagnosticFlow {
                 independentContextTemplate, "independentContextTemplate must not be null");
     }
 
-    public ApplyDeliveryResult startDiagnostic(UUID flowId, ModelProfile profile) {
+    public ApplyDeliveryResult startDiagnostic(UUID flowId, ModelProfile profile, DiagnosticPlan plan) {
         Objects.requireNonNull(flowId, "flowId must not be null");
         Objects.requireNonNull(profile, "profile must not be null");
-        ApplyDeliveryResult result = executor.deliver(profile, diagnosticContext);
+        Objects.requireNonNull(plan, "plan must not be null");
+        ApplyDeliveryResult result = executor.deliver(
+                profile, diagnosticContextFor(plan, flowStore.noveltyExclusions(flowId)));
         if (result instanceof ApplyDeliveryResult.Delivered delivered) {
             recordExposure(flowId, delivered.attempt().taskPackageId());
         }
@@ -97,19 +96,52 @@ public final class DiagnosticFlow {
      * the Start itself; an unavailable outcome leaves nothing behind and the
      * command reports the generic 503.
      */
-    public ApplyProfileExecutor.PreparedDelivery prepareDiagnostic(ModelProfile profile) {
+    public ApplyProfileExecutor.PreparedDelivery prepareDiagnostic(
+            ModelProfile profile,
+            DiagnosticPlan plan
+    ) {
         Objects.requireNonNull(profile, "profile must not be null");
-        return executor.prepareTask(profile, diagnosticContext, false);
+        Objects.requireNonNull(plan, "plan must not be null");
+        return executor.prepareTask(
+                profile, diagnosticContextFor(plan, diagnosticContext.noveltyExclusions()), false);
     }
 
     /**
-     * One formal Diagnostic submission: atomically closes the Attempt and
-     * saves the submission, then runs isolated Assessment. A recovered closed
-     * Attempt resumes from the database-saved submission; the request body
-     * cannot replace it. A successor Independent already exposed is a
-     * duplicate and is ignored.
+     * Prepares a fresh Diagnostic task against the Flow's committed novelty
+     * ledger. Nothing is persisted until the Graph binds the returned package
+     * with the continuation command.
      */
-    public DiagnosticSubmissionResult submitDiagnostic(
+    public ApplyProfileExecutor.PreparedDelivery prepareDiagnostic(UUID flowId, ModelProfile profile) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(profile, "profile must not be null");
+        DiagnosticPlan plan = flowStore.diagnosticPlan(flowId).orElseThrow(
+                () -> new IllegalStateException("Diagnostic requires a frozen Plan"));
+        return executor.prepareTask(
+                profile,
+                diagnosticContextFor(plan, flowStore.noveltyExclusions(flowId)),
+                false);
+    }
+
+    /**
+     * Prepares the fresh equivalent Independent successor without opening an
+     * Attempt. The Graph binds it only after the neutral Diagnostic transition
+     * has been committed.
+     */
+    public ApplyProfileExecutor.PreparedDelivery prepareIndependent(UUID flowId, ModelProfile profile) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        Objects.requireNonNull(profile, "profile must not be null");
+        return executor.prepareTask(
+                profile,
+                independentContextTemplate.withNoveltyExclusions(flowStore.noveltyExclusions(flowId)),
+                false);
+    }
+
+    /**
+     * Closes and assesses one Diagnostic Attempt without selecting or
+     * generating a successor. The Learning StateGraph owns the route and
+     * commits the neutral boundary before any successor preparation.
+     */
+    public DiagnosticSubmissionResult submitDiagnosticAttempt(
             UUID flowId,
             ModelProfile profile,
             UUID attemptId,
@@ -127,42 +159,42 @@ public final class DiagnosticFlow {
                     new DiagnosticSubmissionResult.Ignored(ignored.reason());
             case SubmissionCloser.CloseResult.NotSubmittable notSubmittable ->
                     new DiagnosticSubmissionResult.NotSubmittable(notSubmittable.reason());
-            case SubmissionCloser.CloseResult.Closed closedAttempt -> assess(flowId, profile, closedAttempt.attempt());
+            case SubmissionCloser.CloseResult.Closed closedAttempt ->
+                    assessAttempt(flowId, profile, closedAttempt.attempt());
             case SubmissionCloser.CloseResult.Recovered recovered ->
-                    recoverOrIgnore(flowId, profile, recovered.attempt());
+                    recoverDiagnosticAttempt(flowId, profile, recovered.attempt());
         };
     }
 
-    /**
-     * An already-closed Diagnostic Attempt carries its saved submission. When
-     * a successor Independent task was already exposed, the command is a
-     * duplicate whose outcome exists and nothing is re-run; otherwise the
-     * process crashed between closing and committing, and Assessment resumes
-     * from the database-saved submission. The exposed Independent package is
-     * the exactly-once guard: Diagnostic creates no Evidence.
-     */
-    private DiagnosticSubmissionResult recoverOrIgnore(
+    private DiagnosticSubmissionResult recoverDiagnosticAttempt(
             UUID flowId,
             ModelProfile profile,
             TaskAttempt closedAttempt
     ) {
-        boolean successorAlreadyExposed = flowStore.exposedTaskPackageIds(flowId).stream()
-                .map(artifactStore::findPackage)
-                .flatMap(Optional::stream)
-                .anyMatch(taskPackage -> taskPackage.attemptPurpose() != AttemptPurpose.DIAGNOSTIC);
-        if (successorAlreadyExposed) {
+        if (flowStore.diagnosticFindings(flowId).stream()
+                .anyMatch(finding -> finding.attemptId().equals(closedAttempt.attemptId()))) {
             return new DiagnosticSubmissionResult.Ignored(SubmissionIgnoreReason.ALREADY_SUBMITTED);
         }
-        return assess(flowId, profile, closedAttempt);
+        return assessAttempt(flowId, profile, closedAttempt);
     }
 
-    private DiagnosticSubmissionResult assess(UUID flowId, ModelProfile profile, TaskAttempt closedAttempt) {
+    private DiagnosticSubmissionResult assessAttempt(
+            UUID flowId,
+            ModelProfile profile,
+            TaskAttempt closedAttempt
+    ) {
+        DiagnosticPlan plan = flowStore.diagnosticPlan(flowId).orElseThrow(
+                () -> new IllegalStateException("Diagnostic requires a frozen Plan"));
         AssessmentOutcome outcome = assessmentRunner.runDiagnostic(
-                profile, closedAttempt, packageOf(closedAttempt), diagnosticContext,
+                profile,
+                closedAttempt,
+                packageOf(closedAttempt),
+                diagnosticContextFor(plan, diagnosticContext.noveltyExclusions()),
                 rationaleAssessmentExecutor, rationaleSufficiencyExecutor);
         DiagnosticSubmissionResult assessed = switch (outcome) {
             case AssessmentOutcome.Passed passed ->
-                    new DiagnosticSubmissionResult.PassedAttempt(closedAttempt, passingFacts(), null);
+                    new DiagnosticSubmissionResult.PassedAttempt(
+                            closedAttempt, passingFacts(packageOf(closedAttempt)), null);
             case AssessmentOutcome.Inconclusive inconclusive ->
                     new DiagnosticSubmissionResult.Unconfirmed(closedAttempt, neutralFacts(), null);
             case AssessmentOutcome.Unconfirmed unconfirmed ->
@@ -184,24 +216,17 @@ public final class DiagnosticFlow {
             case DiagnosticSubmissionResult.Unconfirmed unconfirmed -> unconfirmed.facts();
             default -> throw new IllegalStateException("unexpected assessed result: " + assessed);
         };
-        DiagnosticPlan plan = flowStore.diagnosticPlan(flowId).orElseThrow(
-                () -> new IllegalStateException("Diagnostic requires a frozen Plan"));
-        List<String> covered = kind == DiagnosticFinding.Kind.PASSING_OBSERVATION
-                ? facts.satisfiedCriteria()
-                : plan.targetReadinessCriterionIds();
+        List<String> targetCriteria = plan.targetReadinessCriterionIds();
+        List<String> covered = facts.satisfiedCriteria().stream()
+                .filter(targetCriteria::contains)
+                .toList();
+        List<String> missing = facts.missingCriteria().stream()
+                .filter(targetCriteria::contains)
+                .toList();
         DiagnosticFinding finding = new DiagnosticFinding(
                 UUID.randomUUID(), flowId, closedAttempt.attemptId(), kind, covered,
-                facts.missingCriteria(), facts.errorDimensions(), clock.instant());
-        List<DiagnosticFinding> accumulated = new java.util.ArrayList<>(flowStore.diagnosticFindings(flowId));
-        accumulated.add(finding);
-        DiagnosticSubmissionResult routed = switch (DiagnosticRoutingDecision.decide(plan, accumulated)) {
-            case FRESH_INDEPENDENT_TEST -> deliverIndependent(flowId, profile, closedAttempt);
-            case TARGET_LEARNING_WITH_SUMMARY, TARGET_LEARNING_NEUTRAL -> assessed;
-        };
-        if (routed instanceof DiagnosticSubmissionResult.IndependentUnavailable) {
-            return routed;
-        }
-        return withFinding(routed, finding);
+                missing, facts.errorDimensions(), clock.instant());
+        return withFinding(assessed, finding);
     }
 
     private static DiagnosticSubmissionResult withFinding(
@@ -209,9 +234,6 @@ public final class DiagnosticFlow {
             DiagnosticFinding finding
     ) {
         return switch (result) {
-            case DiagnosticSubmissionResult.Passed passed -> new DiagnosticSubmissionResult.Passed(
-                    passed.closedDiagnosticAttempt(), passed.neutralTransitionMessage(),
-                    passed.independentAttempt(), passed.independentLearnerProjection(), finding);
             case DiagnosticSubmissionResult.PassedAttempt passed ->
                     new DiagnosticSubmissionResult.PassedAttempt(passed.closedDiagnosticAttempt(), passed.facts(), finding);
             case DiagnosticSubmissionResult.Failed failed ->
@@ -223,33 +245,14 @@ public final class DiagnosticFlow {
         };
     }
 
-    public DiagnosticSubmissionResult deliverIndependent(
-            UUID flowId,
-            ModelProfile profile,
-            TaskAttempt closedDiagnosticAttempt
-    ) {
-        ApplyExecutionContext independentContext = independentContextTemplate.withNoveltyExclusions(
-                flowStore.noveltyExclusions(flowId));
-        ApplyDeliveryResult result = executor.deliver(profile, independentContext);
-        if (result instanceof ApplyDeliveryResult.Delivered delivered) {
-            recordExposure(flowId, delivered.attempt().taskPackageId());
-            return new DiagnosticSubmissionResult.Passed(
-                    closedDiagnosticAttempt, NEUTRAL_TRANSITION_MESSAGE,
-                    delivered.attempt(), delivered.learnerProjection(), null);
-        }
-        ApplyDeliveryResult.Unavailable unavailable = (ApplyDeliveryResult.Unavailable) result;
-        return new DiagnosticSubmissionResult.IndependentUnavailable(
-                unavailable.reason(), unavailable.learnerMessage());
-    }
-
-    private FeedbackFacts passingFacts() {
-        return new FeedbackFacts(criterionIds(), List.of(), List.of(), 0, List.of(), false);
+    private FeedbackFacts passingFacts(TaskPackage taskPackage) {
+        return new FeedbackFacts(criterionIds(taskPackage), List.of(), List.of(), 0, List.of(), false);
     }
 
     private FeedbackFacts failureFacts(TaskAttempt closedAttempt, AssessmentOutcome outcome) {
         return new FeedbackFacts(
                 List.of(),
-                criterionIds(),
+                criterionIds(packageOf(closedAttempt)),
                 AssessmentRunner.errorDimensions(outcome),
                 closedAttempt.highestHintLevel(),
                 closedAttempt.assistanceTraceStrings(),
@@ -260,10 +263,36 @@ public final class DiagnosticFlow {
         return new FeedbackFacts(List.of(), List.of(), List.of(), 0, List.of(), false);
     }
 
-    private List<String> criterionIds() {
-        return diagnosticContext.masteryRubric().criteria().stream()
-                .map(criterion -> criterion.id())
+    private List<String> criterionIds(TaskPackage taskPackage) {
+        return taskPackage.privateAssessorProjection().rubricMapping().stream()
+                .map(mapping -> mapping.masteryCriterionId())
                 .toList();
+    }
+
+    private ApplyExecutionContext diagnosticContextFor(
+            DiagnosticPlan plan,
+            ApplyExecutionContext.NoveltyExclusions noveltyExclusions
+    ) {
+        List<ApplyExecutionContext.RubricCriterion> targetCriteria = plan.targetReadinessCriterionIds().stream()
+                .map(targetId -> diagnosticContext.masteryRubric().criteria().stream()
+                        .filter(criterion -> criterion.id().equals(targetId))
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Diagnostic Plan target criterion is absent from the Diagnostic Rubric: " + targetId)))
+                .toList();
+        ApplyExecutionContext.MasteryRubric targetRubric = new ApplyExecutionContext.MasteryRubric(
+                diagnosticContext.masteryRubric().id(),
+                diagnosticContext.masteryRubric().version(),
+                targetCriteria);
+        return new ApplyExecutionContext(
+                diagnosticContext.schema(),
+                diagnosticContext.conceptContract(),
+                targetRubric,
+                diagnosticContext.taskBlueprint(),
+                diagnosticContext.conceptSourcePack(),
+                noveltyExclusions,
+                diagnosticContext.answerRepresentationContract(),
+                diagnosticContext.learnerLocale());
     }
 
     private void recordExposure(UUID flowId, UUID taskPackageId) {
