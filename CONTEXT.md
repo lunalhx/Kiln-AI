@@ -29,7 +29,7 @@ The validated `task_package/v1` output generated for one learner task in a singl
 _Avoid_: Additional assessment call, chat message
 
 **Task Blueprint**:
-The frozen, versioned structured generation contract for a Task Package. For Apply it declares Attempt Purpose, Concept and Mastery Criterion references, approved source passages, one task shape and mathematical scope, notation and answer-representation contracts, Profile-owned response fields, an assessment-policy reference, and novelty policy. Diagnostic and Independent Test use distinct Blueprints rather than distinct Profiles or Skills. It constrains generation without being learner-visible.
+The frozen, versioned structured generation contract for a Task Package. For Apply it declares Attempt Purpose, Concept and Mastery Criterion references, approved source passages, one task shape and mathematical scope, notation and answer-representation contracts, Profile-owned response fields, an assessment-policy reference, and novelty policy. A Diagnostic Blueprint explicitly disables rationale or enables an always-optional corroborated rationale only when the Task Rubric can use it to distinguish conceptual readiness from an execution slip; simple prerequisite checks disable it by default. Diagnostic and Independent Test use distinct Blueprints rather than distinct Profiles or Skills. It constrains generation without being learner-visible.
 _Avoid_: Task Package, prompt prose, Task Rubric
 
 **Task Fingerprint**:
@@ -108,6 +108,18 @@ _Avoid_: Topic, chapter, concept set
 The pre-flow process that grounds a selected Topic or candidate Concept in knowledge-base sources, narrows it to an assessable Concept when necessary, drafts the Concept Contract, and prepares internal Mastery Rubric, Capability Tags, Supporting Concepts, subject metadata, and source metadata. It does not select the next Teaching Action.
 _Avoid_: Learning Flow, Teaching Node execution, user Skill configuration
 
+**Concept Preparation Agent**:
+The source-grounded authoring role that produces versioned Concept Preparation artifacts from Normalized Source Documents, including Concept boundaries, Mastery Rubrics, Supporting Concepts, and Diagnostic Plans. Accepted internal artifacts pass their type-specific Gates without routine human authoring; the Agent does not replace the Source Original as truth, select runtime pedagogy, or create Learning Evidence.
+_Avoid_: Book author, Teaching Node, autonomous curriculum authority
+
+**Diagnostic Plan**:
+The frozen, versioned preparation artifact that bounds a Diagnostic to a Target Readiness Set, prepared Supporting Concepts, source basis, prerequisite recommendation rules, dependency order, coverage requirements, and a worst-case Task Attempt count of at most eight across that Plan version's complete Diagnostic stage, including learner-controlled resume. It gives Required Supporting Concepts the smallest screening budget compatible with safe routing, permits aligned accepted Concept Progress to satisfy readiness without another probe, and stops at the first sufficient prerequisite recommendation rather than profiling lower-priority unknowns. Runtime Diagnostic selection may adapt within the Plan but cannot invent a Concept, expand a Rubric, reset or exceed the eight-Attempt ceiling on resume, or silently change its version.
+_Avoid_: Runtime curriculum rewrite, question list, Pedagogy Plan
+
+**Target Readiness Set**:
+The smallest Gate-validated subset and combination rules of a Target Concept's Mastery Rubric that Diagnostic must positively confirm before it may offer a fresh Independent Test. One Diagnostic task may cover several included criteria; the Set is not a second mastery rubric, and confirmed coverage may compress later teaching but never creates Learning Evidence or claims mastery of unprobed criteria.
+_Avoid_: Complete mastery exam, Independent Test rubric, fixed question list
+
 **Concept Source Pack**:
 The versioned, Concept-scoped grounding artifact prepared from a Knowledge Base. It contains core source excerpts and anchors, source-version identities, scope metadata, and retrieval filters used to supply traceable content to Teaching Nodes without copying the whole Knowledge Base into context.
 _Avoid_: Skill, model-only summary, full Knowledge Base export
@@ -161,8 +173,28 @@ The highest Mastery Milestone the learner has ever reached for a Concept. It nev
 _Avoid_: Current Milestone
 
 **Supporting Concept**:
-A prerequisite or related Concept supplied as context while learning a Target Concept. It receives no state change or Learning Evidence unless it becomes the Target Concept of a separate Learning Flow.
+A prerequisite or related Concept prepared as context for a Target Concept. It may receive Flow-scoped Diagnostic Findings, but it receives no Concept Progress change or Learning Evidence unless it becomes the Target Concept of a separate Learning Flow.
 _Avoid_: Secondary target
+
+**Required Supporting Concept**:
+A Supporting Concept that a Gate-accepted Diagnostic Plan judges materially necessary for successfully learning or demonstrating the Target Concept. Its readiness is required for the recommended route and for direct post-Diagnostic Independent eligibility, but the learner may explicitly override the recommendation and enter Target Learning and Practice. The dependency may be discovered even when the learner-supplied Target source does not teach it; its check and any later Learning Flow require their own approved Concept Source Pack, while missing authority is a Source Gap rather than permission to fill curriculum from model memory.
+_Avoid_: Related topic, runtime guess, non-overridable system gate
+
+**Prerequisite Readiness**:
+The positively established preparedness of one Required Supporting Concept for the recommended Target route and direct post-Diagnostic Independent eligibility. Accepted Concept Progress at Independent or Durable satisfies it without a new probe only when the Supporting Concept identity and relevant Mastery Rubric, criterion, and source-basis versions match the current Diagnostic Plan. Any relevant version change, lower milestone, or externally learned prerequisite receives the same brief check rather than a full Independent Test inside the Target Flow. Absence of a conclusive gap is insufficient, Unconfirmed remains neutral, technical Unavailable makes no readiness claim, and lack of readiness does not prevent an explicit Direct Learning Choice.
+_Avoid_: Assumed prerequisite, no recorded failure, Diagnostic Evidence
+
+**Prerequisite Readiness Check**:
+The minimal, Plan-bounded screening sequence for a Required Supporting Concept when aligned accepted Concept Progress does not already establish readiness. A learner self-report of not knowing or being unsure may end screening with a neutral Prerequisite Learning Recommendation; a claim of knowing only routes to one small representative no-assistance probe and cannot establish readiness by itself. The check is not a mastery assessment and creates no Learning Evidence.
+_Avoid_: Full prerequisite exam, self-report as proof, Independent Test
+
+**Prerequisite Learning Recommendation**:
+The learner-visible result when a Required Supporting Concept is conclusively missing, remains terminally Unconfirmed, or the learner reports not knowing or being unsure of it. It explains why Target learning is likely to be difficult and recommends that the learner explicitly start a separate Learning Flow for the Supporting Concept, while also offering a Direct Learning Choice. Neutral uncertainty does not become a learner-failure claim, and the recommendation neither teaches that Concept inside the current Flow nor automatically creates or starts another Flow.
+_Avoid_: Automatic prerequisite remediation, forced redirect, learner failure
+
+**Direct Learning Choice**:
+The learner's explicit choice to end or skip Diagnostic and enter Target Learning and Practice despite unknown, unconfirmed, or conclusively missing readiness. It preserves committed Diagnostic Findings, abandons any open unsubmitted Diagnostic Attempt without a Finding, creates no Learning Evidence or Prerequisite Readiness, and never authorizes the direct Fresh Independent Test path. Later Practice may still establish normal Independent-test eligibility under the Learning and Practice rules.
+_Avoid_: Diagnostic pass, implicit override, prerequisite mastery
 
 **Learning Flow**:
 A progression through Diagnostic, necessary learning and practice, Independent Test, and later Delayed Review for one Target Concept. The stages constrain the flow, but they do not require every Teaching Action.
@@ -317,19 +349,27 @@ A major phase of a Learning Flow: Diagnostic, Learning and Practice, Independent
 _Avoid_: Teaching Action, fixed prompt step
 
 **Diagnostic**:
-The initial, brief, no-hint attempt used to discover whether a learner already satisfies or partially satisfies a new Target Concept's Mastery Criterion. It uses a Retrieve or Apply action with diagnostic purpose and may be skipped in favor of direct instruction. A passing Diagnostic never by itself establishes Independent; it routes the learner to a fresh Independent Test.
+The initial, bounded, no-assistance assessment stage used to obtain the minimum information sufficient to route a learner safely for a new Target Concept, including its Required Supporting Concepts and selected relevant Supporting Concepts. It may contain multiple fresh Diagnostic Task Attempts and may be skipped in favor of direct instruction. Before it begins, the learner is told its Plan-specific maximum; while it runs, the learner sees completed Attempts against that maximum and may finish early. Unprobed or unresolved areas remain unknown, while demonstrated Target Concept readiness still requires a fresh Independent Test before establishing Independent.
 _Avoid_: Diagnose Agent, Diagnose Skill, mandatory exam
 
-**Diagnostic Not Passed**:
-The routing result when a Diagnostic lacks sufficient confirmed performance to proceed to a fresh Independent Test, whether because the response conclusively fails or its semantic assessment remains inconclusive. It creates no Learning Evidence and routes to Learning and Practice without treating evaluator uncertainty as learner failure.
-_Avoid_: Diagnostic Failed, learner failure, automatic Independent Test
+**Diagnostic Finding**:
+A validated, Flow-scoped, non-evidentiary observation about a Target Concept or prepared Supporting Concept derived from completed Diagnostic Task Attempts. It may inform subsequent pedagogy or identify a prerequisite recommendation, but it is not Learning Evidence, a mastery claim, cross-Flow Learner Memory, or by itself a learner-visible feedback artifact.
+_Avoid_: Diagnostic Evidence, Concept Progress, learner trait
+
+**Diagnostic Summary**:
+The learner-safe projection of accumulated Target Diagnostic Findings shown only after the Diagnostic route has entered Target Learning and Practice. It may name confirmed strengths, criteria that teaching will emphasize, and still-unknown areas, but never exposes task answers, solutions, private expected-answer facts, raw assessment output, evaluator reasoning, or a mastery claim. It is not shown before another Diagnostic task or a Fresh Independent Test.
+_Avoid_: Per-question grading, answer review, Diagnostic Evidence
+
+**Diagnostic Routing Decision**:
+The non-evidentiary terminal result of one Diagnostic stage, derived from the frozen Diagnostic Plan, aligned prior Concept Progress, learner prerequisite self-reports, accumulated Diagnostic Findings, any Direct Learning Choice, and the satisfied termination rule. It may authorize a fresh Target Independent Test only after all Required Supporting Concepts and the Target Readiness Set are positively confirmed, route to Target Learning and Practice, or pause at the first sufficient Prerequisite Learning Recommendation for the learner's choice; it is never inferred from only the last Diagnostic Attempt, and unprobed dimensions remain unknown.
+_Avoid_: Last-answer result, Diagnostic Evidence, model-selected transition
 
 **Conclusive Diagnostic Gap**:
-A Diagnostic Not Passed result supported by a conclusively incorrect primary answer together with a missing rationale or a Rationale Assessment that is definitively Not Applicable. It may carry sanitized missing Rubric criteria and error dimensions into the next pedagogical decision but creates no Learning Evidence.
+A Diagnostic Finding supported by a conclusively incorrect primary answer together with a missing rationale or a Rationale Assessment that is definitively Not Applicable. It may carry sanitized missing Rubric criteria and error dimensions into a later Diagnostic Routing Decision but creates no Learning Evidence.
 _Avoid_: Diagnostic Evidence, evaluator disagreement, raw assessment feedback
 
 **Unconfirmed Diagnostic Performance**:
-A Diagnostic Not Passed result caused by an unresolved primary answer, semantic evaluation uncertainty, or failure to corroborate an initially Applicable Rationale. It routes to Learning and Practice with neutral Feedback Facts and makes no claim that the learner lacks a particular capability.
+A neutral Diagnostic Finding caused by an unresolved primary answer, semantic evaluation uncertainty, or failure to corroborate an initially Applicable Rationale. It requests a fresh Plan-authorized probe while diagnostic budget remains. At the termination limit it may support only a neutral route: Target uncertainty enters Target Learning and Practice, while Required Supporting Concept uncertainty prevents direct post-Diagnostic Independent eligibility and produces a neutral Prerequisite Learning Recommendation that the learner may override; neither branch claims the learner lacks a particular capability.
 _Avoid_: Conclusive Diagnostic Gap, learner failure, technical unavailability
 
 **Applicable Rationale**:
@@ -373,7 +413,7 @@ The durable result of one versioned evaluation responsibility for one submitted 
 _Avoid_: Append-only audit duplicate, Evidence Candidate, exactly-once Provider call
 
 **Neutral Transition**:
-The learner-visible transition from a passing Diagnostic to a fresh Independent Test that states only the next interaction and gives no correctness, solution, rule, or targeted feedback. It prevents diagnostic feedback from becoming assistance before independent evidence is collected.
+The learner-visible transition after a submitted Diagnostic Attempt when another Diagnostic task or a fresh Independent Test follows. It states only the next interaction and may update completed-versus-maximum progress, but gives no correctness, solution, rule, prerequisite finding, or targeted feedback. It prevents Diagnostic feedback from changing later no-assistance performance.
 _Avoid_: Assessment feedback, implicit hint, score reveal
 
 **Teaching Action**:

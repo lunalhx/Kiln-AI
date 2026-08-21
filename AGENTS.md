@@ -54,3 +54,17 @@
 
 - Learner-visible responses are projections of committed durable state; never fabricate an interaction or message.
   （学习者可见的响应是已提交持久状态的投影；绝不伪造交互或消息。）
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues for `lunalhx/Kiln-AI`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default engineering-skill triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository using root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
