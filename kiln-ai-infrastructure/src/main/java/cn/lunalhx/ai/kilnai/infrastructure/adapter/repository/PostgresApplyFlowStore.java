@@ -35,6 +35,8 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticPlan;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticProgress;
 import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
@@ -91,6 +93,19 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
     }
 
     @Override
+    public Optional<DiagnosticPlan> diagnosticPlan(UUID flowId) {
+        return mapper.findDiagnosticPlan(flowId)
+                .map(row -> readJson(row.planJson(), DiagnosticPlan.class));
+    }
+
+    @Override
+    public Optional<DiagnosticProgress> diagnosticProgress(UUID flowId) {
+        return mapper.findDiagnosticPlan(flowId)
+                .map(row -> new DiagnosticProgress(row.completedAttempts(),
+                        readJson(row.planJson(), DiagnosticPlan.class).maximumAttempts()));
+    }
+
+    @Override
     public Optional<UUID> activeWorkFlowId(UUID learnerId, UUID conceptId) {
         Objects.requireNonNull(learnerId, "learnerId must not be null");
         Objects.requireNonNull(conceptId, "conceptId must not be null");
@@ -113,6 +128,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
                 bind.flowId(), bind.learnerId(), bind.conceptId(),
                 FlowStatus.AWAITING_LEARNER_INPUT.name(), LearningStage.DIAGNOSTIC.name(),
                 writeJson(bind.modelProfile()), committedAt);
+        mapper.insertDiagnosticPlan(bind.flowId(), writeJson(bind.diagnosticPlan()), 0, committedAt);
         mapper.insertSource(bind.source().sourcePackId(), bind.source().version(),
                 writeJson(bind.source().passages()), committedAt);
         TaskAttempt attempt = openAttempt(bind.taskPackage());
@@ -149,6 +165,7 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
             }
             return readJson(existingCommand.get().responseJson(), LearningFlowInteraction.class);
         }
+        Optional<ApplyFlowMapper.InteractionRow> previous = mapper.latestInteraction(interaction.flowId());
         int interactionInserted = mapper.insertInteraction(new ApplyFlowMapper.InteractionRow(
                 UUID.randomUUID(),
                 interaction.flowId(),
@@ -179,12 +196,26 @@ public class PostgresApplyFlowStore implements LearningFlowStore, ArtifactStore,
         }
         mapper.updateFlowState(interaction.flowId(), interaction.status().name(), interaction.stage().name());
         mapper.releaseActiveWorkIfUnused(interaction.flowId());
+        if (isCompletedDiagnosticAttempt(previous)) {
+            mapper.incrementDiagnosticAttempts(interaction.flowId());
+        }
         if (pending == null) {
             mapper.deletePendingOperation(interaction.flowId());
         } else {
             mapper.upsertPendingOperation(interaction.flowId(), writeJson(pending), checkpoint.createdAt());
         }
         return interaction;
+    }
+
+    private boolean isCompletedDiagnosticAttempt(Optional<ApplyFlowMapper.InteractionRow> previous) {
+        return previous.filter(row -> "TASK".equals(row.kind())
+                        && "DIAGNOSTIC".equals(row.stage())
+                        && "DIAGNOSTIC".equals(row.attemptPurpose())
+                        && row.attemptId() != null
+                        && mapper.findAttempt(row.attemptId())
+                        .map(attempt -> "SUBMITTED".equals(attempt.status()))
+                        .orElse(false))
+                .isPresent();
     }
 
     @Override

@@ -10,6 +10,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowResult;
 import cn.lunalhx.ai.kilnai.domain.apply.model.SourceArtifact;
 import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.AcceptedDiagnosticPlanPort;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticPlan;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
@@ -34,17 +36,21 @@ public final class LearningFlowCommandUseCase {
     private final LearningFlowStore flowStore;
     private final LearningStateGraph graph;
     private final ApplyExecutionContext diagnosticContext;
+    private final AcceptedDiagnosticPlanPort acceptedDiagnosticPlanPort;
     private final OperatorModelProfilePort modelProfilePort;
 
     public LearningFlowCommandUseCase(
             LearningFlowStore flowStore,
             LearningStateGraph graph,
             ApplyExecutionContext diagnosticContext,
+            AcceptedDiagnosticPlanPort acceptedDiagnosticPlanPort,
             OperatorModelProfilePort modelProfilePort
     ) {
         this.flowStore = Objects.requireNonNull(flowStore, "flowStore must not be null");
         this.graph = Objects.requireNonNull(graph, "graph must not be null");
         this.diagnosticContext = Objects.requireNonNull(diagnosticContext, "diagnosticContext must not be null");
+        this.acceptedDiagnosticPlanPort = Objects.requireNonNull(
+                acceptedDiagnosticPlanPort, "acceptedDiagnosticPlanPort must not be null");
         this.modelProfilePort = Objects.requireNonNull(modelProfilePort, "modelProfilePort must not be null");
     }
 
@@ -60,6 +66,9 @@ public final class LearningFlowCommandUseCase {
                     if (activeWork.isPresent()) {
                         throw new ActiveWorkConflictException(activeWork.get());
                     }
+                    DiagnosticPlan diagnosticPlan = acceptedDiagnosticPlanPort.acceptedFor(conceptId)
+                            .orElseThrow(() -> new ApplicationException(
+                                    ErrorCode.SERVICE_UNAVAILABLE, LearningStateGraph.START_UNAVAILABLE_MESSAGE));
                     ModelProfile profile = resolveProfile();
                     UUID flowId = UUID.randomUUID();
                     // Starting a Learning Flow freezes the operator's current
@@ -71,7 +80,7 @@ public final class LearningFlowCommandUseCase {
                     // atomically only after the Diagnostic was fully prepared
                     // (ADR-0063); a failed preparation persists nothing and
                     // the client reuses the original Idempotency-Key.
-                    return graph.start(flowId, learnerId, conceptId, profile,
+                    return graph.start(flowId, learnerId, conceptId, profile, diagnosticPlan,
                             sourceArtifact(), idempotencyKey, hash);
                 });
     }

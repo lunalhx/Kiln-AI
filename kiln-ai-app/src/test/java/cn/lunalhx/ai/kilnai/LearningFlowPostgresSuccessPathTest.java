@@ -1,6 +1,7 @@
 package cn.lunalhx.ai.kilnai;
 
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticPlanFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
@@ -37,6 +38,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.ClarificationClassifierPort;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningFlowCommandUseCase;
 import cn.lunalhx.ai.kilnai.domain.learning.graph.LearningStateGraph;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticProgress;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
@@ -200,7 +202,7 @@ class LearningFlowPostgresSuccessPathTest {
                 WHERE table_schema = 'public'
                 """, String.class);
         for (String required : List.of("flows", "interactions", "checkpoints", "commands",
-                "attempts", "evidence", "evaluation_results", "review_tasks")) {
+                "attempts", "evidence", "evaluation_results", "review_tasks", "diagnostic_plans")) {
             assertTrue(tables.contains(required),
                     "the baseline must persist the " + required + " table");
         }
@@ -249,10 +251,13 @@ class LearningFlowPostgresSuccessPathTest {
         UUID learnerId = UUID.randomUUID();
         LearningFlowResult.Boundary started = (LearningFlowResult.Boundary) useCase.start(learnerId, UUID.randomUUID());
         UUID flowId = started.interaction().flowId();
+        assertEquals(DiagnosticPlanFixture.acceptedPlan(), flowStore.diagnosticPlan(flowId).orElseThrow());
+        assertEquals(new DiagnosticProgress(0, 3), flowStore.diagnosticProgress(flowId).orElseThrow());
         UUID diagnosticKey = UUID.randomUUID();
         LearningFlowResult.Boundary transitioned = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 1, diagnosticKey, started.interaction().attemptId(),
                 "12x²−6x+7", "12*x^2-6*x+7", null);
+        assertEquals(new DiagnosticProgress(1, 3), flowStore.diagnosticProgress(flowId).orElseThrow());
         UUID independentKey = UUID.randomUUID();
         LearningFlowResult.Boundary completed = (LearningFlowResult.Boundary) useCase.submitAnswer(
                 flowId, 2, independentKey, transitioned.interaction().attemptId(),
@@ -465,6 +470,7 @@ class LearningFlowPostgresSuccessPathTest {
                 reviewFlow, explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
         LearningFlowCommandUseCase freshUseCase = new LearningFlowCommandUseCase(
                 store, graph, DiagnosticApplyFixture.diagnosticContext(),
+                DiagnosticPlanFixture.acceptedPlanPort(),
                 (OperatorModelProfilePort) () -> new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile(
                         new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding(
                                 "openai-compatible", "https://api.test/v1", "acme", "scripted-strong", "TEST_STRONG"),

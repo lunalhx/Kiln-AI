@@ -67,6 +67,9 @@ class LearningFlowHttpTest {
         assertEquals(1, started.interactionVersion());
         assertNotNull(started.attemptId());
         assertEquals("DIAGNOSTIC", started.attemptPurpose());
+        assertNotNull(started.diagnosticProgress());
+        assertEquals(0, started.diagnosticProgress().completedAttempts());
+        assertEquals(3, started.diagnosticProgress().maximumAttempts());
         assertNotNull(started.task());
         assertEquals("zh-CN", started.task().locale());
         assertEquals(ScriptedApplyPortsConfiguration.DIAGNOSTIC_TASK, started.task().taskText());
@@ -110,6 +113,8 @@ class LearningFlowHttpTest {
         assertEquals("AWAITING_LEARNER_INPUT", transitioned.status());
         assertEquals("INDEPENDENT_TEST", transitioned.stage());
         assertEquals(2, transitioned.interactionVersion());
+        assertEquals(1, transitioned.diagnosticProgress().completedAttempts());
+        assertEquals(3, transitioned.diagnosticProgress().maximumAttempts());
         assertNotNull(transitioned.task());
         assertEquals(ScriptedApplyPortsConfiguration.INDEPENDENT_TASK, transitioned.task().taskText());
         assertTrue(transitioned.learnerMessage().contains("独立练习"),

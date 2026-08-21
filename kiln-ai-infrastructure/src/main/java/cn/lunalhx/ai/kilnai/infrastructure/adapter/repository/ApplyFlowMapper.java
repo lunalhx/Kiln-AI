@@ -99,6 +99,32 @@ public interface ApplyFlowMapper {
     Optional<ApplyFlowRow> findFlow(UUID flowId);
 
     @Insert("""
+            INSERT INTO diagnostic_plans (flow_id, plan_json, completed_attempts, created_at)
+            VALUES (#{flowId}, CAST(#{planJson} AS JSONB), #{completedAttempts}, #{createdAt})
+            """)
+    void insertDiagnosticPlan(
+            @Param("flowId") UUID flowId,
+            @Param("planJson") String planJson,
+            @Param("completedAttempts") int completedAttempts,
+            @Param("createdAt") Instant createdAt
+    );
+
+    @Select("""
+            SELECT flow_id, plan_json::text AS plan_json, completed_attempts, created_at
+            FROM diagnostic_plans
+            WHERE flow_id = #{flowId}
+            """)
+    Optional<DiagnosticPlanRow> findDiagnosticPlan(UUID flowId);
+
+    @Update("""
+            UPDATE diagnostic_plans
+            SET completed_attempts = completed_attempts + 1
+            WHERE flow_id = #{flowId}
+              AND completed_attempts < CAST(plan_json->>'maximumAttempts' AS INTEGER)
+            """)
+    int incrementDiagnosticAttempts(UUID flowId);
+
+    @Insert("""
             INSERT INTO interactions (
                 id, flow_id, interaction_version, kind, status, stage, attempt_id, attempt_purpose,
                 learner_projection, learner_message, teaching_projection, hint, assistance_consent, created_at
@@ -783,6 +809,14 @@ public interface ApplyFlowMapper {
             String status,
             String stage,
             String modelProfileJson,
+            Instant createdAt
+    ) {
+    }
+
+    record DiagnosticPlanRow(
+            UUID flowId,
+            String planJson,
+            int completedAttempts,
             Instant createdAt
     ) {
     }

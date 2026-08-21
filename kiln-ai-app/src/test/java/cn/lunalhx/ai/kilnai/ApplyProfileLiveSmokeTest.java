@@ -4,6 +4,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.EvaluationBundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticPlanFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
@@ -154,7 +155,8 @@ class ApplyProfileLiveSmokeTest {
                 practiceFlow, reviewFlow, explainFlow, hintFlow, teachBackFlow,
                 failClosedPedagogy(), failClosedClassifier(), Clock.systemUTC());
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
-                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort);
+                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                DiagnosticPlanFixture.acceptedPlanPort(), profilePort);
 
         UUID learnerId = UUID.randomUUID();
         UUID startKey = UUID.randomUUID();

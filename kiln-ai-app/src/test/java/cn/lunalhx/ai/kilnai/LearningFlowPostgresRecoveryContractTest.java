@@ -39,6 +39,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.profile.RationaleEvaluationProfileExecu
 import cn.lunalhx.ai.kilnai.domain.apply.profile.ExplainProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.profile.TeachBackProfileExecutor;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticPlanFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
@@ -1106,6 +1107,7 @@ class LearningFlowPostgresRecoveryContractTest {
                 reviewSubmissionFlow, explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
         return new LearningFlowCommandUseCase(
                 flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                DiagnosticPlanFixture.acceptedPlanPort(),
                 (cn.lunalhx.ai.kilnai.domain.apply.port.OperatorModelProfilePort) () -> new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile(
                         new cn.lunalhx.ai.kilnai.domain.apply.model.ModelProfile.ModelBinding(
                                 "openai-compatible", "https://api.test/v1", "acme", "scripted-strong", "TEST_STRONG"),

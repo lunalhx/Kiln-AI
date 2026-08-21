@@ -28,7 +28,8 @@ public record LearningFlowResponse(
         HintView hint,
         String learnerMessage,
         List<String> allowedEvents,
-        ProgressView progress
+        ProgressView progress,
+        DiagnosticProgressView diagnosticProgress
 ) {
 
     public record TaskView(
@@ -87,6 +88,12 @@ public record LearningFlowResponse(
             String currentMilestone,
             String highestMilestoneReached,
             String stage
+    ) {
+    }
+
+    public record DiagnosticProgressView(
+            int completedAttempts,
+            int maximumAttempts
     ) {
     }
 }

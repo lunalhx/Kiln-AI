@@ -14,9 +14,12 @@ import cn.lunalhx.ai.kilnai.domain.apply.port.ReviewTaskStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
+import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.ReviewTaskStatus;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticPlan;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticProgress;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ActiveWorkConflictException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
@@ -51,6 +54,8 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     private final Map<UUID, ReviewTask> reviews = new LinkedHashMap<>();
     private final Map<UUID, CancellationRecord> reviewCancellations = new HashMap<>();
     private final Map<UUID, PendingOperation> pendingOperations = new HashMap<>();
+    private final Map<UUID, DiagnosticPlan> diagnosticPlans = new HashMap<>();
+    private final Map<UUID, Integer> diagnosticCompletedAttempts = new HashMap<>();
     private final ArtifactStore artifactStore;
     private final java.time.Clock clock;
 
@@ -83,6 +88,23 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
     @Override
     public synchronized Optional<FlowRecord> findFlow(UUID flowId) {
         return Optional.ofNullable(flows.get(flowId));
+    }
+
+    @Override
+    public synchronized Optional<DiagnosticPlan> diagnosticPlan(UUID flowId) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        return Optional.ofNullable(diagnosticPlans.get(flowId));
+    }
+
+    @Override
+    public synchronized Optional<DiagnosticProgress> diagnosticProgress(UUID flowId) {
+        Objects.requireNonNull(flowId, "flowId must not be null");
+        DiagnosticPlan plan = diagnosticPlans.get(flowId);
+        if (plan == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new DiagnosticProgress(
+                diagnosticCompletedAttempts.getOrDefault(flowId, 0), plan.maximumAttempts()));
     }
 
     @Override
@@ -121,6 +143,8 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
                 bind.flowId(), bind.learnerId(), bind.conceptId(),
                 FlowStatus.AWAITING_LEARNER_INPUT, LearningStage.DIAGNOSTIC,
                 bind.modelProfile(), clock.instant()));
+        diagnosticPlans.put(bind.flowId(), bind.diagnosticPlan());
+        diagnosticCompletedAttempts.put(bind.flowId(), 0);
         recordTaskExposure(bind.flowId(), bind.taskPackage());
         LearningFlowInteraction interaction = new LearningFlowInteraction(
                 InteractionKind.TASK, bind.flowId(), 1, FlowStatus.AWAITING_LEARNER_INPUT,
@@ -159,6 +183,7 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
                     .findFirst()
                     .orElseThrow();
         }
+        LearningFlowInteraction previous = history.isEmpty() ? null : history.get(history.size() - 1);
         history.add(interaction);
         checkpoints.computeIfAbsent(checkpoint.flowId(), key -> new ArrayList<>()).add(checkpoint);
         commands.putIfAbsent(command.idempotencyKey(), command);
@@ -177,7 +202,22 @@ public final class InMemoryLearningFlowStore implements LearningFlowStore, Revie
         } else {
             pendingOperations.put(interaction.flowId(), pending);
         }
+        if (isCompletedDiagnosticAttempt(previous)) {
+            diagnosticCompletedAttempts.computeIfPresent(
+                    interaction.flowId(), (flowId, completed) -> completed + 1);
+        }
         return interaction;
+    }
+
+    private boolean isCompletedDiagnosticAttempt(LearningFlowInteraction interaction) {
+        return interaction != null
+                && interaction.kind() == InteractionKind.TASK
+                && interaction.stage() == LearningStage.DIAGNOSTIC
+                && interaction.attemptPurpose() == AttemptPurpose.DIAGNOSTIC
+                && artifactStore != null
+                && artifactStore.findAttempt(interaction.attemptId())
+                .map(attempt -> attempt.status() == AttemptStatus.SUBMITTED)
+                .orElse(false);
     }
 
     @Override

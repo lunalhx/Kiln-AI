@@ -16,6 +16,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackAssessmentModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackTaskVerifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticPlanFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
@@ -565,7 +566,8 @@ class InconclusiveReviewReplacementContractTest {
                 reviewSubmissionFlow, explainFlow, hintFlow, teachBackFlow,
                 new ScriptedPedagogyModel(), new ScriptedClarificationClassifier(), clock);
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
-                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort());
+                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                DiagnosticPlanFixture.acceptedPlanPort(), profilePort());
         ReviewStartFlow reviewStart = new ReviewStartFlow(
                 executor, flowStore, flowStore, ReviewApplyFixture.reviewContext(), clock);
         return new Harness(artifacts, flowStore, clock, useCase, reviewStart, reviewSubmissionFlow, generation, graph);
@@ -635,7 +637,8 @@ class InconclusiveReviewReplacementContractTest {
 
         LearningFlowCommandUseCase newUseCase() {
             return new LearningFlowCommandUseCase(
-                    flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort());
+                    flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                    DiagnosticPlanFixture.acceptedPlanPort(), profilePort());
         }
     }
 }

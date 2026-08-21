@@ -17,6 +17,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackGenerationModel;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.ScriptedTeachBackTaskVerifier;
 import cn.lunalhx.ai.kilnai.domain.apply.fake.TeachBackScriptData;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticPlanFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
@@ -75,6 +76,8 @@ import cn.lunalhx.ai.kilnai.domain.apply.store.InMemoryLearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.AcceptedLearningEvidence;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ConceptProgress;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ReviewTask;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.AcceptedDiagnosticPlanPort;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticPlan;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
@@ -141,6 +144,10 @@ class LearningFlowGraphContractTest {
         LearningFlowStore.FlowRecord flow = harness.flowStore().findFlow(interaction.flowId()).orElseThrow();
         assertEquals(LEARNER_ID, flow.learnerId());
         assertEquals(CONCEPT_ID, flow.conceptId());
+        assertEquals(DiagnosticPlanFixture.acceptedPlan(),
+                harness.flowStore().diagnosticPlan(interaction.flowId()).orElseThrow());
+        assertEquals(new cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticProgress(0, 3),
+                harness.flowStore().diagnosticProgress(interaction.flowId()).orElseThrow());
         assertEquals(1, harness.artifacts().allPackages().size(), "the delivered package must be persisted");
         assertEquals(AttemptStatus.OPEN,
                 harness.artifacts().findAttempt(interaction.attemptId()).orElseThrow().status());
@@ -153,6 +160,35 @@ class LearningFlowGraphContractTest {
         assertEquals(1, checkpoint.interactionVersion(), "the first boundary must commit a checkpoint");
         assertEquals(interaction, harness.flowStore().findCommand(key).orElseThrow().response(),
                 "the start command must be persisted with its original result");
+    }
+
+    @Test
+    void aMissingAcceptedPlanLeavesStartWithoutAFlowOrArtifacts() {
+        Harness harness = harness();
+        LearningFlowCommandUseCase unavailableUseCase = harness.newUseCase(ignored -> Optional.empty());
+        UUID key = UUID.randomUUID();
+
+        ApplicationException unavailable = assertThrows(ApplicationException.class,
+                () -> unavailableUseCase.start(LEARNER_ID, key));
+
+        assertEquals(ErrorCode.SERVICE_UNAVAILABLE, unavailable.errorCode());
+        assertTrue(harness.artifacts().allPackages().isEmpty());
+        assertTrue(harness.flowStore().activeWorkFlowId(LEARNER_ID, CONCEPT_ID).isEmpty());
+        assertTrue(harness.flowStore().findCommand(key).isEmpty());
+    }
+
+    @Test
+    void aStartedFlowKeepsItsFrozenPlanWhenTheAcceptedVersionChanges() {
+        Harness harness = harness();
+        DiagnosticPlan[] currentPlan = {DiagnosticPlanFixture.acceptedPlan()};
+        LearningFlowCommandUseCase useCase = harness.newUseCase(ignored -> Optional.of(currentPlan[0]));
+
+        LearningFlowResult.Boundary started =
+                (LearningFlowResult.Boundary) useCase.start(LEARNER_ID, UUID.randomUUID());
+        currentPlan[0] = withVersion(DiagnosticPlanFixture.acceptedPlan(), "2.0.0");
+
+        assertEquals("1.0.0", harness.flowStore().diagnosticPlan(started.interaction().flowId())
+                .orElseThrow().version());
     }
 
     @Test
@@ -201,6 +237,8 @@ class LearningFlowGraphContractTest {
         assertEquals(ApplyScriptData.INDEPENDENT_TASK_TEXT, interaction.learnerProjection().taskText());
         assertEquals(AttemptStatus.SUBMITTED,
                 harness.artifacts().findAttempt(diagnosticAttemptId).orElseThrow().status());
+        assertEquals(new cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticProgress(1, 3),
+                harness.flowStore().diagnosticProgress(interaction.flowId()).orElseThrow());
         assertEquals(2, harness.flowStore().exposedTaskFingerprints(interaction.flowId()).size(),
                 "the displayed Independent package must also be exposed");
         assertTrue(harness.flowStore().allEvidence().isEmpty(),
@@ -4058,6 +4096,9 @@ class LearningFlowGraphContractTest {
         assertEquals(List.of("procedural_clarification"),
                 harness.artifacts().findAttempt(diagnosticAttemptId).orElseThrow().assistanceTraceStrings(),
                 "the procedural clarification leaves an auditable assistance record");
+        assertEquals(new cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticProgress(0, 3),
+                harness.flowStore().diagnosticProgress(interaction.flowId()).orElseThrow(),
+                "an open Diagnostic Attempt is not a completed Attempt");
         assertEquals(1, harness.classifier().calls().size());
         assertEquals(0, harness.explainGeneration().calls().size(),
                 "a procedural Diagnostic clarification must never load a Teaching Node Profile");
@@ -4471,6 +4512,15 @@ class LearningFlowGraphContractTest {
                 ApplyScriptData.PRACTICE_TASK_TEXT, ApplyScriptData.PRACTICE_EXPECTED_EXPRESSION);
     }
 
+    private static DiagnosticPlan withVersion(DiagnosticPlan plan, String version) {
+        return new DiagnosticPlan(
+                plan.schema(), plan.id(), version, plan.targetConceptId(),
+                plan.conceptContractId(), plan.conceptContractVersion(), plan.masteryRubricId(),
+                plan.masteryRubricVersion(), plan.targetReadinessCriterionIds(), plan.supportingConcepts(),
+                plan.dependencyOrder(), plan.sourceBasis(), plan.coverageRule(), plan.terminationRule(),
+                plan.rationalePolicy(), plan.maximumAttempts());
+    }
+
     private static String secondPracticeTaskJson() {
         return ApplyScriptData.taskReadyJson(
                 ApplyScriptData.SECOND_PRACTICE_TASK_TEXT, ApplyScriptData.SECOND_PRACTICE_EXPECTED_EXPRESSION);
@@ -4733,7 +4783,8 @@ class LearningFlowGraphContractTest {
                 reviewSubmissionFlow, explainFlow, hintFlow, teachBackFlow, pedagogy, classifier, clock);
         OperatorModelProfilePort profilePort = () -> ScriptedModelProfile.PROFILE;
         LearningFlowCommandUseCase useCase = new LearningFlowCommandUseCase(
-                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), profilePort);
+                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                DiagnosticPlanFixture.acceptedPlanPort(), profilePort);
         return new Harness(artifacts, flowStore, generation, hintGeneration, useCase, graph,
                 assessment, explainGeneration, teachBackGeneration, teachBackAssessment, teachBackFlow, pedagogy,
                 reviewStartFlow, classifier);
@@ -4756,8 +4807,13 @@ class LearningFlowGraphContractTest {
             ScriptedClarificationClassifier classifier
     ) {
         LearningFlowCommandUseCase newUseCase() {
+            return newUseCase(DiagnosticPlanFixture.acceptedPlanPort());
+        }
+
+        LearningFlowCommandUseCase newUseCase(AcceptedDiagnosticPlanPort planPort) {
             return new LearningFlowCommandUseCase(
                     flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                    planPort,
                     () -> ScriptedModelProfile.PROFILE);
         }
     }

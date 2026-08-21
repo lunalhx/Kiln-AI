@@ -51,6 +51,7 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticPlan;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.FeedbackFacts;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPlanner;
 import cn.lunalhx.ai.kilnai.domain.learning.pedagogy.PedagogyPort;
@@ -200,6 +201,7 @@ public final class LearningStateGraph {
             UUID learnerId,
             UUID conceptId,
             ModelProfile profile,
+            DiagnosticPlan diagnosticPlan,
             SourceArtifact source,
             UUID idempotencyKey,
             String requestHash
@@ -208,6 +210,7 @@ public final class LearningStateGraph {
         Objects.requireNonNull(learnerId, "learnerId must not be null");
         Objects.requireNonNull(conceptId, "conceptId must not be null");
         Objects.requireNonNull(profile, "profile must not be null");
+        Objects.requireNonNull(diagnosticPlan, "diagnosticPlan must not be null");
         Objects.requireNonNull(source, "source must not be null");
         ApplyProfileExecutor.PreparedDelivery prepared = diagnosticFlow.prepareDiagnostic(profile);
         return switch (prepared) {
@@ -215,7 +218,7 @@ public final class LearningStateGraph {
                     throw new ApplicationException(ErrorCode.SERVICE_UNAVAILABLE, START_UNAVAILABLE_MESSAGE);
             case ApplyProfileExecutor.PreparedDelivery.TaskReady ready -> {
                 LearningFlowInteraction interaction = flowStore.bindStart(new LearningFlowStore.StartBind(
-                        flowId, learnerId, conceptId, profile, source, ready.taskPackage(),
+                        flowId, learnerId, conceptId, profile, diagnosticPlan, source, ready.taskPackage(),
                         ready.verdict(), idempotencyKey, requestHash));
                 yield new LearningFlowResult.Boundary(interaction);
             }

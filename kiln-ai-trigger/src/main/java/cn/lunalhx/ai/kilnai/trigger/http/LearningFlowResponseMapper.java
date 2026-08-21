@@ -6,6 +6,7 @@ import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse.HintView;
 import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse.ProgressView;
 import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse.TaskView;
 import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse.TeachingView;
+import cn.lunalhx.ai.kilnai.api.dto.LearningFlowResponse.DiagnosticProgressView;
 import cn.lunalhx.ai.kilnai.domain.apply.model.LearningFlowInteraction;
 import cn.lunalhx.ai.kilnai.domain.apply.model.ApplyLearnerEvent;
 import cn.lunalhx.ai.kilnai.domain.apply.model.AssistanceConsentView;
@@ -14,6 +15,7 @@ import cn.lunalhx.ai.kilnai.domain.apply.model.LearnerProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.model.TeachingProjection;
 import cn.lunalhx.ai.kilnai.domain.apply.port.LearningFlowStore;
 import cn.lunalhx.ai.kilnai.domain.learning.model.entity.ConceptProgress;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticProgress;
 import cn.lunalhx.ai.kilnai.domain.learning.service.ConceptProgressProjector;
 import cn.lunalhx.ai.kilnai.types.error.ApplicationException;
 import cn.lunalhx.ai.kilnai.types.error.ErrorCode;
@@ -82,7 +84,8 @@ public class LearningFlowResponseMapper {
                 hint,
                 interaction.learnerMessage(),
                 allowedEvents(interaction),
-                progressOf(interaction.flowId()));
+                progressOf(interaction.flowId()),
+                diagnosticProgressOf(interaction.flowId()));
     }
 
     /**
@@ -158,6 +161,13 @@ public class LearningFlowResponseMapper {
                 progress.currentStage().name());
     }
 
+    public DiagnosticProgressView diagnosticProgressOf(UUID flowId) {
+        return flowStore.diagnosticProgress(flowId)
+                .map(progress -> new DiagnosticProgressView(
+                        progress.completedAttempts(), progress.maximumAttempts()))
+                .orElse(null);
+    }
+
     /**
      * The learner-safe response of an unavailable Review start: the Flow's
      * actual durable state plus the shared neutral message, never a fabricated
@@ -180,6 +190,7 @@ public class LearningFlowResponseMapper {
                 null,
                 learnerMessage,
                 List.of("flow_control_requested"),
-                progressOf(latest.flowId()));
+                progressOf(latest.flowId()),
+                diagnosticProgressOf(latest.flowId()));
     }
 }

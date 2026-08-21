@@ -3,6 +3,7 @@ package cn.lunalhx.ai.kilnai.config;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.BundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.bundle.EvaluationBundleStack;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticApplyFixture;
+import cn.lunalhx.ai.kilnai.domain.apply.fixture.DiagnosticPlanFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.ExplainApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.IndependentApplyFixture;
 import cn.lunalhx.ai.kilnai.domain.apply.fixture.PracticeApplyFixture;
@@ -338,7 +339,8 @@ public class ApplyFlowConfiguration {
             Clock clock
     ) {
         return new LearningFlowCommandUseCase(
-                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(), modelProfilePort);
+                flowStore, graph, DiagnosticApplyFixture.diagnosticContext(),
+                DiagnosticPlanFixture.acceptedPlanPort(), modelProfilePort);
     }
 
     @Bean

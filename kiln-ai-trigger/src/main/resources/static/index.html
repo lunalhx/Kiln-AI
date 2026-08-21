@@ -50,7 +50,7 @@
     .stage-nav li { border: 1px solid var(--line); border-radius: 0.4rem; padding: 0.55rem; color: var(--muted); background: var(--surface); text-align: center; }
     .stage-nav li.current { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); font-weight: 700; }
     .progress, .interaction, .region, .reviews { border: 1px solid var(--line); border-radius: 0.55rem; padding: 1rem; margin-top: 1rem; }
-    .progress dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin: 0; }
+    .progress dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; margin: 0; }
     .progress dt { color: var(--muted); font-size: 0.85rem; }
     .progress dd { margin: 0.15rem 0 0; font-weight: 700; }
     #view { background: var(--surface); border-radius: 0.4rem; padding: 0.75rem; }
@@ -114,6 +114,7 @@
         <div><dt>当前里程碑</dt><dd id="current-milestone">尚未开始</dd></div>
         <div><dt>最高里程碑</dt><dd id="highest-milestone">尚未开始</dd></div>
         <div><dt>当前阶段</dt><dd id="progress-stage">尚未开始</dd></div>
+        <div><dt>诊断进度</dt><dd id="diagnostic-progress">尚未开始</dd></div>
       </dl>
     </section>
   </header>
@@ -305,7 +306,10 @@
         });
       }
 
-      function renderProgress(progress, stage) {
+      function renderProgress(progress, stage, diagnosticProgress) {
+        setText('diagnostic-progress', diagnosticProgress
+          ? `${diagnosticProgress.completedAttempts} / ${diagnosticProgress.maximumAttempts}`
+          : '尚未开始');
         if (!progress) {
           setText('current-milestone', '尚未开始');
           setText('highest-milestone', '尚未开始');
@@ -507,7 +511,7 @@
         setText('status-label', '当前状态：' + statusLabel);
         setText('stage-label', '当前阶段：' + stageLabel);
         setText('attempt-purpose-label', '当前任务：' + purposeLabel);
-        renderProgress(data.progress, data.stage);
+        renderProgress(data.progress, data.stage, data.diagnosticProgress);
         setText('notice', data.learnerMessage || '');
         if (data.task) renderTask(data.task);
         if (data.teaching) { setHidden('teaching-region', false); renderTeaching(data.teaching); }
@@ -528,7 +532,7 @@
         setText('stage-label', '当前阶段：尚未开始');
         setText('attempt-purpose-label', '当前任务：尚未开始');
         setText('notice', '开始一次诊断，了解当前的学习起点。');
-        renderProgress(null, null);
+        renderProgress(null, null, null);
         renderControls(null);
       }
 

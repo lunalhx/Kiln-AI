@@ -14,6 +14,8 @@ import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.AttemptPurpose;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.FlowStatus;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningResult;
 import cn.lunalhx.ai.kilnai.domain.learning.model.valobj.LearningStage;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticPlan;
+import cn.lunalhx.ai.kilnai.domain.learning.diagnostic.DiagnosticProgress;
 
 import java.time.Instant;
 import java.util.List;
@@ -37,6 +39,19 @@ public interface LearningFlowStore {
     void insertFlow(FlowRecord flow);
 
     Optional<FlowRecord> findFlow(UUID flowId);
+
+    /**
+     * The immutable Diagnostic Plan snapshot frozen onto one started Flow.
+     * Empty is expected for legacy or non-Diagnostic Flow records.
+     */
+    Optional<DiagnosticPlan> diagnosticPlan(UUID flowId);
+
+    /**
+     * Learner-safe completed/max projection for one Flow's Diagnostic Plan.
+     * The store never returns the Plan's source, readiness, or assessment
+     * details through this projection.
+     */
+    Optional<DiagnosticProgress> diagnosticProgress(UUID flowId);
 
     /**
      * The existing Active Learning Work claim of one learner and Target
@@ -256,6 +271,7 @@ public interface LearningFlowStore {
             UUID learnerId,
             UUID conceptId,
             ModelProfile modelProfile,
+            DiagnosticPlan diagnosticPlan,
             SourceArtifact source,
             TaskPackage taskPackage,
             TaskVerificationVerdict verificationVerdict,
@@ -268,6 +284,7 @@ public interface LearningFlowStore {
             Objects.requireNonNull(learnerId, "learnerId must not be null");
             Objects.requireNonNull(conceptId, "conceptId must not be null");
             Objects.requireNonNull(modelProfile, "modelProfile must not be null");
+            Objects.requireNonNull(diagnosticPlan, "diagnosticPlan must not be null");
             Objects.requireNonNull(source, "source must not be null");
             Objects.requireNonNull(taskPackage, "taskPackage must not be null");
             Objects.requireNonNull(verificationVerdict, "verificationVerdict must not be null");
